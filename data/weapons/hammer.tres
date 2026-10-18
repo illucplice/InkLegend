@@ -6,7 +6,7 @@
 script = ExtResource("1_script")
 id = &"hammer"
 display_name = "Spinning hammer"
-max_speed = 1600.0
+max_speed = 1210.0
 body_damage = 30
 head_damage = 52
 count = 1

@@ -5,8 +5,9 @@ extends RefCounted
 
 const MAX_HEALTH := 100
 const PX_PER_M := 20.0
-## Downward acceleration in px/s².
-const GRAVITY := 980.0
+## Downward acceleration in px/s². Lower = floatier, slower throws (weapon speeds are
+## scaled with sqrt(GRAVITY) so every throw still reaches the same distance).
+const GRAVITY := 560.0
 const MIN_DISTANCE_M := 65.0
 const MAX_DISTANCE_M := 85.0
 const MIN_ANGLE := 5.0

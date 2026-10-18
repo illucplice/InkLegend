@@ -6,7 +6,7 @@
 script = ExtResource("1_script")
 id = &"slingshot"
 display_name = "Slingshot"
-max_speed = 1750.0
+max_speed = 1323.0
 body_damage = 11
 head_damage = 19
 count = 3

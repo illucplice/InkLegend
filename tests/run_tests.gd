@@ -43,8 +43,8 @@ func _test_solver_lands_on_target() -> void:
 		var facing := 1 if i % 2 == 0 else -1
 		var origin := Vector2(-gap / 2 * facing, -92)
 		var target := Vector2(gap / 2 * facing, -52 - rng.randf_range(0, 50))
-		var shot := AiAimer.solve(origin, target, 1600.0, facing, rng.randf_range(35, 55))
-		var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1600.0, facing)
+		var shot := AiAimer.solve(origin, target, 1210.0, facing, rng.randf_range(35, 55))
+		var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1210.0, facing)
 		var t := (target.x - origin.x) / velocity.x
 		var landed := Rules.position_at(origin, velocity, t)
 		_check(landed.distance_to(target) < 1.0, "perfect throw %d lands on target (off by %.2f px)" % [i, landed.distance_to(target)])
@@ -54,15 +54,15 @@ func _test_solver_lands_on_target() -> void:
 func _test_ai_sharpens() -> void:
 	var origin := Vector2(-500, -92)
 	var target := Vector2(500, -52)
-	var perfect := AiAimer.solve(origin, target, 1600.0, 1)
+	var perfect := AiAimer.solve(origin, target, 1210.0, 1)
 	var first_error := 0.0
 	var late_error := 0.0
 	for trial in 200:
 		var ai := AiAimer.new(AiAimer.Difficulty.NORMAL, trial)
-		first_error += absf(float(ai.aim(origin, target, 1600.0, 1)["power"]) - float(perfect["power"]))
+		first_error += absf(float(ai.aim(origin, target, 1210.0, 1)["power"]) - float(perfect["power"]))
 		for turn in 6:
-			ai.aim(origin, target, 1600.0, 1)
-		late_error += absf(float(ai.aim(origin, target, 1600.0, 1)["power"]) - float(perfect["power"]))
+			ai.aim(origin, target, 1210.0, 1)
+		late_error += absf(float(ai.aim(origin, target, 1210.0, 1)["power"]) - float(perfect["power"]))
 	_check(late_error < first_error * 0.6, "AI is more accurate on turn 8 than turn 1")
 
 
@@ -106,10 +106,10 @@ func _test_obstacles() -> void:
 	var tower: Array[Rect2] = [Rect2(-45, -300, 90, 300)]
 	var origin := Vector2(-700, -92)
 	var target := Vector2(700, -52)
-	var flat := Rules.launch_velocity(15.0, 1.0, 1700.0, 1)
+	var flat := Rules.launch_velocity(15.0, 1.0, 1285.0, 1)
 	_check(not AiAimer.path_is_clear(origin, flat, target, tower), "a flat throw is blocked by a tall tower")
-	var shot := AiAimer.solve(origin, target, 1700.0, 1, 30.0, tower)
-	var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1700.0, 1)
+	var shot := AiAimer.solve(origin, target, 1285.0, 1, 30.0, tower)
+	var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1285.0, 1)
 	_check(shot["clear"] and AiAimer.path_is_clear(origin, velocity, target, tower), "the AI finds a lob over the tower")
 
 	var rng := RandomNumberGenerator.new()

@@ -35,6 +35,8 @@ var holding_weapon := true
 var aiming := false
 var aim_angle := 45.0
 var aim_power := 0.0
+## Shows a bouncing arrow above the head while it is this fighter's turn.
+var is_turn := false
 
 var _tilt := 0.0
 var _tilt_velocity := 0.0
@@ -102,7 +104,7 @@ func take_hit(is_head: bool, damage: int, impact_velocity: Vector2) -> void:
 	if is_knocked_out():
 		return
 	health = maxi(0, health - damage)
-	_tilt_velocity += clampf(impact_velocity.x * 0.004, -6.0, 6.0) * (1.6 if is_head else 1.0)
+	_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if is_head else 1.0)
 	_flash = 1.0
 	_squash = 1.0
 	_ouch = 1.0
@@ -190,6 +192,11 @@ func _draw() -> void:
 	draw_line(cuff, SHOULDER.lerp(hand, 0.95), LEATHER, 8.0, true)
 	draw_circle(hand, 6.5, OUTLINE, true, -1.0, true)
 	draw_circle(hand, 4.8, skin, true, -1.0, true)
+
+	if is_turn and not knocked:
+		draw_set_transform(Vector2.ZERO)
+		var tip := Vector2(0, -158 - absf(sin(_time * 5.0)) * 12.0)
+		_poly([tip, tip + Vector2(-15, -20), tip + Vector2(-6, -20), tip + Vector2(-6, -34), tip + Vector2(6, -34), tip + Vector2(6, -20), tip + Vector2(15, -20)], data.body_color.lightened(0.25), 3.5)
 
 	if knocked:
 		var head := body_xf * HEAD_CENTER

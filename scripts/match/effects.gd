@@ -44,11 +44,12 @@ static func popup(parent: Node, at: Vector2, text: String, color: Color, font_si
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", UiStyle.title_font())
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", INK)
 	label.add_theme_constant_override("outline_size", maxi(8, font_size / 4))
-	var text_width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + font_size
+	var text_width := UiStyle.title_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + font_size
 	label.size = Vector2(text_width, font_size * 1.5)
 	var half := label.size.x * 0.5 * inv_zoom * 1.25
 	at.x = clampf(at.x, bounds.position.x + half, maxf(bounds.end.x - half, bounds.position.x + half))

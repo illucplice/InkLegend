@@ -59,6 +59,10 @@ var _slow_token := 0
 var _time_base := 1.0
 ## So a multi-pebble throw only says "Blocked!" once.
 var _blocked_shown := false
+## Per side: throws, hits, headshots, damage, longest (metres).
+var _stats: Array[Dictionary] = []
+## Turn banner colours for the left and right side.
+const SIDE_COLORS := [Color(0.3, 0.55, 0.95), Color(0.92, 0.3, 0.3)]
 
 
 static func roster() -> Array[FighterData]:
@@ -106,7 +110,7 @@ func go_to_menu() -> void:
 	_clear_match()
 	get_tree().paused = false
 	state = State.MENU
-	_build_obstacles(MENU_GAP, 1600.0)
+	_build_obstacles(MENU_GAP, 1210.0)
 	_camera.snap()
 	_hud.show_title()
 
@@ -133,11 +137,22 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	fighters.append(_spawn_fighter(right, gap / 2, -1, vs_ai))
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
 
-	_hud.bind_fighters(fighters, _player_names())
+	var names := _player_names()
+	_stats = [_empty_stats(), _empty_stats()]
+	_hud.bind_fighters(fighters, names)
 	_hud.show_match()
 	_camera.snap()
 	current = 0
+	if not autoplay:
+		var match_id := _match_id
+		await _hud.play_intro(left, right, names)
+		if match_id != _match_id:
+			return
 	_begin_turn()
+
+
+static func _empty_stats() -> Dictionary:
+	return {"throws": 0, "hits": 0, "headshots": 0, "damage": 0, "longest": 0.0}
 
 
 func _clear_match() -> void:
@@ -182,17 +197,19 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 
 func _begin_turn() -> void:
 	var fighter := fighters[current]
+	for other in fighters:
+		other.is_turn = other == fighter
 	fighter.holding_weapon = true
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
-		_hud.set_turn("Player %d's turn" % (current + 1) if mode == Mode.LOCAL_2P else "Your turn")
+		_hud.set_turn("PLAYER %d'S TURN" % (current + 1) if mode == Mode.LOCAL_2P else "YOUR TURN", SIDE_COLORS[current])
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
 		return
 
 	state = State.AI_AIM
 	_aim.finish()
-	_hud.set_turn("%s is aiming…" % fighter.data.short_name)
+	_hud.set_turn("%s IS AIMING…" % fighter.data.short_name.to_upper(), SIDE_COLORS[current])
 	var brain := _brains[current]
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
 	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects)
@@ -224,6 +241,8 @@ func _throw(angle: float, power: float) -> void:
 	var fighter := fighters[current]
 	var weapon := fighter.data.weapon
 	fighter.play_throw()
+	fighter.is_turn = false
+	_stats[current]["throws"] += 1
 	var sound: Array = THROW_SOUNDS.get(weapon.shape, ["whoosh", 1.0])
 	Audio.play(sound[0], -2.0, sound[1] * lerpf(0.9, 1.1, power))
 	for i in weapon.count:
@@ -240,6 +259,13 @@ func _throw(angle: float, power: float) -> void:
 func _on_projectile_hit(projectile: Projectile, target: Fighter, is_head: bool) -> void:
 	var damage := Rules.damage_for(projectile.weapon, is_head)
 	target.take_hit(is_head, damage, projectile.current_velocity())
+	var side := fighters.find(projectile.thrower)
+	if side >= 0:
+		_stats[side]["hits"] += 1
+		_stats[side]["headshots"] += 1 if is_head else 0
+		_stats[side]["damage"] += damage
+		var metres := absf(target.global_position.x - projectile.thrower.global_position.x) / Rules.PX_PER_M
+		_stats[side]["longest"] = maxf(_stats[side]["longest"], metres)
 	var inv_zoom := 1.0 / _camera.zoom.x
 	var view := _camera.visible_rect()
 	var at := projectile.global_position
@@ -307,19 +333,33 @@ func _end_match() -> void:
 	_hud.set_turn("")
 	var winner := fighters[1] if fighters[0].is_knocked_out() else fighters[0]
 	var loser := fighters[0] if winner == fighters[1] else fighters[1]
-	var player_won := (winner == fighters[0] and not autoplay) or mode == Mode.LOCAL_2P
-	var title := "%s wins!" % winner.data.short_name
+	for fighter in fighters:
+		fighter.is_turn = false
+	var winner_side := fighters.find(winner)
+	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
+	var title := "DEFEAT"
+	var color := Color(0.92, 0.3, 0.3)
 	if mode == Mode.LOCAL_2P:
-		title = "Player %d wins!" % (fighters.find(winner) + 1)
+		title = "PLAYER %d WINS!" % (winner_side + 1)
+		color = SIDE_COLORS[winner_side]
 	elif player_won:
-		title = "You win!"
+		title = "VICTORY!"
+		color = Color(0.4, 0.8, 0.32)
 	match_ended.emit(winner)
 	var match_id := _match_id
 	await get_tree().create_timer(RESULT_DELAY, false).timeout
 	if match_id != _match_id:
 		return
 	Audio.play("win" if player_won or autoplay else "lose", -3.0, 1.0, 0.0)
-	_hud.show_result(title, "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health])
+	_hud.show_result({
+		"title": title,
+		"color": color,
+		"detail": "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health],
+		"winner": winner.data,
+		"winner_facing": 1,
+		"names": _player_names(),
+		"stats": _stats,
+	})
 
 
 ## Slows the game for `duration` real seconds. A newer call replaces an older one.
