@@ -7,7 +7,9 @@ signal throw_requested(angle: float, power: float)
 
 const FULL_POWER_DRAG := 260.0
 const CANCEL_RADIUS := 28.0
+## Aim guide length in seconds of flight; Settings can make it longer.
 const PREVIEW_TIME := 0.4
+const LONG_PREVIEW_TIME := 0.8
 const PREVIEW_DOTS := 9
 const KEY_ANGLE_SPEED := 45.0
 const KEY_POWER_SPEED := 0.5
@@ -93,10 +95,12 @@ func _draw() -> void:
 	var alpha := 0.35 if faded else 1.0
 	var origin := fighter.throw_origin()
 	var velocity := Rules.launch_velocity(angle, power, fighter.data.weapon.max_speed, fighter.facing)
-	for i in range(1, PREVIEW_DOTS + 1):
-		var t := PREVIEW_TIME * i / PREVIEW_DOTS
-		var fade := 1.0 - float(i) / (PREVIEW_DOTS + 2)
-		draw_circle(Rules.position_at(origin, velocity, t), (5.0 - i * 0.3) * inv_zoom, Color(1, 1, 1, alpha * fade))
+	var guide_time := LONG_PREVIEW_TIME if Save.long_aim_guide else PREVIEW_TIME
+	var dots := int(PREVIEW_DOTS * guide_time / PREVIEW_TIME)
+	for i in range(1, dots + 1):
+		var t := guide_time * i / dots
+		var fade := 1.0 - float(i) / (dots + 2)
+		draw_circle(Rules.position_at(origin, velocity, t), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
 
 	var font := ThemeDB.fallback_font
 	var font_size := int(26 * inv_zoom)

@@ -75,7 +75,9 @@ func _test_ai_vs_ai_match() -> void:
 	game.match_ended.connect(func(winner: Fighter) -> void: result["winner"] = winner)
 	var turns := {"count": 0}
 	Engine.time_scale = 6.0
-	game.start_match(game.roster()[0], AiAimer.Difficulty.HARD)
+	# Mode is read off the instance: naming MatchController here would compile it before
+	# the Audio autoload exists.
+	game.start_match(game.roster()[0], game.roster()[1], game.Mode.VS_AI, AiAimer.Difficulty.HARD)
 	var last_turn: int = game.current
 	for frame in 8000:
 		if not result.is_empty():

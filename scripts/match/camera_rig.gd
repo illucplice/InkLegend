@@ -33,6 +33,8 @@ func visible_rect() -> Rect2:
 
 ## amount 0..1. Shake grows with the square of trauma, so small hits stay subtle.
 func shake(amount: float) -> void:
+	if not Save.screen_shake:
+		return
 	_trauma = minf(1.0, _trauma + amount)
 
 

@@ -1,10 +1,18 @@
+class_name MatchController
 extends Node2D
-## Runs a match: sets up the arena and fighters, hands turns between the player and
-## the AI, spawns projectiles, applies damage and ends the match on a knockout.
+## Runs the game: the title screen backdrop, then matches. Sets up the arena,
+## fighters and obstacles, hands turns between players (or a player and the AI),
+## spawns projectiles, applies damage and ends the match on a knockout.
 
 signal match_ended(winner: Fighter)
 
 enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER }
+## VS_AI: the left fighter is the player, the right one the AI.
+## LOCAL_2P: two players take turns on the same device.
+enum Mode { VS_AI, LOCAL_2P }
+
+## Gap used for the decorative obstacles behind the title screen.
+const MENU_GAP := 1500.0
 
 const FIGHTER_SCENE := preload("res://scenes/fighter/fighter.tscn")
 const PROJECTILE_SCENE := preload("res://scenes/projectile/projectile.tscn")
@@ -28,6 +36,7 @@ const THROW_SOUNDS := {
 ## When true the left fighter is also played by the AI (used by the headless tests).
 var autoplay := false
 var state := State.MENU
+var mode: int = Mode.VS_AI
 var fighters: Array[Fighter] = []
 var current := 0
 var rng := RandomNumberGenerator.new()
@@ -36,7 +45,8 @@ var rng := RandomNumberGenerator.new()
 var _match_id := 0
 var _brains: Array[AiAimer] = []
 var _in_flight: Array[Projectile] = []
-var _last_pick: FighterData
+var _last_left: FighterData
+var _last_right: FighterData
 var _last_difficulty: int = AiAimer.Difficulty.NORMAL
 var _actors: Node2D
 var _obstacle_layer: Node2D
@@ -84,39 +94,69 @@ func _ready() -> void:
 	_hud = Hud.new()
 	add_child(_hud)
 	_hud.setup(roster())
-	_hud.start_requested.connect(start_match)
-	_hud.rematch_requested.connect(func() -> void: start_match(_last_pick, _last_difficulty))
-	_hud.change_fighter_requested.connect(_hud.show_start)
-	_hud.show_start()
+	_hud.play_requested.connect(start_match)
+	_hud.rematch_requested.connect(func() -> void: start_match(_last_left, _last_right, mode, _last_difficulty))
+	_hud.menu_requested.connect(go_to_menu)
+	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
+	go_to_menu()
 
 
-func start_match(player_pick: FighterData, difficulty: int) -> void:
-	_match_id += 1
-	_last_pick = player_pick
+## Clears any match and shows the title screen over the arena.
+func go_to_menu() -> void:
+	_clear_match()
+	get_tree().paused = false
+	state = State.MENU
+	_build_obstacles(MENU_GAP, 1600.0)
+	_camera.snap()
+	_hud.show_title()
+
+
+## In VS_AI mode `right` may be null to pick a random opponent.
+func start_match(left: FighterData, right: FighterData, match_mode: int, difficulty: int) -> void:
+	_clear_match()
+	get_tree().paused = false
+	mode = match_mode
+	if right == null:
+		var foes: Array[FighterData] = []
+		for fighter in roster():
+			if fighter != left:
+				foes.append(fighter)
+		right = foes[rng.randi_range(0, foes.size() - 1)]
+	_last_left = left
+	_last_right = right
 	_last_difficulty = difficulty
+
+	var gap := Rules.random_distance_px(rng)
+	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
+	var vs_ai := mode == Mode.VS_AI
+	fighters.append(_spawn_fighter(left, -gap / 2, 1, vs_ai and autoplay))
+	fighters.append(_spawn_fighter(right, gap / 2, -1, vs_ai))
+	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
+
+	_hud.bind_fighters(fighters, _player_names())
+	_hud.show_match()
+	_camera.snap()
+	current = 0
+	_begin_turn()
+
+
+func _clear_match() -> void:
+	_match_id += 1
 	_end_slow_time()
+	_aim.finish()
 	for child in _actors.get_children():
 		child.queue_free()
 	fighters.clear()
 	_in_flight.clear()
 
-	var foes: Array[FighterData] = []
-	for fighter in roster():
-		if fighter != player_pick:
-			foes.append(fighter)
-	var foe := foes[rng.randi_range(0, foes.size() - 1)]
-	var gap := Rules.random_distance_px(rng)
-	_build_obstacles(gap, minf(player_pick.weapon.max_speed, foe.weapon.max_speed))
-	fighters.append(_spawn_fighter(player_pick, -gap / 2, 1, autoplay))
-	fighters.append(_spawn_fighter(foe, gap / 2, -1, true))
-	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty)]
 
-	_hud.bind_fighters(fighters)
-	_hud.hide_overlays()
-	_hud.show_hint(not autoplay)
-	_camera.snap()
-	current = 0
-	_begin_turn()
+## What the HUD calls each side: "You"/"AI", or "Player 1"/"Player 2".
+func _player_names() -> Array[String]:
+	if mode == Mode.LOCAL_2P:
+		return ["Player 1", "Player 2"]
+	if autoplay:
+		return ["AI", "AI"]
+	return ["You", "AI"]
 
 
 func _build_obstacles(gap: float, slowest_speed: float) -> void:
@@ -145,7 +185,7 @@ func _begin_turn() -> void:
 	fighter.holding_weapon = true
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
-		_hud.set_turn("Your turn")
+		_hud.set_turn("Player %d's turn" % (current + 1) if mode == Mode.LOCAL_2P else "Your turn")
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
 		return
@@ -164,7 +204,7 @@ func _begin_turn() -> void:
 	wind_up.tween_property(fighter, "aim_angle", float(shot["angle"]), AI_THINK_TIME * 0.8)
 	wind_up.tween_property(fighter, "aim_power", float(shot["power"]), AI_THINK_TIME * 0.8)
 	var match_id := _match_id
-	await get_tree().create_timer(AI_THINK_TIME).timeout
+	await get_tree().create_timer(AI_THINK_TIME, false).timeout
 	if match_id != _match_id:
 		return
 	_throw(shot["angle"], shot["power"])
@@ -249,7 +289,7 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 		return
 	state = State.SETTLING
 	var match_id := _match_id
-	await get_tree().create_timer(SETTLE_TIME).timeout
+	await get_tree().create_timer(SETTLE_TIME, false).timeout
 	if match_id != _match_id:
 		return
 	for fighter in fighters:
@@ -267,11 +307,15 @@ func _end_match() -> void:
 	_hud.set_turn("")
 	var winner := fighters[1] if fighters[0].is_knocked_out() else fighters[0]
 	var loser := fighters[0] if winner == fighters[1] else fighters[1]
-	var player_won := winner == fighters[0] and not autoplay
-	var title := "You win!" if player_won else "%s wins!" % winner.data.short_name
+	var player_won := (winner == fighters[0] and not autoplay) or mode == Mode.LOCAL_2P
+	var title := "%s wins!" % winner.data.short_name
+	if mode == Mode.LOCAL_2P:
+		title = "Player %d wins!" % (fighters.find(winner) + 1)
+	elif player_won:
+		title = "You win!"
 	match_ended.emit(winner)
 	var match_id := _match_id
-	await get_tree().create_timer(RESULT_DELAY).timeout
+	await get_tree().create_timer(RESULT_DELAY, false).timeout
 	if match_id != _match_id:
 		return
 	Audio.play("win" if player_won or autoplay else "lose", -3.0, 1.0, 0.0)

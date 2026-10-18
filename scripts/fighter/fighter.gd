@@ -51,7 +51,8 @@ var _shine_style: StyleBoxFlat
 var _hitboxes: Array[Hitbox] = []
 
 
-func setup(fighter_data: FighterData, facing_dir: int, ai: bool) -> void:
+## with_hitboxes is false for menu previews, which must never be hit.
+func setup(fighter_data: FighterData, facing_dir: int, ai: bool, with_hitboxes: bool = true) -> void:
 	data = fighter_data
 	facing = facing_dir
 	is_ai = ai
@@ -68,6 +69,8 @@ func setup(fighter_data: FighterData, facing_dir: int, ai: bool) -> void:
 	_shine_style = StyleBoxFlat.new()
 	_shine_style.bg_color = Color(1, 1, 1, 0.18)
 	_shine_style.set_corner_radius_all(6)
+	if not with_hitboxes:
+		return
 	var body_shape := RectangleShape2D.new()
 	body_shape.size = Vector2(BODY_SIZE.x + 4, -HEAD_CENTER.y - HEAD_RADIUS)
 	_add_hitbox(false, body_shape, Vector2(0, -body_shape.size.y / 2))
