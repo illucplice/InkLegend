@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/slingshot.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"klakla"
+display_name = "Klakla the Lucky"
+short_name = "Klakla"
+body_color = Color(0.36, 0.7, 0.42, 1)
+accent_color = Color(0.96, 0.8, 0.26, 1)
+weapon = ExtResource("2_weapon")
+special_name = "Lucky Shot"
+special_description = "Fires 5 pebbles instead of 3."
+unlocked_by_default = true

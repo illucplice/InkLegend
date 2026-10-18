@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/bow.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"fentuk"
+display_name = "Fentuk the Wobbly"
+short_name = "Fentuk"
+body_color = Color(0.6, 0.4, 0.76, 1)
+accent_color = Color(0.3, 0.6, 0.36, 1)
+weapon = ExtResource("2_weapon")
+special_name = "Triple Arrow"
+special_description = "Three arrows in a tight spread."
+unlocked_by_default = false

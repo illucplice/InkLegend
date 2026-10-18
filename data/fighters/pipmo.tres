@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/spear.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"pipmo"
+display_name = "Pipmo the Mighty"
+short_name = "Pipmo"
+body_color = Color(0.3, 0.5, 0.86, 1)
+accent_color = Color(0.92, 0.92, 0.96, 1)
+weapon = ExtResource("2_weapon")
+special_name = "Pin"
+special_description = "A hit target skips its next turn."
+unlocked_by_default = false

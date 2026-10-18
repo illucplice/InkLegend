@@ -1,0 +1,13 @@
+# Godot cache and exports
+.godot/
+/export/
+/build/
+*.tmp
+
+# Blender backups
+*.blend1
+*.blend2
+
+# OS clutter
+Thumbs.db
+.DS_Store

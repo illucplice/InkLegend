@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"hammer"
+display_name = "Spinning hammer"
+max_speed = 1250.0
+body_damage = 30
+head_damage = 52
+count = 1
+spread_deg = 0.0
+spin = 14.0
+sticks = false
+shape = &"hammer"
+size = 46.0
+color = Color(0.62, 0.64, 0.7, 1)
