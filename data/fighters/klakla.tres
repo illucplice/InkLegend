@@ -14,3 +14,6 @@ weapon = ExtResource("2_weapon")
 special_name = "Lucky Shot"
 special_description = "Fires 5 pebbles instead of 3."
 unlocked_by_default = true
+style = &"rogue"
+cape_color = Color(0.85, 0.22, 0.25, 1)
+hair_color = Color(0.3, 0.2, 0.15, 1)

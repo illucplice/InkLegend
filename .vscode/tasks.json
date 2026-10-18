@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Play game",
+			"type": "process",
+			"command": "${config:godotTools.editorPath.godot4}",
+			"args": ["--path", "${workspaceFolder}"],
+			"problemMatcher": [],
+			"group": { "kind": "build", "isDefault": true }
+		},
+		{
+			"label": "Run tests",
+			"type": "process",
+			"command": "D:/0/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe",
+			"args": ["--headless", "--path", "${workspaceFolder}", "-s", "res://tests/run_tests.gd"],
+			"problemMatcher": [],
+			"group": { "kind": "test", "isDefault": true }
+		}
+	]
+}

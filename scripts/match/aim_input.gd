@@ -28,12 +28,15 @@ func begin(for_fighter: Fighter) -> void:
 	_active = true
 	_dragging = false
 	_cancelling = false
+	fighter.aiming = true
 	show()
 
 
 func finish() -> void:
 	_active = false
 	_dragging = false
+	if fighter != null:
+		fighter.aiming = false
 	hide()
 
 
@@ -76,6 +79,8 @@ func _process(delta: float) -> void:
 		return
 	angle = clampf(angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * delta, Rules.MIN_ANGLE, Rules.MAX_ANGLE)
 	power = clampf(power + Input.get_axis("ui_left", "ui_right") * KEY_POWER_SPEED * delta, 0.05, 1.0)
+	fighter.aim_angle = angle
+	fighter.aim_power = power
 	queue_redraw()
 
 

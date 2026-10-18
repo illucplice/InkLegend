@@ -1,0 +1,11 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Play Wobble Wars (debug)",
+			"type": "godot",
+			"request": "launch",
+			"project": "${workspaceFolder}"
+		}
+	]
+}

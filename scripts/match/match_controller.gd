@@ -14,9 +14,16 @@ const ROSTER := [
 	preload("res://data/fighters/pipmo.tres"),
 	preload("res://data/fighters/fentuk.tres"),
 ]
-const AI_THINK_TIME := 0.9
+const AI_THINK_TIME := 1.0
 const SETTLE_TIME := 0.9
-const INK := Color(0.12, 0.1, 0.14)
+const RESULT_DELAY := 0.6
+## Throw sound per projectile shape: [sound, pitch].
+const THROW_SOUNDS := {
+	&"hammer": ["whoosh", 0.75],
+	&"pebble": ["sling", 1.0],
+	&"spear": ["whoosh", 1.1],
+	&"arrow": ["twang", 1.0],
+}
 
 ## When true the left fighter is also played by the AI (used by the headless tests).
 var autoplay := false
@@ -35,6 +42,9 @@ var _actors: Node2D
 var _aim: AimInput
 var _camera: CameraRig
 var _hud: Hud
+var _slow_active := false
+var _slow_token := 0
+var _time_base := 1.0
 
 
 static func roster() -> Array[FighterData]:
@@ -46,6 +56,8 @@ static func roster() -> Array[FighterData]:
 
 func _ready() -> void:
 	rng.randomize()
+	var backdrop := Backdrop.new()
+	add_child(backdrop)
 	add_child(Arena.new())
 	_actors = Node2D.new()
 	add_child(_actors)
@@ -61,6 +73,7 @@ func _ready() -> void:
 	_camera.points_provider = _camera_points
 	_camera.make_current()
 	_camera.snap()
+	backdrop.camera = _camera
 
 	_hud = Hud.new()
 	add_child(_hud)
@@ -75,6 +88,7 @@ func start_match(player_pick: FighterData, difficulty: int) -> void:
 	_match_id += 1
 	_last_pick = player_pick
 	_last_difficulty = difficulty
+	_end_slow_time()
 	for child in _actors.get_children():
 		child.queue_free()
 	fighters.clear()
@@ -102,6 +116,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 	var fighter: Fighter = FIGHTER_SCENE.instantiate()
 	fighter.position = Vector2(x, 0)
 	_actors.add_child(fighter)
+	fighter.reset_physics_interpolation()
 	fighter.setup(data, facing, is_ai)
 	return fighter
 
@@ -112,19 +127,27 @@ func _begin_turn() -> void:
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
 		_hud.set_turn("Your turn")
+		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
 		return
 
 	state = State.AI_AIM
 	_aim.finish()
 	_hud.set_turn("%s is aiming…" % fighter.data.short_name)
+	var brain := _brains[current]
+	var target := fighters[1 - current].aim_point(brain.wants_headshot())
+	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing)
+	# Let the player watch the AI line up its throw.
+	fighter.aiming = true
+	fighter.aim_angle = 30.0
+	fighter.aim_power = 0.0
+	var wind_up := fighter.create_tween().set_parallel().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	wind_up.tween_property(fighter, "aim_angle", float(shot["angle"]), AI_THINK_TIME * 0.8)
+	wind_up.tween_property(fighter, "aim_power", float(shot["power"]), AI_THINK_TIME * 0.8)
 	var match_id := _match_id
 	await get_tree().create_timer(AI_THINK_TIME).timeout
 	if match_id != _match_id:
 		return
-	var brain := _brains[current]
-	var target := fighters[1 - current].aim_point(brain.wants_headshot())
-	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing)
 	_throw(shot["angle"], shot["power"])
 
 
@@ -141,12 +164,15 @@ func _throw(angle: float, power: float) -> void:
 	var fighter := fighters[current]
 	var weapon := fighter.data.weapon
 	fighter.play_throw()
+	var sound: Array = THROW_SOUNDS.get(weapon.shape, ["whoosh", 1.0])
+	Audio.play(sound[0], -2.0, sound[1] * lerpf(0.9, 1.1, power))
 	for i in weapon.count:
 		var offset := (i - (weapon.count - 1) / 2.0) * weapon.spread_deg
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 		_actors.add_child(projectile)
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing))
 		projectile.hit_fighter.connect(_on_projectile_hit)
+		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.finished.connect(_on_projectile_finished)
 		_in_flight.append(projectile)
 
@@ -154,8 +180,39 @@ func _throw(angle: float, power: float) -> void:
 func _on_projectile_hit(projectile: Projectile, target: Fighter, is_head: bool) -> void:
 	var damage := Rules.damage_for(projectile.weapon, is_head)
 	target.take_hit(is_head, damage, projectile.current_velocity())
-	var text := ("HEADSHOT!  -%d" if is_head else "-%d") % damage
-	_popup(target.aim_point(true) + Vector2(0, -50), text, Color(1.0, 0.85, 0.2) if is_head else Color.WHITE)
+	var inv_zoom := 1.0 / _camera.zoom.x
+	var view := _camera.visible_rect()
+	var at := projectile.global_position
+	if is_head:
+		Audio.play("hit_head")
+		Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
+		_camera.shake(0.7)
+		_slow_time(0.14, 0.1)
+	else:
+		Audio.play("hit_body", 0.0 if projectile.weapon.count == 1 else -5.0, 1.0 if projectile.weapon.count == 1 else 1.4)
+		Effects.burst(_actors, at, Color(1, 1, 1, 0.9), 12, 380.0)
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
+		_camera.shake(0.45 if projectile.weapon.count == 1 else 0.25)
+		_slow_time(0.06, 0.15)
+	if target.is_knocked_out():
+		Audio.play("ko", 0.0, 1.0, 0.0)
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -150), "K.O.!", Color(1.0, 0.4, 0.3), 80, inv_zoom, view)
+		_camera.shake(1.0)
+		_slow_time(1.1, 0.3)
+
+
+func _on_projectile_hit_ground(projectile: Projectile) -> void:
+	var weapon := projectile.weapon
+	var at := projectile.global_position
+	if weapon.shape == &"pebble":
+		Audio.play("tick", -6.0)
+	elif weapon.sticks:
+		Audio.play("thunk", -2.0)
+	else:
+		Audio.play("ground", -2.0)
+	Effects.burst(_actors, at, Color(0.62, 0.48, 0.34, 0.9), 10 if weapon.count == 1 else 4, 260.0, 50.0)
+	_camera.shake(0.12)
 
 
 func _on_projectile_finished(projectile: Projectile) -> void:
@@ -182,9 +239,35 @@ func _end_match() -> void:
 	_hud.set_turn("")
 	var winner := fighters[1] if fighters[0].is_knocked_out() else fighters[0]
 	var loser := fighters[0] if winner == fighters[1] else fighters[1]
-	var title := "You win!" if winner == fighters[0] and not autoplay else "%s wins!" % winner.data.short_name
-	_hud.show_result(title, "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health])
+	var player_won := winner == fighters[0] and not autoplay
+	var title := "You win!" if player_won else "%s wins!" % winner.data.short_name
 	match_ended.emit(winner)
+	var match_id := _match_id
+	await get_tree().create_timer(RESULT_DELAY).timeout
+	if match_id != _match_id:
+		return
+	Audio.play("win" if player_won or autoplay else "lose", -3.0, 1.0, 0.0)
+	_hud.show_result(title, "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health])
+
+
+## Slows the game for `duration` real seconds. A newer call replaces an older one.
+func _slow_time(duration: float, time_scale: float) -> void:
+	if not _slow_active:
+		_time_base = Engine.time_scale
+		_slow_active = true
+	_slow_token += 1
+	var token := _slow_token
+	Engine.time_scale = _time_base * time_scale
+	await get_tree().create_timer(duration, true, false, true).timeout
+	if token == _slow_token:
+		_end_slow_time()
+
+
+func _end_slow_time() -> void:
+	if _slow_active:
+		Engine.time_scale = _time_base
+		_slow_active = false
+	_slow_token += 1
 
 
 func _camera_points() -> PackedVector2Array:
@@ -199,24 +282,3 @@ func _camera_points() -> PackedVector2Array:
 	for projectile in _in_flight:
 		points.append(projectile.global_position)
 	return points
-
-
-func _popup(at: Vector2, text: String, color: Color) -> void:
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 34)
-	label.add_theme_color_override("font_color", color)
-	label.add_theme_color_override("font_outline_color", INK)
-	label.add_theme_constant_override("outline_size", 9)
-	label.size = Vector2(320, 50)
-	label.pivot_offset = label.size / 2
-	var inv_zoom := 1.0 / _camera.zoom.x
-	label.scale = Vector2(inv_zoom, inv_zoom)
-	label.position = at - label.size / 2
-	label.z_index = 30
-	_actors.add_child(label)
-	var tween := label.create_tween().set_parallel()
-	tween.tween_property(label, "position:y", label.position.y - 70.0 * inv_zoom, 1.2)
-	tween.tween_property(label, "modulate:a", 0.0, 0.6).set_delay(0.7)
-	tween.chain().tween_callback(label.queue_free)
