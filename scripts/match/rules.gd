@@ -7,8 +7,8 @@ const MAX_HEALTH := 100
 const PX_PER_M := 20.0
 ## Downward acceleration in px/s².
 const GRAVITY := 980.0
-const MIN_DISTANCE_M := 45.0
-const MAX_DISTANCE_M := 60.0
+const MIN_DISTANCE_M := 65.0
+const MAX_DISTANCE_M := 85.0
 const MIN_ANGLE := 5.0
 const MAX_ANGLE := 85.0
 

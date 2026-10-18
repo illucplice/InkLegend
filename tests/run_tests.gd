@@ -12,6 +12,7 @@ func _initialize() -> void:
 	_test_damage_table()
 	_test_solver_lands_on_target()
 	_test_ai_sharpens()
+	_test_obstacles()
 	await _test_ai_vs_ai_match()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
@@ -42,8 +43,8 @@ func _test_solver_lands_on_target() -> void:
 		var facing := 1 if i % 2 == 0 else -1
 		var origin := Vector2(-gap / 2 * facing, -92)
 		var target := Vector2(gap / 2 * facing, -52 - rng.randf_range(0, 50))
-		var shot := AiAimer.solve(origin, target, 1250.0, facing, rng.randf_range(35, 55))
-		var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1250.0, facing)
+		var shot := AiAimer.solve(origin, target, 1600.0, facing, rng.randf_range(35, 55))
+		var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1600.0, facing)
 		var t := (target.x - origin.x) / velocity.x
 		var landed := Rules.position_at(origin, velocity, t)
 		_check(landed.distance_to(target) < 1.0, "perfect throw %d lands on target (off by %.2f px)" % [i, landed.distance_to(target)])
@@ -53,15 +54,15 @@ func _test_solver_lands_on_target() -> void:
 func _test_ai_sharpens() -> void:
 	var origin := Vector2(-500, -92)
 	var target := Vector2(500, -52)
-	var perfect := AiAimer.solve(origin, target, 1250.0, 1)
+	var perfect := AiAimer.solve(origin, target, 1600.0, 1)
 	var first_error := 0.0
 	var late_error := 0.0
 	for trial in 200:
 		var ai := AiAimer.new(AiAimer.Difficulty.NORMAL, trial)
-		first_error += absf(float(ai.aim(origin, target, 1250.0, 1)["power"]) - float(perfect["power"]))
+		first_error += absf(float(ai.aim(origin, target, 1600.0, 1)["power"]) - float(perfect["power"]))
 		for turn in 6:
-			ai.aim(origin, target, 1250.0, 1)
-		late_error += absf(float(ai.aim(origin, target, 1250.0, 1)["power"]) - float(perfect["power"]))
+			ai.aim(origin, target, 1600.0, 1)
+		late_error += absf(float(ai.aim(origin, target, 1600.0, 1)["power"]) - float(perfect["power"]))
 	_check(late_error < first_error * 0.6, "AI is more accurate on turn 8 than turn 1")
 
 
@@ -76,7 +77,7 @@ func _test_ai_vs_ai_match() -> void:
 	Engine.time_scale = 6.0
 	game.start_match(game.roster()[0], AiAimer.Difficulty.HARD)
 	var last_turn: int = game.current
-	for frame in 4000:
+	for frame in 8000:
 		if not result.is_empty():
 			break
 		if game.current != last_turn:
@@ -97,3 +98,32 @@ func _test_ai_vs_ai_match() -> void:
 	_check(turns["count"] >= 2, "turns alternated (%d turn changes)" % turns["count"])
 	print("AI vs AI: %s won after %d turn changes" % [winner.data.short_name, turns["count"]])
 	game.queue_free()
+
+
+func _test_obstacles() -> void:
+	var tower: Array[Rect2] = [Rect2(-45, -300, 90, 300)]
+	var origin := Vector2(-700, -92)
+	var target := Vector2(700, -52)
+	var flat := Rules.launch_velocity(15.0, 1.0, 1700.0, 1)
+	_check(not AiAimer.path_is_clear(origin, flat, target, tower), "a flat throw is blocked by a tall tower")
+	var shot := AiAimer.solve(origin, target, 1700.0, 1, 30.0, tower)
+	var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1700.0, 1)
+	_check(shot["clear"] and AiAimer.path_is_clear(origin, velocity, target, tower), "the AI finds a lob over the tower")
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	var slowest: WeaponData = load("res://data/weapons/hammer.tres")
+	for i in 40:
+		var gap := Rules.random_distance_px(rng)
+		var layout := ObstacleLayout.generate(rng, gap, slowest.max_speed)
+		var boxes := ObstacleLayout.rects(layout)
+		_check(not boxes.is_empty(), "layout %d has obstacles" % i)
+		var in_middle := true
+		for box in boxes:
+			in_middle = in_middle and box.position.x > -gap / 2 + 250 and box.end.x < gap / 2 - 250
+		_check(in_middle, "layout %d stays clear of both fighters" % i)
+		for facing: int in [1, -1]:
+			var from := Vector2(-gap / 2 * facing + Fighter.HAND_REST.x * facing, Fighter.HAND_REST.y)
+			var to := Vector2(gap / 2 * facing, 0) + Fighter.BODY_CENTER
+			var clear_shot := AiAimer.solve(from, to, slowest.max_speed, facing, 45.0, boxes)
+			_check(clear_shot["clear"], "layout %d: the %s fighter has a clear throw" % [i, "left" if facing == 1 else "right"])

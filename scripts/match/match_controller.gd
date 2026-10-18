@@ -39,12 +39,16 @@ var _in_flight: Array[Projectile] = []
 var _last_pick: FighterData
 var _last_difficulty: int = AiAimer.Difficulty.NORMAL
 var _actors: Node2D
+var _obstacle_layer: Node2D
+var _obstacle_rects: Array[Rect2] = []
 var _aim: AimInput
 var _camera: CameraRig
 var _hud: Hud
 var _slow_active := false
 var _slow_token := 0
 var _time_base := 1.0
+## So a multi-pebble throw only says "Blocked!" once.
+var _blocked_shown := false
 
 
 static func roster() -> Array[FighterData]:
@@ -59,6 +63,8 @@ func _ready() -> void:
 	var backdrop := Backdrop.new()
 	add_child(backdrop)
 	add_child(Arena.new())
+	_obstacle_layer = Node2D.new()
+	add_child(_obstacle_layer)
 	_actors = Node2D.new()
 	add_child(_actors)
 
@@ -100,6 +106,7 @@ func start_match(player_pick: FighterData, difficulty: int) -> void:
 			foes.append(fighter)
 	var foe := foes[rng.randi_range(0, foes.size() - 1)]
 	var gap := Rules.random_distance_px(rng)
+	_build_obstacles(gap, minf(player_pick.weapon.max_speed, foe.weapon.max_speed))
 	fighters.append(_spawn_fighter(player_pick, -gap / 2, 1, autoplay))
 	fighters.append(_spawn_fighter(foe, gap / 2, -1, true))
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty)]
@@ -110,6 +117,18 @@ func start_match(player_pick: FighterData, difficulty: int) -> void:
 	_camera.snap()
 	current = 0
 	_begin_turn()
+
+
+func _build_obstacles(gap: float, slowest_speed: float) -> void:
+	for child in _obstacle_layer.get_children():
+		child.queue_free()
+	var layout := ObstacleLayout.generate(rng, gap, slowest_speed)
+	_obstacle_rects = ObstacleLayout.rects(layout)
+	for item in layout:
+		var obstacle := Obstacle.new()
+		obstacle.setup(item["kind"], item["rect"], rng.randi())
+		_obstacle_layer.add_child(obstacle)
+		obstacle.reset_physics_interpolation()
 
 
 func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fighter:
@@ -136,7 +155,7 @@ func _begin_turn() -> void:
 	_hud.set_turn("%s is aiming…" % fighter.data.short_name)
 	var brain := _brains[current]
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
-	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing)
+	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects)
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -161,6 +180,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 func _throw(angle: float, power: float) -> void:
 	state = State.FLYING
 	_hud.set_turn("")
+	_blocked_shown = false
 	var fighter := fighters[current]
 	var weapon := fighter.data.weapon
 	fighter.play_throw()
@@ -202,9 +222,17 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, is_head: bool) 
 		_slow_time(1.1, 0.3)
 
 
-func _on_projectile_hit_ground(projectile: Projectile) -> void:
+func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void:
 	var weapon := projectile.weapon
 	var at := projectile.global_position
+	if collider is Obstacle:
+		Audio.play("thunk", 0.0, 0.65 if weapon.sticks else 0.5)
+		Effects.burst(_actors, at, Color(0.85, 0.78, 0.72, 0.95), 14 if weapon.count == 1 else 5, 340.0, 180.0, 0.9)
+		if not _blocked_shown:
+			_blocked_shown = true
+			Effects.popup(_actors, at + Vector2(0, -40), "Blocked!", Color(0.85, 0.9, 1.0), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		_camera.shake(0.25)
+		return
 	if weapon.shape == &"pebble":
 		Audio.play("tick", -6.0)
 	elif weapon.sticks:
@@ -279,6 +307,8 @@ func _camera_points() -> PackedVector2Array:
 	for fighter in fighters:
 		points.append(fighter.global_position)
 		points.append(fighter.aim_point(true))
+	for box in _obstacle_rects:
+		points.append(Vector2(box.get_center().x, box.position.y))
 	for projectile in _in_flight:
 		points.append(projectile.global_position)
 	return points

@@ -5,7 +5,8 @@ extends Node2D
 ## smooths its motion between physics ticks on high-refresh screens.
 
 signal hit_fighter(projectile: Projectile, fighter: Fighter, is_head: bool)
-signal hit_ground(projectile: Projectile)
+## collider is the ground, or the Obstacle that was hit.
+signal hit_ground(projectile: Projectile, collider: Object)
 signal finished(projectile: Projectile)
 
 const INK := Color(0.12, 0.1, 0.14)
@@ -86,7 +87,7 @@ func _physics_process(delta: float) -> void:
 	if box != null:
 		hit_fighter.emit(self, box.fighter, box.is_head)
 	else:
-		hit_ground.emit(self)
+		hit_ground.emit(self, hit["collider"])
 	_finish(weapon.sticks)
 
 

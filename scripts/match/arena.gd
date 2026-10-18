@@ -9,9 +9,10 @@ const INK := Color(0.12, 0.1, 0.14)
 const SAND := Color(0.9, 0.72, 0.5)
 const BRICK := Color(0.5, 0.36, 0.38)
 const MARBLE := Color(0.93, 0.86, 0.8)
-## Pillars stand outside the spots where fighters usually stand (about 450-600 px out).
-const PILLARS := [-1500.0, -880.0, 880.0, 1500.0]
-const BRAZIERS := [-1180.0, -260.0, 260.0, 1180.0]
+## Props stand outside the spots where fighters stand (650-850 px out) and the
+## obstacle zone in the middle.
+const PILLARS := [-2100.0, -1250.0, 1250.0, 2100.0]
+const BRAZIERS := [-1600.0, -1040.0, 1040.0, 1600.0]
 
 var _ember_texture: GradientTexture2D
 
