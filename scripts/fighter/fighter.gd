@@ -500,16 +500,16 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	var r := HEAD_RADIUS
 	var gok := data.style == &"anime"
 	var spikes: Array = [[-40.0, 9.0, 6.0], [-72.0, 14.0, 8.0], [-104.0, 18.0, 9.0], [-136.0, 19.0, 9.0], [-166.0, 16.0, 8.0], [-196.0, 11.0, 7.0]] if gok \
-		else [[-58.0, 10.0, 6.0], [-74.0, 19.0, 7.0], [-89.0, 24.0, 7.0], [-104.0, 23.0, 7.0], [-120.0, 18.0, 7.0], [-138.0, 11.0, 6.0]]
-	var grow := (1.55 if gok else 1.3) if powered else 1.0
+		else [[-28.0, 12.0, 9.0], [-45.0, 21.0, 10.0], [-62.0, 28.0, 10.0], [-79.0, 32.0, 10.0], [-95.0, 32.0, 10.0], [-111.0, 29.0, 10.0], [-128.0, 23.0, 10.0], [-145.0, 16.0, 9.0], [-162.0, 10.0, 8.0]]
+	var grow := (1.55 if gok else 1.2) if powered else 1.0
 	var bob := sin(_time * 8.0) * 1.5 if powered else 0.0
 	for spike: Array in spikes:
 		var angle: float = spike[0]
 		if powered:
 			angle = lerpf(angle, -92.0, 0.3)
 		var a := deg_to_rad(angle)
-		# Gok's spikes curl back a little; Egita's stand straight.
-		var lean := -0.28 if gok else 0.0
+		# Gok's spikes curl back a little; Egita's flare up into a tall flame.
+		var lean := -0.28 if gok else (deg_to_rad(-90.0) - a) * 0.12
 		var base := Vector2.from_angle(a) * (r - 4.0)
 		var tip := Vector2.from_angle(a + lean) * (r + float(spike[1]) * grow) + Vector2(0, bob)
 		var side := Vector2.from_angle(a + PI / 2) * float(spike[2])

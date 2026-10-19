@@ -8,3 +8,7 @@ id = &"colosseum"
 display_name = "Sunset Colosseum"
 tagline = "Where legends are thrown"
 accent = Color(1, 0.6, 0.25, 1)
+min_distance_m = 60.0
+max_distance_m = 75.0
+obstacle_style = &"stone"
+obstacle_patterns = PackedStringArray()

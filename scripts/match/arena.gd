@@ -8,15 +8,19 @@ const HALF_WIDTH := 4000.0
 const DEPTH := 1200.0
 const INK := Color(0.12, 0.1, 0.14)
 const MARBLE := Color(0.93, 0.86, 0.8)
-## Props stand outside the spots where fighters stand (650-850 px out) and the
-## obstacle zone in the middle.
-const PILLARS := [-2100.0, -1250.0, 1250.0, 2100.0]
-const BRAZIERS := [-1600.0, -1040.0, 1040.0, 1600.0]
+## Props stand just outside the spots where the fighters stand, so they move out on
+## maps where the fighters are further apart: these are distances past a fighter.
+const PILLAR_OUT := [410.0, 1260.0]
+const BRAZIER_OUT := [200.0, 760.0]
 
 ## Set before adding to the tree.
 var map: MapData
 
 var _glow: GradientTexture2D
+var _pillars: Array[float] = []
+var _braziers: Array[float] = []
+## Fires and glows by the props, rebuilt when the props move.
+var _lights: Node2D
 ## The floor is drawn once, so lava glow is a fixed per-spot brightness (the fires flicker).
 var _time := 0.0
 
@@ -34,63 +38,113 @@ func _ready() -> void:
 	add_child(body)
 
 	_glow = _glow_texture()
+	_lights = Node2D.new()
+	add_child(_lights)
+	set_spread(840.0)
+	_add_weather()
+
+
+## Moves the props out to stand beside fighters `half_gap` px either side of the middle.
+func set_spread(half_gap: float) -> void:
+	_pillars.clear()
+	_braziers.clear()
+	for side: float in [-1.0, 1.0]:
+		for out: float in PILLAR_OUT:
+			_pillars.append(side * (half_gap + out))
+		for out: float in BRAZIER_OUT:
+			_braziers.append(side * (half_gap + out))
+	if _lights == null:
+		return
+	for child in _lights.get_children():
+		child.queue_free()
+	_add_lights()
+	queue_redraw()
+
+
+func _add_lights() -> void:
 	match map.props:
+		&"cactus":
+			pass
+		&"dojo":
+			for x: float in _pillars:
+				_add_glow(Vector2(x, -173), 0.45)
+			for x: float in _braziers:
+				_add_glow(Vector2(x + 44, -172), 0.6)
+		&"graves":
+			for x: float in _pillars:
+				_add_fire(Vector2(x + 40, -262), 0.35)
+			for x: float in _braziers:
+				_add_fire(Vector2(x + 34, -30), 0.25)
 		&"masts":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_add_fire(Vector2(x + 26, -300), 0.35)
 		&"rooftop":
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_add_glow(Vector2(x, -150), 0.9)
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_add_glow(Vector2(x, -420), 0.4)
 		&"trees":
 			pass
 		&"basalt":
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_add_fire(Vector2(x, -6), 0.8)
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_add_fire(Vector2(x, -330), 0.6)
 		_:
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_add_fire(Vector2(x, -96))
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_add_fire(Vector2(x, -400), 0.7)
-	_add_weather()
 
 
 func _draw() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	match map.props:
+		&"cactus":
+			for x: float in _pillars:
+				_draw_big_cactus(x, rng)
+			for x: float in _braziers:
+				_draw_skull_rocks(x, rng)
+		&"dojo":
+			for x: float in _pillars:
+				_draw_stone_lantern(x)
+			for x: float in _braziers:
+				_draw_paper_lantern(x)
+		&"graves":
+			for x: float in _pillars:
+				_draw_lamp_post(x)
+			for x: float in _braziers:
+				_draw_candle_grave(x, rng)
 		&"masts":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_mast(x)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_barrels(x, rng)
 		&"rooftop":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_water_tower(x)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_neon_post(x)
 		&"trees":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_big_tree(x, rng)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_bush(x, rng)
 		&"ice":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_crystals(x, rng)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_brazier(x, Color(0.55, 0.7, 0.85))
 		&"basalt":
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_basalt(x, rng)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_lava_pool(x)
 		_:
-			for x: float in PILLARS:
+			for x: float in _pillars:
 				_draw_pillar(x)
-			for x: float in BRAZIERS:
+			for x: float in _braziers:
 				_draw_brazier(x, Color(0.42, 0.3, 0.26))
 	_draw_ground(rng)
 
@@ -150,6 +204,24 @@ func _draw_ground(rng: RandomNumberGenerator) -> void:
 			draw_set_transform(Vector2.ZERO)
 			for x in range(-int(HALF_WIDTH), int(HALF_WIDTH), 120):
 				draw_line(Vector2(x, 2), Vector2(x, 30), map.ground_top.darkened(0.3), 2.0)
+		&"dust":
+			# Sun-baked cracks in the dirt.
+			for i in 70:
+				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
+				var crack := PackedVector2Array([Vector2(x, 6), Vector2(x + rng.randf_range(-14, 14), 14), Vector2(x + rng.randf_range(-20, 20), 24)])
+				draw_polyline(crack, map.ground_top.darkened(0.3), 2.0, true)
+		&"leaves", &"fireflies":
+			# Grass, with fallen leaves in the dojo.
+			for i in 500:
+				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
+				var h := rng.randf_range(6.0, 14.0)
+				draw_line(Vector2(x, 0), Vector2(x - 3, -h), map.ground_top.darkened(0.2), 2.5, true)
+			if map.weather == &"leaves":
+				for i in 60:
+					var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(-4.0, 20.0))
+					draw_set_transform(at, rng.randf_range(0, TAU), Vector2(1.0, 0.45))
+					draw_circle(Vector2.ZERO, 6.0, [Color(0.95, 0.6, 0.25), Color(0.85, 0.35, 0.25), Color(0.6, 0.75, 0.3)][i % 3], true, -1.0, true)
+				draw_set_transform(Vector2.ZERO)
 		&"petals":
 			for i in 500:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
@@ -307,7 +379,7 @@ func _add_fire(at: Vector2, size: float = 1.0) -> void:
 	glow.modulate = Color(map.fire_color, 0.45)
 	glow.scale = Vector2.ONE * 7.0 * size
 	glow.position = at
-	add_child(glow)
+	_lights.add_child(glow)
 	var flicker := glow.create_tween().set_loops()
 	flicker.tween_property(glow, "modulate:a", 0.3, 0.13).set_trans(Tween.TRANS_SINE)
 	flicker.tween_property(glow, "modulate:a", 0.5, 0.17).set_trans(Tween.TRANS_SINE)
@@ -337,7 +409,7 @@ func _add_fire(at: Vector2, size: float = 1.0) -> void:
 	ramp.add_point(0.4, Color(map.fire_color, 0.9))
 	flame.color_ramp = ramp
 	flame.position = at
-	add_child(flame)
+	_lights.add_child(flame)
 
 
 ## A soft coloured glow with no flame (neon lights).
@@ -350,7 +422,7 @@ func _add_glow(at: Vector2, size: float) -> void:
 	glow.modulate = Color(map.fire_color, 0.5)
 	glow.scale = Vector2.ONE * 7.0 * size
 	glow.position = at
-	add_child(glow)
+	_lights.add_child(glow)
 	var flicker := glow.create_tween().set_loops()
 	flicker.tween_property(glow, "modulate:a", 0.25, 0.9).set_trans(Tween.TRANS_SINE)
 	flicker.tween_property(glow, "modulate:a", 0.55, 0.7).set_trans(Tween.TRANS_SINE)
@@ -412,6 +484,63 @@ func _add_weather() -> void:
 			ramp.set_color(1, Color(1, 0.75, 0.88, 0))
 			ramp.add_point(0.1, Color(1, 0.75, 0.88, 0.95))
 			ramp.add_point(0.9, Color(1, 0.85, 0.92, 0.95))
+		&"dust":
+			particles.amount = 140
+			particles.lifetime = 6.0
+			particles.preprocess = 6.0
+			particles.emission_rect_extents = Vector2(2600, 220)
+			particles.position = Vector2(-300, -200)
+			particles.direction = Vector2(1, -0.05)
+			particles.spread = 10.0
+			particles.gravity = Vector2(20, 4)
+			particles.initial_velocity_min = 90.0
+			particles.initial_velocity_max = 180.0
+			particles.scale_amount_min = 0.08
+			particles.scale_amount_max = 0.22
+			ramp.set_color(0, Color(map.ground_top, 0))
+			ramp.set_color(1, Color(map.ground_top, 0))
+			ramp.add_point(0.2, Color(map.ground_top.lightened(0.15), 0.7))
+			ramp.add_point(0.8, Color(map.ground_top, 0.5))
+		&"leaves":
+			particles.amount = 70
+			particles.lifetime = 10.0
+			particles.preprocess = 10.0
+			particles.emission_rect_extents = Vector2(2600, 40)
+			particles.position = Vector2(0, -800)
+			particles.direction = Vector2(0.5, 1)
+			particles.spread = 30.0
+			particles.gravity = Vector2(14, 20)
+			particles.initial_velocity_min = 30.0
+			particles.initial_velocity_max = 70.0
+			particles.angular_velocity_min = -160.0
+			particles.angular_velocity_max = 160.0
+			particles.scale_amount_min = 0.16
+			particles.scale_amount_max = 0.3
+			ramp.set_color(0, Color(0.6, 0.8, 0.3, 0))
+			ramp.set_color(1, Color(0.95, 0.6, 0.25, 0))
+			ramp.add_point(0.1, Color(0.6, 0.82, 0.3, 0.95))
+			ramp.add_point(0.9, Color(0.95, 0.62, 0.28, 0.95))
+		&"fireflies":
+			var glow_blend := CanvasItemMaterial.new()
+			glow_blend.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+			particles.material = glow_blend
+			particles.amount = 60
+			particles.lifetime = 6.0
+			particles.preprocess = 6.0
+			particles.emission_rect_extents = Vector2(2400, 160)
+			particles.position = Vector2(0, -170)
+			particles.direction = Vector2.UP
+			particles.spread = 180.0
+			particles.gravity = Vector2(0, -4)
+			particles.initial_velocity_min = 8.0
+			particles.initial_velocity_max = 30.0
+			particles.scale_amount_min = 0.08
+			particles.scale_amount_max = 0.18
+			ramp.set_color(0, Color(map.fire_color, 0))
+			ramp.set_color(1, Color(map.fire_color, 0))
+			ramp.add_point(0.3, Color(map.fire_color, 0.9))
+			ramp.add_point(0.5, Color(map.fire_color, 0.2))
+			ramp.add_point(0.7, Color(map.fire_color, 0.9))
 		&"snow":
 			particles.amount = 220
 			particles.lifetime = 9.0
@@ -573,3 +702,112 @@ func _draw_bush(x: float, rng: RandomNumberGenerator) -> void:
 		var at := Vector2(x - 45 + k * 30, -22 - (k % 2) * 10)
 		draw_circle(at, 30.0 + 3.0, INK, true, -1.0, true)
 		draw_circle(at, 30.0, map.ground_top.darkened(0.2 + rng.randf_range(0.0, 0.08)), true, -1.0, true)
+
+
+# --- desert canyon, bamboo dojo, haunted graveyard ---
+
+## A big saguaro cactus.
+func _draw_big_cactus(x: float, rng: RandomNumberGenerator) -> void:
+	var green := Color(0.36, 0.6, 0.32)
+	var h := rng.randf_range(260.0, 340.0)
+	var box := StyleBoxFlat.new()
+	box.bg_color = green
+	box.border_color = INK
+	box.set_border_width_all(4)
+	box.set_corner_radius_all(22)
+	box.corner_radius_bottom_left = 0
+	box.corner_radius_bottom_right = 0
+	box.anti_aliasing = true
+	for arm: float in [-1.0, 1.0]:
+		var at := -h * rng.randf_range(0.45, 0.65)
+		draw_style_box(box, Rect2(x + (22.0 if arm > 0 else -70.0), at, 48, 28))
+		draw_style_box(box, Rect2(x + arm * 58.0 - 14, at - 90, 28, 112))
+	draw_style_box(box, Rect2(x - 26, -h, 52, h + 4))
+	for k: float in [-10.0, 10.0]:
+		draw_line(Vector2(x + k, -h + 16), Vector2(x + k, -6), green.darkened(0.25), 3.0)
+	draw_circle(Vector2(x, -h + 4), 8.0, Color(1.0, 0.5, 0.6), true, -1.0, true)
+
+
+## A bleached cow skull on a heap of rocks.
+func _draw_skull_rocks(x: float, rng: RandomNumberGenerator) -> void:
+	for i in 4:
+		var at := Vector2(x + rng.randf_range(-40, 40), -rng.randf_range(4, 18))
+		draw_circle(at, rng.randf_range(14, 24), INK, true, -1.0, true)
+		draw_circle(at, rng.randf_range(10, 18), map.obstacle_stone.darkened(rng.randf_range(0.0, 0.2)), true, -1.0, true)
+	var skull := Vector2(x, -40)
+	var bone := Color(0.96, 0.92, 0.84)
+	draw_polyline(PackedVector2Array([skull + Vector2(-14, -6), skull + Vector2(-34, -12), skull + Vector2(-42, -30)]), INK, 8.0, true)
+	draw_polyline(PackedVector2Array([skull + Vector2(14, -6), skull + Vector2(34, -12), skull + Vector2(42, -30)]), INK, 8.0, true)
+	draw_polyline(PackedVector2Array([skull + Vector2(-14, -6), skull + Vector2(-34, -12), skull + Vector2(-42, -30)]), bone, 4.0, true)
+	draw_polyline(PackedVector2Array([skull + Vector2(14, -6), skull + Vector2(34, -12), skull + Vector2(42, -30)]), bone, 4.0, true)
+	var face := PackedVector2Array([skull + Vector2(-16, -10), skull + Vector2(16, -10), skull + Vector2(9, 22), skull + Vector2(-9, 22)])
+	draw_colored_polygon(face, bone)
+	var outline := face.duplicate()
+	outline.append(face[0])
+	draw_polyline(outline, INK, 3.0, true)
+	draw_circle(skull + Vector2(-7, -1), 4.0, INK, true, -1.0, true)
+	draw_circle(skull + Vector2(7, -1), 4.0, INK, true, -1.0, true)
+
+
+## A stone garden lantern (lit from inside).
+func _draw_stone_lantern(x: float) -> void:
+	var stone := map.wall_color.lightened(0.35)
+	var parts := [Rect2(x - 34, -24, 68, 24), Rect2(x - 12, -130, 24, 106), Rect2(x - 30, -150, 60, 20), Rect2(x - 24, -196, 48, 46)]
+	for part: Rect2 in parts:
+		draw_rect(part, stone)
+		draw_rect(part, INK, false, 3.0)
+	draw_rect(Rect2(x - 12, -186, 24, 26), Color(1.0, 0.8, 0.45))
+	draw_colored_polygon(PackedVector2Array([Vector2(x - 54, -196), Vector2(x, -232), Vector2(x + 54, -196)]), stone.darkened(0.15))
+	draw_polyline(PackedVector2Array([Vector2(x - 54, -196), Vector2(x, -232), Vector2(x + 54, -196), Vector2(x - 54, -196)]), INK, 3.0, true)
+	draw_circle(Vector2(x, -238), 7.0, stone.darkened(0.15), true, -1.0, true)
+
+
+## A red paper lantern hanging from a bamboo pole.
+func _draw_paper_lantern(x: float) -> void:
+	draw_rect(Rect2(x - 4, -230, 8, 230), Color(0.55, 0.7, 0.3))
+	draw_rect(Rect2(x - 4, -230, 8, 230), INK, false, 2.0)
+	draw_line(Vector2(x, -226), Vector2(x + 50, -226), Color(0.45, 0.6, 0.25), 6.0)
+	draw_line(Vector2(x + 44, -226), Vector2(x + 44, -204), INK, 2.0)
+	var body := Vector2(x + 44, -172)
+	draw_set_transform(body, 0.0, Vector2(1.0, 1.3))
+	draw_circle(Vector2.ZERO, 26.0, INK, true, -1.0, true)
+	draw_circle(Vector2.ZERO, 23.0, Color(0.9, 0.22, 0.2), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
+	for k in 3:
+		var y := body.y - 18 + k * 18
+		draw_line(Vector2(body.x - 20, y), Vector2(body.x + 20, y), Color(0.65, 0.12, 0.12), 2.0)
+	draw_rect(Rect2(body.x - 12, body.y - 36, 24, 6), INK)
+	draw_rect(Rect2(body.x - 12, body.y + 30, 24, 6), INK)
+
+
+## A crooked iron lamp post with a ghostly green flame.
+func _draw_lamp_post(x: float) -> void:
+	var iron := Color(0.16, 0.15, 0.2)
+	draw_rect(Rect2(x - 20, -18, 40, 18), iron)
+	draw_polyline(PackedVector2Array([Vector2(x, -18), Vector2(x + 6, -150), Vector2(x - 4, -260), Vector2(x + 2, -290)]), iron, 9.0, true)
+	draw_polyline(PackedVector2Array([Vector2(x + 2, -290), Vector2(x + 30, -300), Vector2(x + 40, -284)]), iron, 5.0, true)
+	var lamp := Rect2(x + 26, -284, 28, 34)
+	draw_rect(lamp, Color(map.fire_color, 0.35))
+	draw_rect(lamp, iron, false, 4.0)
+	draw_colored_polygon(PackedVector2Array([Vector2(lamp.position.x - 4, lamp.position.y), Vector2(lamp.get_center().x, lamp.position.y - 14), Vector2(lamp.end.x + 4, lamp.position.y)]), iron)
+
+
+## A small grave with a candle burning on it.
+func _draw_candle_grave(x: float, rng: RandomNumberGenerator) -> void:
+	var stone := map.obstacle_stone.darkened(0.2)
+	var tilt := rng.randf_range(-0.15, 0.15)
+	draw_set_transform(Vector2(x, 0), tilt)
+	var outline := PackedVector2Array([Vector2(-26, 2)])
+	for k in 9:
+		var a := PI + PI * k / 8.0
+		outline.append(Vector2(cos(a) * 26.0, -60 + sin(a) * 22.0))
+	outline.append(Vector2(26, 2))
+	draw_colored_polygon(outline, stone)
+	var closed := outline.duplicate()
+	closed.append(outline[0])
+	draw_polyline(closed, INK, 3.0, true)
+	draw_line(Vector2(0, -66), Vector2(0, -30), stone.darkened(0.3), 4.0)
+	draw_line(Vector2(-10, -54), Vector2(10, -54), stone.darkened(0.3), 4.0)
+	draw_set_transform(Vector2.ZERO)
+	draw_rect(Rect2(x + 30, -26, 8, 26), Color(0.95, 0.92, 0.8))
+	draw_rect(Rect2(x + 30, -26, 8, 26), INK, false, 2.0)

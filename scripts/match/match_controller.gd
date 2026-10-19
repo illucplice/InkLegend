@@ -37,6 +37,9 @@ const MAPS := [
 	preload("res://data/maps/pirate.tres"),
 	preload("res://data/maps/neon.tres"),
 	preload("res://data/maps/sky.tres"),
+	preload("res://data/maps/canyon.tres"),
+	preload("res://data/maps/bamboo.tres"),
+	preload("res://data/maps/graveyard.tres"),
 ]
 ## Tournament rounds: AI difficulty per round. The last round is the Champion boss.
 const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION]
@@ -219,6 +222,7 @@ func go_to_menu() -> void:
 	get_tree().paused = false
 	state = State.MENU
 	tournament = {}
+	_arena.set_spread(MENU_GAP / 2)
 	_build_obstacles(MENU_GAP, 1210.0)
 	_camera.snap()
 	_hud.show_title()
@@ -245,8 +249,9 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_last_right = right
 	_last_difficulty = difficulty
 
-	var gap := Rules.random_distance_px(rng)
+	var gap := Rules.random_distance_px(rng, current_map)
 	_gap = gap
+	_arena.set_spread(gap / 2)
 	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
 	var vs_ai := mode != Mode.LOCAL_2P
 	fighters.append(_spawn_fighter(left, -gap / 2, 1, vs_ai and autoplay))
@@ -421,6 +426,7 @@ func start_practice(pick: FighterData) -> void:
 		child.queue_free()
 	_obstacle_rects.clear()
 	_gap = 2000.0
+	_arena.set_spread(700.0)
 	fighters.append(_spawn_fighter(pick, -700, 1, false))
 	# An invisible stand-in opponent keeps the two-sided turn code happy; it can't be hit.
 	var stand_in := _spawn_fighter(pick, 3600, -1, true)
@@ -630,7 +636,7 @@ func _player_names() -> Array[String]:
 func _build_obstacles(gap: float, slowest_speed: float) -> void:
 	for child in _obstacle_layer.get_children():
 		child.queue_free()
-	var layout := ObstacleLayout.generate(rng, gap, slowest_speed)
+	var layout := ObstacleLayout.generate(rng, gap, slowest_speed, current_map.obstacle_patterns if current_map != null else PackedStringArray())
 	_obstacle_rects = ObstacleLayout.rects(layout)
 	for item in layout:
 		var obstacle := Obstacle.new()

@@ -49,7 +49,11 @@ static func damage_with_bonuses(weapon: WeaponData, part: StringName, flight_tim
 	return roundi(damage_for(weapon, part) * (1.0 + bonus))
 
 
-static func random_distance_px(rng: RandomNumberGenerator) -> float:
+## Distance between the fighters' feet. Each map has its own range (ships stand far
+## apart, the dojo is close quarters); with no map, the classic range.
+static func random_distance_px(rng: RandomNumberGenerator, map: MapData = null) -> float:
+	if map != null:
+		return rng.randf_range(map.min_distance_m, map.max_distance_m) * PX_PER_M
 	return rng.randf_range(MIN_DISTANCE_M, MAX_DISTANCE_M) * PX_PER_M
 
 

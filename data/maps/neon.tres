@@ -30,3 +30,7 @@ weather = &"rain"
 obstacle_stone = Color(0.5, 0.52, 0.62, 1)
 obstacle_dark = Color(0.32, 0.34, 0.44, 1)
 rune_color = Color(0.3, 1, 0.9, 1)
+min_distance_m = 65.0
+max_distance_m = 80.0
+obstacle_style = &"neon"
+obstacle_patterns = PackedStringArray("floating_high", "wall_floating", "islands", "spire_floating", "tower_floating")

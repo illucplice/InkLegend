@@ -21,6 +21,7 @@ func _initialize() -> void:
 	_test_wind_solver()
 	_test_destructible_obstacles()
 	_test_progression(root.get_node("Save"))
+	await _test_map_variety()
 	await _test_ai_vs_ai_match()
 	await _test_anime_match()
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -326,3 +327,65 @@ func _test_anime_match() -> void:
 	_check(not result.is_empty(), "a Gok vs Egita match ends in a knockout")
 	_check(game._special_used[0] or game._special_used[1], "the AI used an anime special")
 	game.queue_free()
+
+
+## Phase J: every map has its own distance range and obstacle set, and every layout
+## still leaves both fighters a clear throw.
+func _test_map_variety() -> void:
+	var ids := ["colosseum", "frozen", "lava", "pirate", "neon", "sky", "canyon", "bamboo", "graveyard"]
+	var slowest: WeaponData = load("res://data/weapons/hammer.tres")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2024
+	var styles := {}
+	for id: String in ids:
+		var map: MapData = load("res://data/maps/%s.tres" % id)
+		styles[map.obstacle_style] = true
+		_check(map.min_distance_m >= 50.0 and map.max_distance_m <= 105.0 and map.min_distance_m < map.max_distance_m, "%s stands fighters a sensible distance apart" % id)
+		var in_range := true
+		for i in 20:
+			var gap := Rules.random_distance_px(rng, map) / Rules.PX_PER_M
+			in_range = in_range and gap >= map.min_distance_m and gap <= map.max_distance_m
+		_check(in_range, "%s picks distances in its own range" % id)
+		var all_clear := true
+		var in_middle := true
+		var kinds := {}
+		for i in 15:
+			var gap := Rules.random_distance_px(rng, map)
+			var layout := ObstacleLayout.generate(rng, gap, slowest.max_speed, map.obstacle_patterns)
+			var boxes := ObstacleLayout.rects(layout)
+			for item in layout:
+				kinds[item["kind"]] = true
+			for box in boxes:
+				in_middle = in_middle and box.position.x > -gap / 2 + 250 and box.end.x < gap / 2 - 250
+			for facing: int in [1, -1]:
+				var from := Vector2(-gap / 2 * facing + Fighter.HAND_REST.x * facing, Fighter.HAND_REST.y)
+				var to := Vector2(gap / 2 * facing, 0) + Fighter.BODY_CENTER
+				all_clear = all_clear and AiAimer.solve(from, to, slowest.max_speed, facing, 45.0, boxes)["clear"]
+		_check(all_clear, "%s layouts always leave both fighters a clear throw" % id)
+		_check(in_middle, "%s obstacles stay clear of both fighters" % id)
+		for pattern: String in map.obstacle_patterns:
+			_check(ObstacleLayout.PATTERNS.has(pattern), "%s uses a known pattern (%s)" % [id, pattern])
+		if id in ["frozen", "pirate", "canyon", "bamboo", "graveyard"]:
+			_check(kinds.has(&"spire"), "%s puts up its own spires" % id)
+		if id == "sky":
+			_check(kinds.keys() == [&"floating"], "Sky Islands only has floating islands")
+	_check(styles.size() == ids.size(), "every map has its own obstacle style")
+	var near: MapData = load("res://data/maps/bamboo.tres")
+	var far: MapData = load("res://data/maps/sky.tres")
+	_check(near.max_distance_m < far.min_distance_m, "some maps are close quarters, others far apart")
+	_check(Obstacle.hit_points(&"ice", &"spire") == 2 and Obstacle.hit_points(&"sand", &"tower") == 5 and Obstacle.hit_points(&"stone", &"tower") == 4, "brittle and tough obstacle styles")
+
+	# Draw every style and kind once so a broken drawing shows up here.
+	var holder := Node2D.new()
+	root.add_child(holder)
+	for id: String in ids:
+		var map: MapData = load("res://data/maps/%s.tres" % id)
+		for kind: StringName in [&"tower", &"wall", &"floating", &"spire"]:
+			var obstacle := Obstacle.new()
+			var box := Rect2(0, -300, 60, 300) if kind == &"spire" else (Rect2(0, -300, 220, 70) if kind == &"floating" else Rect2(0, -200, 140, 200))
+			obstacle.setup(kind, box, 7, map)
+			holder.add_child(obstacle)
+	await process_frame
+	await process_frame
+	_check(holder.get_child_count() == ids.size() * 4, "every obstacle style draws")
+	holder.queue_free()

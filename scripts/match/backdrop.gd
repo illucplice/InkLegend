@@ -2,7 +2,8 @@ class_name Backdrop
 extends Node2D
 ## Everything behind the arena, themed by a MapData: sky, stars, sun or aurora,
 ## clouds, two mountain ridges, then the map's scenery (colosseum stands with a
-## crowd, a pine forest with an ice castle, or a smoking volcano).
+## crowd, a pine forest with an ice castle, a smoking volcano, desert mesas, a bamboo
+## grove with a pagoda, or a foggy graveyard).
 ## Each layer has a depth from 0 (pinned to the screen) to 1 (moves with the world).
 
 const INK := Color(0.12, 0.1, 0.14)
@@ -61,6 +62,17 @@ func _ready() -> void:
 	match map.scenery:
 		&"ocean", &"city", &"islands":
 			pass
+		&"desert":
+			_add_layer(0.3, _draw_mesas)
+			_add_layer(0.5, _draw_dunes)
+		&"bamboo":
+			_add_layer(0.2, _draw_pagoda)
+			_animated.append(_add_layer(0.36, _draw_bamboo_back))
+			_animated.append(_add_layer(0.52, _draw_bamboo_front))
+		&"graveyard":
+			_add_layer(0.3, _draw_near_mountains)
+			_add_layer(0.46, _draw_graves)
+			_animated.append(_add_layer(0.5, _draw_fog))
 		&"forest":
 			_add_layer(0.3, _draw_near_mountains)
 			_add_layer(0.42, _draw_forest_back)
@@ -210,7 +222,7 @@ func _draw_far_mountains(canvas: Node2D) -> void:
 			var h := _ridge_height(float(x), 280.0, 0.6)
 			if h > 220.0:
 				canvas.draw_circle(Vector2(x, -40.0 - h + 8.0), 14.0, Color(0.92, 0.96, 1.0, 0.9), true, -1.0, true)
-	if map.scenery == &"volcano":
+	if map.scenery == &"volcano" or map.scenery == &"desert" or map.scenery == &"bamboo":
 		return
 	# A castle on the tallest nearby peak (an ice castle in the snow).
 	var castle_x := -760.0
@@ -536,3 +548,148 @@ func _draw_floating_islands_near(canvas: Node2D) -> void:
 		var bob := sin(_time * 0.8 + i * 2.0) * 8.0
 		var centre := Vector2(-HALF_WIDTH + 400 + i * 1150 + rng.randf_range(-150, 150), rng.randf_range(-230, -120) + bob)
 		_draw_island(canvas, centre, rng.randf_range(160, 260), map.near_color, map.near_color.darkened(0.35).lerp(Color(0.5, 0.36, 0.26), 0.5), rng.randf() < 0.6)
+
+
+# --- desert canyon ---
+
+## Flat-topped buttes and mesas striped with rock layers.
+func _draw_mesas(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 21
+	var color := map.near_color
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -30, HALF_WIDTH * 2, 2000), color.darkened(0.1))
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var w := rng.randf_range(160, 420)
+		var h := rng.randf_range(90, 230)
+		var lean := rng.randf_range(10, 40)
+		var top := -30.0 - h
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(x, -20), Vector2(x + lean, top + 10), Vector2(x + lean + 12, top), Vector2(x + w - lean - 12, top), Vector2(x + w - lean, top + 10), Vector2(x + w, -20)]), color.lightened(rng.randf_range(-0.05, 0.06)))
+		for band in 3:
+			var y := top + 24.0 + band * h * 0.28
+			canvas.draw_line(Vector2(x + lean + 4, y), Vector2(x + w - lean - 4, y), color.darkened(0.18), 6.0)
+		canvas.draw_rect(Rect2(x + w - lean - 30, top + 6, 26, h + 10), Color(0.3, 0.12, 0.1, 0.12))
+		x += w + rng.randf_range(60, 260)
+
+
+## Dunes with cactus silhouettes, right behind the arena.
+func _draw_dunes(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	_draw_ridge(canvas, 0.0, 70.0, 2.0, map.ground_top.darkened(0.2))
+	var dark := map.ground_top.darkened(0.42)
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var h := rng.randf_range(50, 110)
+		var ground := -10.0
+		canvas.draw_rect(Rect2(x - 7, ground - h, 14, h + 20), dark)
+		canvas.draw_circle(Vector2(x, ground - h), 7.0, dark, true, -1.0, true)
+		for arm: float in [-1.0, 1.0]:
+			if rng.randf() < 0.75:
+				var at := ground - h * rng.randf_range(0.4, 0.65)
+				canvas.draw_rect(Rect2(x + (arm * 7.0 if arm > 0 else -22.0), at, 15, 9), dark)
+				canvas.draw_rect(Rect2(x + arm * 18.0 - 5, at - 28, 10, 34), dark)
+				canvas.draw_circle(Vector2(x + arm * 18.0, at - 28), 5.0, dark, true, -1.0, true)
+		x += rng.randf_range(180, 420)
+
+
+# --- bamboo dojo ---
+
+## A pagoda on the misty hillside.
+func _draw_pagoda(canvas: Node2D) -> void:
+	var base := Vector2(520, -40.0 - _ridge_height(520.0, 280.0, 0.6) + 20.0)
+	var color := map.far_color.darkened(0.25)
+	var lit := Color(1.0, 0.75, 0.45, 0.8)
+	for tier in 4:
+		var w := 120.0 - tier * 22.0
+		var y := base.y - tier * 52.0
+		canvas.draw_rect(Rect2(base.x - w * 0.36, y - 40, w * 0.72, 40), color)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(base.x - w * 0.62, y - 34), Vector2(base.x - w * 0.36, y - 52), Vector2(base.x + w * 0.36, y - 52), Vector2(base.x + w * 0.62, y - 34), Vector2(base.x + w * 0.4, y - 40), Vector2(base.x - w * 0.4, y - 40)]), color.darkened(0.2))
+		canvas.draw_rect(Rect2(base.x - 6, y - 30, 12, 14), lit)
+	canvas.draw_line(Vector2(base.x, base.y - 4 * 52.0 + 2), Vector2(base.x, base.y - 4 * 52.0 - 36), color, 4.0)
+
+
+func _draw_bamboo_back(canvas: Node2D) -> void:
+	_draw_bamboo_grove(canvas, 0)
+
+
+func _draw_bamboo_front(canvas: Node2D) -> void:
+	_draw_bamboo_grove(canvas, 1)
+
+
+## Rows of tall bamboo stalks swaying in the breeze. row 0 is further back.
+func _draw_bamboo_grove(canvas: Node2D, row: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 60 + row
+	var base := map.near_color.lerp(map.far_color, 0.45 - row * 0.45)
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -20, HALF_WIDTH * 2, 2000), base.darkened(0.2 + row * 0.1))
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var w := rng.randf_range(8, 14) * (0.8 + row * 0.4)
+		var h := rng.randf_range(260, 420) * (0.8 + row * 0.25)
+		var sway := sin(_time * 0.8 + x * 0.01) * 6.0 * (1 + row)
+		var stalk := base.darkened(rng.randf_range(0.0, 0.18) + row * 0.08)
+		var top := Vector2(x + sway, -10.0 - h)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(x - w / 2, 0), top + Vector2(-w * 0.4, 0), top + Vector2(w * 0.4, 0), Vector2(x + w / 2, 0)]), stalk)
+		var joint := 40.0
+		while joint < h:
+			var t := joint / h
+			var at := Vector2(x + sway * t, -10.0 - joint)
+			canvas.draw_line(at + Vector2(-w * 0.6, 0), at + Vector2(w * 0.6, 0), stalk.darkened(0.3), 2.0)
+			joint += rng.randf_range(50, 80)
+		for leaf in 4:
+			var at := top + Vector2(0, leaf * 16.0)
+			var dir := -1.0 if leaf % 2 else 1.0
+			canvas.draw_colored_polygon(PackedVector2Array([at, at + Vector2(dir * 40.0, 10.0), at + Vector2(dir * 12.0, 8.0)]), stalk.lightened(0.05))
+		x += rng.randf_range(26, 70) * (0.9 + row * 0.3)
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -16, HALF_WIDTH * 2, 22), base.darkened(0.3 + row * 0.1))
+
+
+# --- haunted graveyard ---
+
+## Crooked crosses, headstones, dead trees and an iron fence.
+func _draw_graves(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 33
+	var dark := map.near_color.darkened(0.2)
+	_draw_ridge(canvas, 0.0, 60.0, 1.6, dark)
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var pick := rng.randf()
+		var ground := -14.0
+		if pick < 0.35:
+			var tilt := rng.randf_range(-0.2, 0.2)
+			canvas.draw_set_transform(Vector2(x, ground), tilt)
+			canvas.draw_rect(Rect2(-4, -60, 8, 62), dark)
+			canvas.draw_rect(Rect2(-18, -46, 36, 8), dark)
+			canvas.draw_set_transform(Vector2.ZERO)
+		elif pick < 0.7:
+			canvas.draw_rect(Rect2(x - 18, ground - 34, 36, 36), dark)
+			canvas.draw_circle(Vector2(x, ground - 34), 18.0, dark, true, -1.0, true)
+		else:
+			var trunk := PackedVector2Array([Vector2(x - 10, ground + 4), Vector2(x - 4, ground - 140), Vector2(x + 4, ground - 140), Vector2(x + 10, ground + 4)])
+			canvas.draw_colored_polygon(trunk, dark)
+			for b in 4:
+				var y := ground - rng.randf_range(60, 135)
+				var dir := -1.0 if b % 2 else 1.0
+				canvas.draw_polyline(PackedVector2Array([Vector2(x, y), Vector2(x + dir * 30, y - 24), Vector2(x + dir * 46, y - 50)]), dark, 4.0, true)
+		x += rng.randf_range(90, 200)
+	# The iron fence along the front.
+	for fx in range(-int(HALF_WIDTH), int(HALF_WIDTH), 18):
+		canvas.draw_line(Vector2(fx, -6), Vector2(fx, -54), dark.darkened(0.3), 3.0)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(fx - 4, -54), Vector2(fx, -64), Vector2(fx + 4, -54)]), dark.darkened(0.3))
+	canvas.draw_line(Vector2(-HALF_WIDTH, -44), Vector2(HALF_WIDTH, -44), dark.darkened(0.3), 3.0)
+	canvas.draw_line(Vector2(-HALF_WIDTH, -16), Vector2(HALF_WIDTH, -16), dark.darkened(0.3), 3.0)
+
+
+## Slow rolling bands of fog close to the ground.
+func _draw_fog(canvas: Node2D) -> void:
+	for band in 3:
+		var y := -20.0 - band * 30.0
+		var drift := fmod(_time * (12.0 + band * 6.0), 400.0)
+		var x := -HALF_WIDTH - 400.0 + drift
+		while x < HALF_WIDTH:
+			canvas.draw_set_transform(Vector2(x, y), 0.0, Vector2(1.0, 0.3))
+			canvas.draw_circle(Vector2.ZERO, 160.0, Color(0.7, 0.85, 0.8, 0.07), true, -1.0, true)
+			canvas.draw_set_transform(Vector2.ZERO)
+			x += 260.0

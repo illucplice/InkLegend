@@ -29,3 +29,7 @@ weather = &"none"
 obstacle_stone = Color(0.74, 0.56, 0.36, 1)
 obstacle_dark = Color(0.5, 0.35, 0.22, 1)
 rune_color = Color(1, 0.85, 0.35, 1)
+min_distance_m = 85.0
+max_distance_m = 100.0
+obstacle_style = &"wood"
+obstacle_patterns = PackedStringArray("spire", "spire_pair", "spire_wall", "wall_tower", "low_walls")

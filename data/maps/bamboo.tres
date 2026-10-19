@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="MapData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/map_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"bamboo"
+display_name = "Bamboo Dojo"
+tagline = "Close quarters, clean strikes"
+accent = Color(0.45, 0.78, 0.38, 1)
+sky_top = Color(0.38, 0.32, 0.55, 1)
+sky_mid = Color(0.75, 0.55, 0.65, 1)
+sky_low = Color(1, 0.75, 0.68, 1)
+sky_horizon = Color(1, 0.88, 0.75, 1)
+star_amount = 0.2
+sun_color = Color(1, 0.55, 0.45, 1)
+sun_glow = Color(1, 0.7, 0.6, 1)
+cloud_color = Color(1, 0.88, 0.85, 1)
+cloud_shade = Color(0.85, 0.6, 0.7, 1)
+far_color = Color(0.55, 0.5, 0.65, 1)
+near_color = Color(0.4, 0.52, 0.42, 1)
+scenery = &"bamboo"
+sky_feature = &"sun"
+ground_top = Color(0.62, 0.78, 0.42, 1)
+ground_lip = Color(0.75, 0.88, 0.55, 1)
+wall_color = Color(0.5, 0.42, 0.36, 1)
+props = &"dojo"
+fire_color = Color(1, 0.62, 0.3, 1)
+weather = &"leaves"
+obstacle_stone = Color(0.98, 0.94, 0.84, 1)
+obstacle_dark = Color(0.32, 0.2, 0.14, 1)
+rune_color = Color(1, 0.75, 0.4, 1)
+min_distance_m = 55.0
+max_distance_m = 68.0
+obstacle_style = &"bamboo"
+obstacle_patterns = PackedStringArray("spire_grove", "spire_pair", "spire_wall", "low_walls", "spire")

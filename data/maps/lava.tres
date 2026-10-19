@@ -29,3 +29,7 @@ weather = &"ash"
 obstacle_stone = Color(0.42, 0.36, 0.4, 1)
 obstacle_dark = Color(0.25, 0.2, 0.24, 1)
 rune_color = Color(1, 0.55, 0.15, 1)
+min_distance_m = 75.0
+max_distance_m = 90.0
+obstacle_style = &"basalt"
+obstacle_patterns = PackedStringArray("tower", "twin_towers", "tower_floating", "mesa", "wall_floating")

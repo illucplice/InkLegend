@@ -24,8 +24,8 @@ const INK := UiStyle.INK
 const PAPER := UiStyle.PAPER
 const GHOST := Color(1.0, 0.95, 0.75)
 const VERSION := "v0.1"
-const HINT_TEXT := "Drag back to aim, release to throw  •  Drag back to the start to cancel  •  ↑↓ angle  ←→ power  Space throws  •  Esc pauses"
-const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  •  Drag back to where you started to cancel"
+const HINT_TEXT := "Drag back to aim, release to throw  â¢  Drag back to the start to cancel  â¢  ââ angle  ââ power  Space throws  â¢  Esc pauses"
+const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  â¢  Drag back to where you started to cancel"
 const DIFFICULTY_NAMES := ["Easy", "Normal", "Hard"]
 const DIFFICULTY_COLORS := [UiStyle.GREEN, UiStyle.YELLOW, UiStyle.RED]
 const SHOWCASE_SCALE := 2.4
@@ -222,7 +222,7 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 		var portrait := Portrait.make(fighter.data, fighter.facing, 76.0)
 		plate.add_child(portrait)
 		plate.move_child(portrait, 0 if i == 0 else plate.get_child_count() - 1)
-		_names[i].text = "%s  ·  %s" % [player_names[i], fighter.data.short_name] if i == 0 else "%s  ·  %s" % [fighter.data.short_name, player_names[i]]
+		_names[i].text = "%s  Â·  %s" % [player_names[i], fighter.data.short_name] if i == 0 else "%s  Â·  %s" % [fighter.data.short_name, player_names[i]]
 		_bars[i].add_theme_stylebox_override("fill", _bar_fill(fighter.data.body_color))
 		_bars[i].value = fighter.health
 		_ghosts[i].value = fighter.health
@@ -263,7 +263,7 @@ func set_special(data: FighterData, charge: float, armed: bool) -> void:
 func set_timer(seconds: int) -> void:
 	if _turn_text.is_empty():
 		return
-	_turn_label.text = _turn_text if seconds < 0 else "%s  ·  %d" % [_turn_text, seconds]
+	_turn_label.text = _turn_text if seconds < 0 else "%s  Â·  %d" % [_turn_text, seconds]
 
 
 ## A big callout in the middle of the screen (combos, specials, close calls).
@@ -753,7 +753,7 @@ func _build_title() -> Control:
 	chests.add_theme_stylebox_override("panel", chest_box)
 	var chest_stack := VBoxContainer.new()
 	chest_stack.add_theme_constant_override("separation", 6)
-	var chest_title := UiStyle.game_label("CHESTS  ·  win new fighters", 20, true)
+	var chest_title := UiStyle.game_label("CHESTS  Â·  win new fighters", 20, true)
 	chest_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chest_stack.add_child(chest_title)
 	chest_stack.add_child(_chest_row())
@@ -905,8 +905,8 @@ func _set_showcase(index: int) -> void:
 	tween.tween_property(_showcase, "position:y", 0.0, 0.45).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
 	var rarity_name: String = Chests.RARITY_NAMES.get(data.rarity, "Common")
 	_showcase_name.text = data.display_name
-	_showcase_weapon.text = "%s  ·  %s  ·  %d / %d" % [rarity_name, data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
-	_showcase_special.text = "★ %s — %s" % [data.special_name, data.special_description]
+	_showcase_weapon.text = "%s  Â·  %s  Â·  %d / %d" % [rarity_name, data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
+	_showcase_special.text = "â %s â %s" % [data.special_name, data.special_description]
 	_showcase_root.queue_redraw()
 
 
@@ -1088,23 +1088,23 @@ func _map_button(map: MapData, group: ButtonGroup) -> Button:
 	var button := _button("", 16)
 	button.toggle_mode = true
 	button.button_group = group
-	button.custom_minimum_size = Vector2(330, 120)
+	button.custom_minimum_size = Vector2(206, 172)
 	button.add_theme_stylebox_override("normal", UiStyle.candy(color.lerp(PAPER, 0.6)))
 	button.add_theme_stylebox_override("hover", UiStyle.candy(color.lerp(PAPER, 0.4)))
 	button.add_theme_stylebox_override("pressed", UiStyle.candy(color, true))
 	button.add_theme_stylebox_override("hover_pressed", UiStyle.candy(color, true))
 	button.button_pressed = map == _map_choice
 	button.pressed.connect(func() -> void: _map_choice = map)
-	var row := HBoxContainer.new()
+	var row := VBoxContainer.new()
 	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	row.offset_left = 10
-	row.offset_right = -8
-	row.offset_top = 6
-	row.offset_bottom = -12
-	row.add_theme_constant_override("separation", 8)
+	row.offset_right = -10
+	row.offset_top = 8
+	row.offset_bottom = -14
+	row.add_theme_constant_override("separation", 2)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(150, 0)
+	preview.custom_minimum_size = Vector2(0, 92)
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.draw.connect(func() -> void:
 		var r := Rect2(Vector2.ZERO, preview.size)
@@ -1122,10 +1122,12 @@ func _map_button(map: MapData, group: ButtonGroup) -> Button:
 		preview.draw_rect(r, INK, false, 2.0))
 	row.add_child(preview)
 	var name_label := UiStyle.game_label(map.display_name if map != null else "Random", 17, true)
-	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(name_label)
+	# How far apart the fighters stand here.
+	var distance := UiStyle.ink_label("%d–%d m apart" % [roundi(map.min_distance_m), roundi(map.max_distance_m)] if map != null else "Surprise me", 14, true)
+	distance.add_theme_color_override("font_color", INK.lightened(0.2))
+	row.add_child(distance)
 	button.add_child(row)
 	return button
 
@@ -1225,16 +1227,14 @@ func _build_map_screen() -> Control:
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 16)
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 5
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 12)
 	var group := ButtonGroup.new()
 	for map in _maps:
 		grid.add_child(_map_button(map, group))
+	grid.add_child(_map_button(null, group))
 	content.add_child(grid)
-	var random := _map_button(null, group)
-	random.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	content.add_child(random)
 	var bottom := HBoxContainer.new()
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
 	bottom.add_theme_constant_override("separation", 14)
@@ -1339,7 +1339,7 @@ func _build_howto() -> Control:
 	var lines := [
 		[&"play", "Drag back anywhere and let go to throw. Drag further to throw harder."],
 		[&"back", "Drag back to where you started to cancel."],
-		[&"gear", "Keyboard: ↑↓ angle, ←→ power, Space throws."],
+		[&"gear", "Keyboard: ââ angle, ââ power, Space throws."],
 		[&"sword", "Hit the head for big damage. Knock your rival to 0 health to win."],
 		[&"home", "Towers, walls and floating slabs block throws. Lob over or sneak under."],
 		[&"pause", "Esc or the pause button stops the match."],
@@ -1521,7 +1521,7 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	pill.add_child(UiStyle.game_label(level_name, 16, true))
 	stack.add_child(pill)
 	if state == "won":
-		stack.add_child(UiStyle.game_label("✔ WON", 20, true))
+		stack.add_child(UiStyle.game_label("â WON", 20, true))
 	card.add_child(stack)
 	if state == "next":
 		card.pivot_offset = card.custom_minimum_size / 2
@@ -1698,7 +1698,7 @@ func _refresh_title() -> void:
 	else:
 		subtitle.text = "Continue: round %d of %d" % [int(Save.tournament["round"]) + 1, (Save.tournament["rounds"] as Array).size()]
 	var done := Save.daily_done == Rewards.today()
-	(_daily_button.get_meta("label") as Label).text = "Daily ✓" if done else "Daily"
+	(_daily_button.get_meta("label") as Label).text = "Daily â" if done else "Daily"
 	(_daily_button.get_meta("subtitle") as Label).text = "Done for today" if done else "New every day"
 	_daily_button.tooltip_text = Rewards.daily(Rewards.today(), _roster, _maps)["text"]
 	var info := Save.level_info()
@@ -1729,7 +1729,7 @@ func _open_fighters() -> void:
 func _fill_fighters() -> void:
 	_clear(_fighters_content)
 	var owned_count := _owned_fighters().size()
-	var header := UiStyle.ink_label("%d of %d collected  ·  Tap one you own to make it your fighter" % [owned_count, _roster.size()], 18)
+	var header := UiStyle.ink_label("%d of %d collected  Â·  Tap one you own to make it your fighter" % [owned_count, _roster.size()], 18)
 	_fighters_content.add_child(header)
 	var grid := GridContainer.new()
 	grid.columns = 5
@@ -1767,7 +1767,7 @@ func _fighter_tile(fighter: FighterData) -> Button:
 	portrait_box.add_child(portrait)
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(fighter.short_name if owned else "???", 20, true))
-	var status := UiStyle.ink_label("✔ Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
+	var status := UiStyle.ink_label("â Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
 	status.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.35) if selected else INK.lightened(0.2))
 	stack.add_child(status)
 	tile.add_child(stack)
@@ -1974,7 +1974,7 @@ func _notification(what: int) -> void:
 
 ## Held upright the game still works, but sideways shows much more of the arena.
 func _build_portrait_tip() -> void:
-	_portrait_tip = _button("↻  Turn your phone sideways for the best view   ✕", 22)
+	_portrait_tip = _button("â»  Turn your phone sideways for the best view   â", 22)
 	_portrait_tip.theme = UiStyle.theme()
 	UiStyle.paint_button(_portrait_tip, UiStyle.BLUE.lightened(0.2))
 	_portrait_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)

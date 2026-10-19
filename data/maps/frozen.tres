@@ -30,3 +30,7 @@ weather = &"snow"
 obstacle_stone = Color(0.78, 0.92, 1, 1)
 obstacle_dark = Color(0.5, 0.7, 0.9, 1)
 rune_color = Color(0.6, 1, 0.9, 1)
+min_distance_m = 70.0
+max_distance_m = 85.0
+obstacle_style = &"ice"
+obstacle_patterns = PackedStringArray("spire", "spire_pair", "spire_wall", "wall_tower", "tower")

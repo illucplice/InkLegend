@@ -43,3 +43,14 @@ extends Resource
 @export var obstacle_stone: Color = Color(0.8, 0.82, 0.88)
 @export var obstacle_dark: Color = Color(0.55, 0.57, 0.66)
 @export var rune_color: Color = Color(0.45, 0.95, 1.0)
+
+@export_group("Battle")
+## How far apart the fighters stand on this map, in metres (picked at random between).
+@export var min_distance_m: float = 65.0
+@export var max_distance_m: float = 85.0
+## How this map's obstacles look: stone, ice, basalt, wood, neon, cloud, sand, bamboo
+## or grave.
+@export var obstacle_style: StringName = &"stone"
+## Obstacle layouts this map picks from (see ObstacleLayout.PATTERNS). Empty = the
+## classic stone set.
+@export var obstacle_patterns: PackedStringArray = PackedStringArray()
