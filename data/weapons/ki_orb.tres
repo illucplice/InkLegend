@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_script")
 id = &"ki_orb"
-display_name = "Radiant Ki"
+display_name = "Royal Ki"
 max_speed = 1060.0
 body_damage = 19
 head_damage = 33
@@ -14,6 +14,6 @@ spin = 0.0
 sticks = false
 shape = &"ki"
 size = 24.0
-color = Color(1, 0.55, 0.85, 1)
+color = Color(0.72, 0.45, 1, 1)
 gravity_scale = 0.55
 special = &"orb"

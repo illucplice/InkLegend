@@ -5,12 +5,12 @@
 
 [resource]
 script = ExtResource("1_script")
-id = &"hikari"
-display_name = "Hikari the Radiant"
-short_name = "Hikari"
-body_color = Color(1, 0.5, 0.82, 1)
-accent_color = Color(1, 0.5, 0.82, 1)
-cape_color = Color(1, 0.5, 0.82, 1)
+id = &"egita"
+display_name = "Egita"
+short_name = "Egita"
+body_color = Color(0.25, 0.38, 0.9, 1)
+accent_color = Color(0.95, 0.95, 1, 1)
+cape_color = Color(0.25, 0.38, 0.9, 1)
 hair_color = Color(1, 0.85, 0.25, 1)
 weapon = ExtResource("2_weapon")
 style = &"anime2"

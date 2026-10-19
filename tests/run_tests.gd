@@ -251,12 +251,12 @@ func _test_anime_match() -> void:
 	root.add_child(game)
 	await process_frame
 	var roster: Array = game.roster()
-	var kenzo: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"kenzo")[0]
-	var hikari: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"hikari")[0]
+	var gok: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"gok")[0]
+	var egita: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"egita")[0]
 	var result := {}
 	game.match_ended.connect(func(winner: Fighter) -> void: result["winner"] = winner)
 	Engine.time_scale = 6.0
-	game.start_match(kenzo, hikari, game.Mode.VS_AI, AiAimer.Difficulty.HARD)
+	game.start_match(gok, egita, game.Mode.VS_AI, AiAimer.Difficulty.HARD)
 	# Fill both meters so the AI gets to use the beam and the orb.
 	for frame in 9000:
 		if not result.is_empty():
@@ -266,6 +266,6 @@ func _test_anime_match() -> void:
 			game._charge[1] = 1.0
 		await physics_frame
 	Engine.time_scale = 1.0
-	_check(not result.is_empty(), "a Kenzo vs Hikari match ends in a knockout")
+	_check(not result.is_empty(), "a Gok vs Egita match ends in a knockout")
 	_check(game._special_used[0] or game._special_used[1], "the AI used an anime special")
 	game.queue_free()

@@ -5,12 +5,12 @@
 
 [resource]
 script = ExtResource("1_script")
-id = &"kenzo"
-display_name = "Kenzo the Spiky"
-short_name = "Kenzo"
-body_color = Color(0.3, 0.72, 1, 1)
-accent_color = Color(0.3, 0.72, 1, 1)
-cape_color = Color(0.3, 0.72, 1, 1)
+id = &"gok"
+display_name = "Gok"
+short_name = "Gok"
+body_color = Color(1, 0.55, 0.15, 1)
+accent_color = Color(0.2, 0.35, 0.8, 1)
+cape_color = Color(1, 0.55, 0.15, 1)
 hair_color = Color(1, 0.85, 0.25, 1)
 weapon = ExtResource("2_weapon")
 style = &"anime"

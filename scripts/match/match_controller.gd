@@ -27,8 +27,8 @@ const ROSTER := [
 	preload("res://data/fighters/rango.tres"),
 	preload("res://data/fighters/grak.tres"),
 	preload("res://data/fighters/plopo.tres"),
-	preload("res://data/fighters/kenzo.tres"),
-	preload("res://data/fighters/hikari.tres"),
+	preload("res://data/fighters/gok.tres"),
+	preload("res://data/fighters/egita.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),

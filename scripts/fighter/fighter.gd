@@ -39,6 +39,8 @@ const SPRING := 60.0
 const DAMPING := 7.0
 const ARM_FOLLOW_SPEED := 14.0
 const MAX_STUCK := 6
+## Body colour of a powered-up anime fighter.
+const POWER_GOLD := Color(0.98, 0.74, 0.16)
 ## Hits doing at least this much damage knock the fighter over.
 const KNOCKDOWN_DAMAGE := 24
 ## Share of the projectile's velocity passed to the body on a knockdown.
@@ -343,6 +345,9 @@ func _draw() -> void:
 
 	# Pen-and-ink: every line solid black (flashing white on a hit).
 	var ink := ink_color.lerp(Color.WHITE, _flash * 0.85)
+	# Powered-up anime fighters glow gold from head to toe, with a shimmer.
+	if _is_anime() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
+		ink = POWER_GOLD.lerp(Color(1.0, 0.95, 0.6), 0.25 + 0.25 * sin(_time * 9.0)).lerp(Color.WHITE, _flash * 0.85)
 	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
 
 	_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)
@@ -480,28 +485,34 @@ func power_up(seconds: float) -> void:
 	_powering = seconds
 
 
-## Spiky hair swept up and back, gold when the special meter is full.
+## Anime hair in head space. "anime" (Gok): a handful of chunky spikes swept up and
+## back, with bangs over the brow. "anime2" (Egita): a widow's peak and a tall flame
+## of spikes standing straight up. Each spike is [angle on the head (degrees, -90 is
+## straight up), length, width]. When the special meter is full the hair turns gold
+## and rises, longer and more upright.
 func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	var rest := Vector2((HEAD_CENTER - NECK_REST).x * facing, (HEAD_CENTER - NECK_REST).y)
 	var tilt := (head - neck).angle() - rest.angle()
 	draw_set_transform_matrix(Transform2D(tilt, Vector2(facing, 1), 0.0, head))
 	var powered := charge >= 1.0 or _powering > 0.0
-	var color := data.hair_color.lerp(Color.WHITE, 0.15 * sin(_time * 10.0)) if powered else ink
+	# Powered hair is a shade brighter than the golden body so it still reads.
+	var color := data.hair_color.lightened(0.15).lerp(Color.WHITE, 0.15 * sin(_time * 10.0)) if powered else ink
 	var r := HEAD_RADIUS
-	var spikes: Array
-	if data.style == &"anime":
-		# Tall spikes fanning up and back.
-		spikes = [[-160.0, 30.0], [-130.0, 34.0], [-100.0, 30.0], [-70.0, 24.0], [-195.0, 26.0], [-225.0, 20.0]]
-	else:
-		# A wild mane flowing back, with a long tail.
-		spikes = [[-150.0, 24.0], [-120.0, 26.0], [-90.0, 20.0], [-185.0, 30.0], [-210.0, 40.0], [-235.0, 30.0]]
-	var bob := sin(_time * 8.0) * 2.0 if powered else 0.0
+	var gok := data.style == &"anime"
+	var spikes: Array = [[-40.0, 9.0, 6.0], [-72.0, 14.0, 8.0], [-104.0, 18.0, 9.0], [-136.0, 19.0, 9.0], [-166.0, 16.0, 8.0], [-196.0, 11.0, 7.0]] if gok \
+		else [[-58.0, 10.0, 6.0], [-74.0, 19.0, 7.0], [-89.0, 24.0, 7.0], [-104.0, 23.0, 7.0], [-120.0, 18.0, 7.0], [-138.0, 11.0, 6.0]]
+	var grow := (1.55 if gok else 1.3) if powered else 1.0
+	var bob := sin(_time * 8.0) * 1.5 if powered else 0.0
 	for spike: Array in spikes:
-		var a := deg_to_rad(spike[0])
-		var length: float = spike[1] + (8.0 if powered else 0.0)
-		var base := Vector2.from_angle(a) * (r - 3.0)
-		var tip := Vector2.from_angle(a - 0.25) * (r + length) + Vector2(0, bob)
-		var side := Vector2.from_angle(a + PI / 2) * 7.0
+		var angle: float = spike[0]
+		if powered:
+			angle = lerpf(angle, -92.0, 0.3)
+		var a := deg_to_rad(angle)
+		# Gok's spikes curl back a little; Egita's stand straight.
+		var lean := -0.28 if gok else 0.0
+		var base := Vector2.from_angle(a) * (r - 4.0)
+		var tip := Vector2.from_angle(a + lean) * (r + float(spike[1]) * grow) + Vector2(0, bob)
+		var side := Vector2.from_angle(a + PI / 2) * float(spike[2])
 		draw_colored_polygon(PackedVector2Array([base - side, tip, base + side]), color)
 	var cap := PackedVector2Array()
 	for i in 13:
@@ -509,8 +520,13 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	cap.append(Vector2(r * 0.55, -r * 0.1))
 	cap.append(Vector2(-r * 0.7, r * 0.15))
 	draw_colored_polygon(cap, color)
-	# Fringe over the brow.
-	draw_colored_polygon(PackedVector2Array([Vector2(2, -r + 2), Vector2(r + 6, -2), Vector2(r * 0.5, -r * 0.35)]), color)
+	if gok:
+		# Bangs falling over the forehead.
+		draw_colored_polygon(PackedVector2Array([Vector2(2, -r + 2), Vector2(r + 3, -4), Vector2(r * 0.35, -r * 0.3)]), color)
+		draw_colored_polygon(PackedVector2Array([Vector2(r * 0.3, -r + 4), Vector2(r * 0.85, 3), Vector2(r * 0.5, -r * 0.25)]), color)
+	else:
+		# A sharp widow's peak.
+		draw_colored_polygon(PackedVector2Array([Vector2(r * 0.2, -r * 0.85), Vector2(r * 0.95, -r * 0.4), Vector2(r * 0.6, -r * 0.05)]), color)
 	draw_set_transform(Vector2.ZERO)
 
 
