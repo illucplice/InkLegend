@@ -151,6 +151,9 @@ static func roster() -> Array[FighterData]:
 
 func _ready() -> void:
 	rng.randomize()
+	# Phones: a lower physics rate (interpolation keeps motion smooth).
+	if Device.is_mobile():
+		Engine.physics_ticks_per_second = 45
 	_obstacle_layer = Node2D.new()
 	add_child(_obstacle_layer)
 	_actors = Node2D.new()
@@ -356,6 +359,7 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 	Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
 	Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Audio.play("ground", 2.0, 0.45, 0.0)
+	Device.vibrate(90)
 	Audio.play("hit_body", -2.0, 0.6, 0.0)
 	_camera.shake(0.9)
 	for fighter in fighters:
@@ -935,6 +939,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	match part:
 		Rules.HEAD:
 			Audio.play("hit_head")
+			Device.vibrate(60)
 			Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
 			_camera.shake(0.7)
@@ -945,6 +950,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "LEG  -%d" % damage, Color(0.85, 0.9, 1.0), 28, inv_zoom, view)
 			_camera.shake(0.3)
 		_:
+			Device.vibrate(30)
 			Audio.play("hit_body", 0.0 if projectile.weapon.count == 1 else -5.0, 1.0 if projectile.weapon.count == 1 else 1.4)
 			Effects.burst(_actors, at, Color(1, 1, 1, 0.9), 12, 380.0)
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
@@ -952,6 +958,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			_slow_time(0.06, 0.15)
 	if target.is_knocked_out():
 		Audio.play("ko", 0.0, 1.0, 0.0)
+		Device.vibrate(140)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -150), "K.O.!", Color(1.0, 0.4, 0.3), 80, inv_zoom, view)
 		_camera.shake(1.0)
 		_slow_time(1.1, 0.3)

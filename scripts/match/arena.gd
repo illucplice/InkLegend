@@ -468,6 +468,7 @@ func _add_weather() -> void:
 			ramp.set_color(0, Color(1.0, 0.7, 0.3, 0))
 			ramp.set_color(1, Color(1.0, 0.4, 0.15, 0))
 			ramp.add_point(0.2, Color(1.0, 0.75, 0.35, 0.9))
+	particles.amount = maxi(10, roundi(particles.amount * Device.particle_scale()))
 	particles.color_ramp = ramp
 	add_child(particles)
 

@@ -14,7 +14,7 @@ static func burst(parent: Node, at: Vector2, color: Color, amount: int, speed: f
 	particles.emitting = false
 	particles.one_shot = true
 	particles.explosiveness = 1.0
-	particles.amount = amount
+	particles.amount = maxi(2, roundi(amount * Device.particle_scale()))
 	particles.lifetime = 0.7
 	particles.direction = Vector2.UP
 	particles.spread = spread_deg

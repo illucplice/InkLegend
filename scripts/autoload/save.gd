@@ -31,6 +31,8 @@ var long_aim_guide := false
 var show_hints := true
 var music_on := true
 var music_volume := 0.6
+## Phones: buzz on hits.
+var vibration := true
 
 # Progress
 var coins := 0
@@ -70,6 +72,7 @@ func load_settings() -> void:
 	show_hints = config.get_value("game", "show_hints", show_hints)
 	music_on = config.get_value("audio", "music_on", music_on)
 	music_volume = config.get_value("audio", "music_volume", music_volume)
+	vibration = config.get_value("game", "vibration", vibration)
 
 
 func save_settings() -> void:
@@ -81,6 +84,7 @@ func save_settings() -> void:
 	config.set_value("game", "show_hints", show_hints)
 	config.set_value("audio", "music_on", music_on)
 	config.set_value("audio", "music_volume", music_volume)
+	config.set_value("game", "vibration", vibration)
 	config.save(PATH)
 
 

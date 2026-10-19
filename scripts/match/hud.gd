@@ -25,6 +25,7 @@ const PAPER := UiStyle.PAPER
 const GHOST := Color(1.0, 0.95, 0.75)
 const VERSION := "v0.1"
 const HINT_TEXT := "Drag back to aim, release to throw  •  Drag back to the start to cancel  •  ↑↓ angle  ←→ power  Space throws  •  Esc pauses"
+const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  •  Drag back to where you started to cancel"
 const DIFFICULTY_NAMES := ["Easy", "Normal", "Hard"]
 const DIFFICULTY_COLORS := [UiStyle.GREEN, UiStyle.YELLOW, UiStyle.RED]
 const SHOWCASE_SCALE := 2.4
@@ -81,6 +82,8 @@ var _shop_content: VBoxContainer
 var _stats_screen: Control
 var _stats_content: VBoxContainer
 var _toasts: VBoxContainer
+var _portrait_tip: Button
+var _portrait_dismissed := false
 
 # Fighter select
 var _select_mode: int = MatchController.Mode.VS_AI
@@ -138,6 +141,9 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_toasts.add_theme_constant_override("separation", 8)
 	_toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_toasts)
+	_build_portrait_tip()
+	_apply_safe_area()
+	get_viewport().size_changed.connect(_apply_safe_area)
 	_show_screen(null)
 
 
@@ -354,6 +360,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	var view := get_viewport().get_visible_rect().size
+	_portrait_tip.visible = not _portrait_dismissed and view.y > view.x
 	if _title_screen != null and _title_screen.visible:
 		_showcase_root.position = Vector2(_showcase_area.size.x * 0.5, _showcase_area.size.y * 0.64)
 		_animate_showcase(delta)
@@ -434,7 +442,7 @@ func _build_match_hud() -> void:
 	_ignore_mouse(margin)
 	_top_bar = margin
 
-	_hint = UiStyle.game_label(HINT_TEXT, 17)
+	_hint = UiStyle.game_label(TOUCH_HINT_TEXT if Device.uses_touch() else HINT_TEXT, 18 if Device.uses_touch() else 17)
 	_hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_hint.offset_top = -44
 	_hint.offset_bottom = -12
@@ -1076,6 +1084,8 @@ func _build_settings() -> Control:
 	content.add_child(_toggle_row("Screen shake", "screen_shake"))
 	content.add_child(_toggle_row("Long aim guide", "long_aim_guide"))
 	content.add_child(_toggle_row("Controls hint", "show_hints"))
+	if Device.is_mobile():
+		content.add_child(_toggle_row("Vibration", "vibration"))
 	var done := _icon_button(&"play", "Done", UiStyle.GREEN, Vector2(220, 66), 26)
 	done.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	done.pressed.connect(_close_settings)
@@ -1685,3 +1695,45 @@ func _fighter_stats_table() -> CenterContainer:
 	var centre := CenterContainer.new()
 	centre.add_child(table)
 	return centre
+
+
+# --- phones: safe area, auto-pause, portrait tip ---
+
+## Keeps the HUD clear of notches and rounded corners.
+func _apply_safe_area() -> void:
+	var inset := Device.safe_insets(get_viewport())
+	_top_bar.add_theme_constant_override("margin_left", 16 + int(inset[0]))
+	_top_bar.add_theme_constant_override("margin_top", 16 + int(inset[1]))
+	_top_bar.add_theme_constant_override("margin_right", 16 + int(inset[2]))
+	_pause_button.offset_left = -88 - inset[2]
+	_pause_button.offset_right = -16 - inset[2]
+	_pause_button.offset_top = -84 - inset[3]
+	_pause_button.offset_bottom = -16 - inset[3]
+	_special_button.offset_left = 16 + inset[0]
+	_special_button.offset_right = 246 + inset[0]
+	_special_button.offset_top = -132 - inset[3]
+	_special_button.offset_bottom = -64 - inset[3]
+	_hint.offset_bottom = -12 - inset[3]
+	_hint.offset_top = -44 - inset[3]
+
+
+## Switching apps, a call, or locking the phone pauses the match.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		if _in_match and _pause_screen != null and not _pause_screen.visible and not _result_screen.visible and not _intro.visible:
+			_set_paused(true)
+
+
+## Held upright the game still works, but sideways shows much more of the arena.
+func _build_portrait_tip() -> void:
+	_portrait_tip = _button("↻  Turn your phone sideways for the best view   ✕", 22)
+	_portrait_tip.theme = UiStyle.theme()
+	UiStyle.paint_button(_portrait_tip, UiStyle.BLUE.lightened(0.2))
+	_portrait_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_portrait_tip.offset_left = -330
+	_portrait_tip.offset_right = 330
+	_portrait_tip.offset_top = -170
+	_portrait_tip.offset_bottom = -100
+	_portrait_tip.pressed.connect(func() -> void: _portrait_dismissed = true)
+	_portrait_tip.hide()
+	add_child(_portrait_tip)
