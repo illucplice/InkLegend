@@ -42,6 +42,20 @@ const TWISTS := [
 ]
 
 
+## Coins for each level gained.
+const LEVEL_UP_COINS := 100
+
+
+## XP for a match: more for winning and for harder AI; practice by stars.
+static func xp_for(summary: Dictionary) -> int:
+	match summary["mode"]:
+		MODE_VS_AI, MODE_TOURNAMENT:
+			return (40 + 10 * int(summary.get("difficulty", 0))) if summary["won"] else 15
+		MODE_PRACTICE:
+			return int(summary.get("practice_stars", 0)) * 3
+	return 0
+
+
 static func coins_for(summary: Dictionary) -> int:
 	var headshot_bonus: int = summary.get("headshots", 0) * 5
 	match summary["mode"]:

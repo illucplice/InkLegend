@@ -50,6 +50,9 @@ var counters := {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
 var tournament := {}
 ## The date (YYYY-MM-DD) of the last daily challenge completed.
 var daily_done := ""
+## Experience and the fighter shown on the home screen.
+var xp := 0
+var selected_fighter := "quotuk"
 
 ## Where progress is saved; tests point this somewhere else.
 var progress_path := PROGRESS_PATH
@@ -111,6 +114,8 @@ func load_progress() -> void:
 	counters = config.get_value("progress", "counters", counters)
 	tournament = config.get_value("progress", "tournament", tournament)
 	daily_done = config.get_value("progress", "daily_done", daily_done)
+	xp = config.get_value("progress", "xp", xp)
+	selected_fighter = config.get_value("progress", "selected_fighter", selected_fighter)
 
 
 func save_progress() -> void:
@@ -126,6 +131,8 @@ func save_progress() -> void:
 	config.set_value("progress", "counters", counters)
 	config.set_value("progress", "tournament", tournament)
 	config.set_value("progress", "daily_done", daily_done)
+	config.set_value("progress", "xp", xp)
+	config.set_value("progress", "selected_fighter", selected_fighter)
 	config.save(progress_path)
 
 
@@ -142,6 +149,8 @@ func reset_progress() -> void:
 	counters = {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
 	tournament = {}
 	daily_done = ""
+	xp = 0
+	selected_fighter = "quotuk"
 
 
 func is_unlocked(fighter: FighterData) -> bool:
@@ -188,3 +197,25 @@ func stats_for(fighter_id: String) -> Dictionary:
 	if not fighter_stats.has(fighter_id):
 		fighter_stats[fighter_id] = {"matches": 0, "wins": 0, "headshots": 0, "longest": 0.0, "damage": 0}
 	return fighter_stats[fighter_id]
+
+
+## XP needed to go from `level` to the next: 100, 150, 200, ...
+static func xp_for_level(level: int) -> int:
+	return 50 + level * 50
+
+
+## {level, into (XP into this level), needed (XP for the next level)}.
+func level_info() -> Dictionary:
+	var level := 1
+	var left := xp
+	while left >= xp_for_level(level):
+		left -= xp_for_level(level)
+		level += 1
+	return {"level": level, "into": left, "needed": xp_for_level(level)}
+
+
+## Adds XP and returns how many levels that gained.
+func add_xp(amount: int) -> int:
+	var before: int = level_info()["level"]
+	xp += amount
+	return int(level_info()["level"]) - before

@@ -17,3 +17,4 @@ style = &"anime"
 special_name = "Mega Wave"
 special_description = "A straight energy beam that blasts through obstacles."
 price = 600
+rarity = &"legendary"

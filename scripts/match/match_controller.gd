@@ -1284,6 +1284,8 @@ func _end_match() -> void:
 		"stats": _stats,
 		"tournament": ladder,
 	})
+	if payout["levels"] > 0:
+		_hud.toast("LEVEL UP!  Level %d  +%d" % [Save.level_info()["level"], payout["levels"] * Rewards.LEVEL_UP_COINS], Color(0.55, 0.9, 1.0))
 	for id: String in payout["achievements"]:
 		var entry := Rewards.achievement(id)
 		_hud.toast("Achievement: %s  +%d" % [entry["name"], Rewards.ACHIEVEMENT_COINS], Color(1.0, 0.8, 0.3))
@@ -1293,7 +1295,7 @@ func _end_match() -> void:
 ## running totals, achievements and the daily challenge. Returns what was earned:
 ## {coins, achievements (ids), daily (bool)}.
 func _pay_out(summary: Dictionary) -> Dictionary:
-	var result := {"coins": 0, "achievements": [], "daily": false}
+	var result := {"coins": 0, "achievements": [], "daily": false, "levels": 0}
 	if autoplay or mode == Mode.LOCAL_2P:
 		return result
 	var coins := Rewards.coins_for(summary)
@@ -1320,6 +1322,9 @@ func _pay_out(summary: Dictionary) -> Dictionary:
 		Save.daily_done = _daily["date"]
 		coins += Rewards.DAILY_COINS
 		result["daily"] = true
+	var levels := Save.add_xp(Rewards.xp_for(summary))
+	coins += levels * Rewards.LEVEL_UP_COINS
+	result["levels"] = levels
 	Save.coins += coins
 	Save.save_progress()
 	result["coins"] = coins

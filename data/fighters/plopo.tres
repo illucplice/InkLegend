@@ -16,3 +16,4 @@ special_description = "A bigger pull that steals 10 health."
 unlocked_by_default = false
 cape_color = Color(0.95, 0.4, 0.65, 1)
 price = 400
+rarity = &"rare"

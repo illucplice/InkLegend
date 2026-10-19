@@ -243,6 +243,63 @@ func _test_progression(save: Node) -> void:
 	save.coins = 200
 	_check(save.choose_cosmetic("trail", "gold") and save.trail == "gold" and save.coins == 120, "buying a trail equips it")
 	save.reset_progress()
+	_test_chests_and_levels(save)
+
+
+func _test_chests_and_levels(save: Node) -> void:
+	var roster: Array[FighterData] = []
+	for id: String in ["quotuk", "klakla", "pipmo", "fentuk", "bomba", "rango", "grak", "plopo", "gok", "egita"]:
+		roster.append(load("res://data/fighters/%s.tres" % id))
+	# Odds: count rarities over many seeded rolls of each chest.
+	for kind: String in Chests.ORDER:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7
+		var counts := {&"common": 0, &"rare": 0, &"legendary": 0}
+		for i in 4000:
+			counts[Chests.roll(kind, roster, rng).rarity] += 1
+		var odds: Array = Chests.KINDS[kind]["odds"]
+		var close := true
+		for r in 3:
+			close = close and absf(counts[Chests.RARITIES[r]] / 40.0 - float(odds[r])) < 3.0
+		_check(close, "%s chest rolls rarities at its odds %s (got %s)" % [kind, odds, counts.values()])
+	var repeat_a := RandomNumberGenerator.new()
+	repeat_a.seed = 99
+	var repeat_b := RandomNumberGenerator.new()
+	repeat_b.seed = 99
+	_check(Chests.roll("silver", roster, repeat_a) == Chests.roll("silver", roster, repeat_b), "a seeded chest roll is repeatable")
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	save.coins = 100
+	_check(Chests.open("wood", roster, save, rng).is_empty() and save.coins == 100, "you can't open a chest you can't afford")
+	save.coins = 5000
+	var first := Chests.open("gold", roster, save, rng)
+	var fighter: FighterData = first["fighter"]
+	_check(first["new"] and save.is_unlocked(fighter) and save.coins == 4100, "a chest unlocks a new fighter and costs its price")
+	# Own everything, so the next chest must be a duplicate paid back in coins.
+	for f in roster:
+		if not save.is_unlocked(f):
+			save.unlocked.append(String(f.id))
+	var dupe := Chests.open("wood", roster, save, rng)
+	var refund: int = Chests.DUPLICATE_COINS[(dupe["fighter"] as FighterData).rarity]
+	_check(not dupe["new"] and dupe["coins"] == refund and save.coins == 4100 - 150 + refund, "a duplicate turns into coins")
+	_check(save.unlocked.size() == roster.size(), "duplicates don't add a fighter twice")
+	for f in roster:
+		var r := f.rarity
+		if not Chests.RARITIES.has(r):
+			_check(false, "%s has a known rarity" % f.id)
+	_check(roster.any(func(f: FighterData) -> bool: return f.rarity == &"legendary"), "there is at least one legendary fighter")
+
+	save.reset_progress()
+	_check(save.level_info()["level"] == 1 and save.level_info()["into"] == 0, "you start at level 1 with no XP")
+	var needed: int = save.level_info()["needed"]
+	_check(save.add_xp(needed - 1) == 0 and save.level_info()["level"] == 1, "XP short of the bar doesn't level up")
+	_check(save.add_xp(1) == 1 and save.level_info()["level"] == 2 and save.level_info()["into"] == 0, "filling the bar levels up")
+	var two_levels: int = save.level_info()["needed"] + save.xp_for_level(3)
+	_check(save.add_xp(two_levels) == 2 and save.level_info()["level"] == 4, "a big XP gain can level up more than once")
+	_check(Rewards.xp_for({"mode": 0, "won": true, "difficulty": 2}) > Rewards.xp_for({"mode": 0, "won": false, "difficulty": 2}), "winning earns more XP than losing")
+	_check(Rewards.xp_for({"mode": 1, "won": true}) == 0, "1v1 with a friend earns no XP")
+	save.reset_progress()
 
 
 func _test_anime_match() -> void:

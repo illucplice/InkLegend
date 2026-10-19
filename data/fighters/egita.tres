@@ -17,3 +17,4 @@ style = &"anime2"
 special_name = "Spirit Orb"
 special_description = "Raise a giant energy orb and hurl it for a huge blast."
 price = 600
+rarity = &"legendary"

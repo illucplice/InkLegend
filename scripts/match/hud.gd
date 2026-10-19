@@ -79,6 +79,15 @@ var _menu: VBoxContainer
 var _tournament_button: Button
 var _daily_button: Button
 var _coins_pill: PanelContainer
+var _profile: PanelContainer
+var _profile_portrait: CenterContainer
+var _level_label: Label
+var _xp_bar: ProgressBar
+var _xp_label: Label
+var _play_button: Button
+var _chest_opening: ChestOpening
+var _fighters_screen: Control
+var _fighters_content: VBoxContainer
 var _shop_screen: Control
 var _shop_content: VBoxContainer
 var _stats_screen: Control
@@ -129,6 +138,8 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_shop_content = _shop_screen.get_meta("content")
 	_stats_screen = _build_list_screen("TROPHIES & STATS", UiStyle.ORANGE)
 	_stats_content = _stats_screen.get_meta("content")
+	_fighters_screen = _build_list_screen("FIGHTERS", UiStyle.PURPLE)
+	_fighters_content = _fighters_screen.get_meta("content")
 	_settings_screen = _build_settings()
 	_howto_screen = _build_howto()
 	_pause_screen = _build_pause()
@@ -142,6 +153,12 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_toasts.offset_right = -16
 	_toasts.add_theme_constant_override("separation", 8)
 	_toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chest_opening = ChestOpening.new()
+	add_child(_chest_opening)
+	_chest_opening.closed.connect(func() -> void:
+		_refresh_title()
+		if _fighters_screen.visible:
+			_fill_fighters())
 	add_child(_toasts)
 	_build_portrait_tip()
 	_apply_safe_area()
@@ -157,7 +174,7 @@ func show_title() -> void:
 	_hint.hide()
 	_pause_button.hide()
 	_special_button.hide()
-	_set_showcase(_showcase_index)
+	_set_showcase(_selected_index())
 	_show_screen(_title_screen)
 	_refresh_title()
 	# Menu buttons fade in one after another.
@@ -328,6 +345,9 @@ func _show_screen(screen: Control) -> void:
 func _open_select(mode: int) -> void:
 	_select_mode = mode
 	_select_step = 0
+	var owned := _owned_fighters()
+	if not owned.is_empty():
+		_picks[0] = owned[_selected_index()]
 	_refresh_select()
 	_show_screen(_select_screen)
 
@@ -359,7 +379,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		show_title()
 	elif _ladder_screen.visible:
 		menu_requested.emit()
-	elif _shop_screen.visible or _stats_screen.visible:
+	elif _shop_screen.visible or _stats_screen.visible or _fighters_screen.visible:
 		show_title()
 	elif _pause_screen.visible:
 		_set_paused(false)
@@ -547,14 +567,17 @@ func _on_health_changed(_fighter: Fighter, health: int, index: int) -> void:
 
 # --- title screen ---
 
+## The home dashboard: profile and level, coins and settings along the top; game modes
+## on the left; your fighter on a pedestal in the middle; a big PLAY button and the
+## chest shop on the right; a tab bar along the bottom.
 func _build_title() -> Control:
 	var screen := _screen_root(false)
 
 	var shade := TextureRect.new()
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(0.05, 0.03, 0.12, 0.5))
-	gradient.set_color(1, Color(0.05, 0.03, 0.12, 0.75))
-	gradient.add_point(0.45, Color(0.05, 0.03, 0.12, 0.0))
+	gradient.set_color(0, Color(0.05, 0.03, 0.12, 0.7))
+	gradient.set_color(1, Color(0.05, 0.03, 0.12, 0.8))
+	gradient.add_point(0.5, Color(0.05, 0.03, 0.12, 0.15))
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
 	texture.width = 256
@@ -566,173 +589,312 @@ func _build_title() -> Control:
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_child(shade)
 
-	# Left half: the showcase fighter on a pedestal, with arrows to browse.
-	var left := Control.new()
-	left.anchor_right = 0.5
-	left.anchor_bottom = 1.0
-	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_child(left)
-	_showcase_area = left
-	_showcase_root = Node2D.new()
-	_showcase_root.draw.connect(_draw_pedestal)
-	left.add_child(_showcase_root)
-
-	var plate := VBoxContainer.new()
-	plate.anchor_left = 0.5
-	plate.anchor_right = 0.5
-	plate.anchor_top = 0.73
-	plate.anchor_bottom = 0.98
-	plate.offset_left = -290
-	plate.offset_right = 290
-	plate.alignment = BoxContainer.ALIGNMENT_CENTER
-	plate.add_theme_constant_override("separation", 2)
-	var name_row := HBoxContainer.new()
-	name_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	name_row.add_theme_constant_override("separation", 14)
-	var prev := _icon_button(&"back", "", UiStyle.YELLOW, Vector2(60, 60), 0)
-	prev.pressed.connect(func() -> void: _set_showcase(_showcase_index - 1))
-	_showcase_name = UiStyle.game_label("", 38, true)
-	_showcase_name.custom_minimum_size.x = 340
-	_showcase_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var next := _icon_button(&"play", "", UiStyle.YELLOW, Vector2(60, 60), 0)
-	next.pressed.connect(func() -> void: _set_showcase(_showcase_index + 1))
-	name_row.add_child(prev)
-	name_row.add_child(_showcase_name)
-	name_row.add_child(next)
-	plate.add_child(name_row)
-	_showcase_weapon = UiStyle.game_label("", 20)
-	_showcase_weapon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plate.add_child(_showcase_weapon)
-	_showcase_special = UiStyle.game_label("", 17)
-	_showcase_special.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_showcase_special.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
-	plate.add_child(_showcase_special)
-	left.add_child(plate)
-
-	# Right half: logo and the main menu.
-	var right := VBoxContainer.new()
-	right.anchor_left = 0.5
-	right.anchor_right = 1.0
-	right.anchor_bottom = 1.0
-	right.alignment = BoxContainer.ALIGNMENT_CENTER
-	right.add_theme_constant_override("separation", 8)
-	screen.add_child(right)
+	# --- top bar ---
+	var top := HBoxContainer.new()
+	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top.offset_left = 16
+	top.offset_right = -16
+	top.offset_top = 12
+	top.offset_bottom = 86
+	top.add_theme_constant_override("separation", 12)
+	screen.add_child(top)
+	_profile = PanelContainer.new()
+	var profile_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.78), 18, 3)
+	profile_box.set_content_margin_all(6)
+	profile_box.content_margin_right = 14
+	_profile.add_theme_stylebox_override("panel", profile_box)
+	var profile_row := HBoxContainer.new()
+	profile_row.add_theme_constant_override("separation", 10)
+	_profile_portrait = CenterContainer.new()
+	_profile_portrait.custom_minimum_size = Vector2(60, 60)
+	profile_row.add_child(_profile_portrait)
+	var profile_text := VBoxContainer.new()
+	profile_text.alignment = BoxContainer.ALIGNMENT_CENTER
+	profile_text.add_theme_constant_override("separation", 2)
+	_level_label = UiStyle.game_label("Level 1", 22, true)
+	profile_text.add_child(_level_label)
+	_xp_bar = ProgressBar.new()
+	_xp_bar.custom_minimum_size = Vector2(190, 16)
+	_xp_bar.show_percentage = false
+	_xp_bar.add_theme_stylebox_override("background", UiStyle.flat(Color(0, 0, 0, 0.45), 8, 2))
+	_xp_bar.add_theme_stylebox_override("fill", UiStyle.flat(Color(0.45, 0.85, 1.0), 8))
+	profile_text.add_child(_xp_bar)
+	_xp_label = UiStyle.game_label("0 / 100 XP", 14)
+	profile_text.add_child(_xp_label)
+	profile_row.add_child(profile_text)
+	_profile.add_child(profile_row)
+	top.add_child(_profile)
+	var middle := CenterContainer.new()
+	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var logo := WavyTitle.new()
-	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	right.add_child(logo)
-	var tagline := UiStyle.game_label("Aim.  Throw.  Wobble.", 22)
-	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	right.add_child(tagline)
-	right.add_child(_spacer(12))
+	logo.lines = ["WOBBLE WARS"]
+	logo.font_size = 50
+	middle.add_child(logo)
+	top.add_child(middle)
+	_coins_pill = _coin_pill()
+	_coins_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(_coins_pill)
+	var settings := _icon_button(&"gear", "", UiStyle.BLUE.lightened(0.25), Vector2(62, 58), 0)
+	settings.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	settings.pressed.connect(_open_settings.bind(screen))
+	top.add_child(settings)
+	if not OS.has_feature("web"):
+		var quit := _icon_button(&"quit", "", UiStyle.GREY, Vector2(58, 58), 0)
+		quit.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		quit.pressed.connect(func() -> void: get_tree().quit())
+		top.add_child(quit)
 
+	# --- left: game modes ---
 	_menu = VBoxContainer.new()
-	_menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_menu.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+	_menu.offset_left = 16
+	_menu.offset_right = 296
+	_menu.offset_top = 104
+	_menu.offset_bottom = -96
+	_menu.alignment = BoxContainer.ALIGNMENT_CENTER
 	_menu.add_theme_constant_override("separation", 12)
-	right.add_child(_menu)
-	var play_ai := _menu_button(&"play", "Play vs AI", "Duel the computer", UiStyle.GREEN)
-	play_ai.pressed.connect(_open_select.bind(MatchController.Mode.VS_AI))
-	_menu.add_child(play_ai)
-	_tournament_button = _menu_button(&"trophy", "Tournament", "4 rounds, each one harder", UiStyle.YELLOW)
+	screen.add_child(_menu)
+	_tournament_button = _mode_button(&"trophy", "Tournament", "4 rounds, each harder", UiStyle.YELLOW)
 	_tournament_button.pressed.connect(func() -> void:
 		if Save.tournament.is_empty():
 			_open_select(MatchController.Mode.TOURNAMENT)
 		else:
 			resume_requested.emit())
 	_menu.add_child(_tournament_button)
-	var duo_row := HBoxContainer.new()
-	duo_row.add_theme_constant_override("separation", 12)
-	var play_2p := _icon_button(&"duo", "1v1 friend", UiStyle.ORANGE, Vector2(184, 64), 22)
-	play_2p.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
-	var practice := _icon_button(&"target", "Practice", UiStyle.BLUE, Vector2(184, 64), 22)
+	var duo := _mode_button(&"duo", "1v1 friend", "Take turns, one device", UiStyle.ORANGE)
+	duo.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
+	_menu.add_child(duo)
+	var practice := _mode_button(&"target", "Practice", "10 targets, earn stars", UiStyle.BLUE)
 	practice.pressed.connect(_open_select.bind(MatchController.Mode.PRACTICE))
-	duo_row.add_child(play_2p)
-	duo_row.add_child(practice)
-	_menu.add_child(duo_row)
-	var extra_row := HBoxContainer.new()
-	extra_row.add_theme_constant_override("separation", 12)
-	_daily_button = _icon_button(&"star", "Daily", UiStyle.PURPLE, Vector2(184, 64), 22)
+	_menu.add_child(practice)
+	_daily_button = _mode_button(&"star", "Daily", "New every day", UiStyle.PURPLE)
 	_daily_button.pressed.connect(daily_requested.emit)
-	var shop := _icon_button(&"coin", "Shop", UiStyle.YELLOW.lightened(0.1), Vector2(184, 64), 22)
-	shop.pressed.connect(_open_shop)
-	extra_row.add_child(_daily_button)
-	extra_row.add_child(shop)
-	_menu.add_child(extra_row)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	var settings := _icon_button(&"gear", "", UiStyle.BLUE.lightened(0.25), Vector2(118, 58), 0)
-	settings.pressed.connect(_open_settings.bind(screen))
-	var stats := _icon_button(&"trophy", "", UiStyle.ORANGE.lightened(0.15), Vector2(118, 58), 0)
-	stats.pressed.connect(_open_stats.bind(true))
-	var howto := _icon_button(&"help", "", UiStyle.PURPLE.lightened(0.25), Vector2(118, 58), 0)
-	howto.pressed.connect(func() -> void: _show_screen(_howto_screen))
-	for button in [settings, stats, howto]:
-		row.add_child(button)
-	_menu.add_child(row)
-	if not OS.has_feature("web"):
-		var quit := _icon_button(&"quit", "", UiStyle.GREY, Vector2(56, 52), 0)
-		quit.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-		quit.offset_left = 16
-		quit.offset_top = 16
-		quit.offset_right = 72
-		quit.offset_bottom = 68
-		quit.pressed.connect(func() -> void: get_tree().quit())
-		screen.add_child(quit)
+	_menu.add_child(_daily_button)
 
-	_coins_pill = _coin_pill()
-	_coins_pill.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	_coins_pill.offset_left = -190
-	_coins_pill.offset_top = 16
-	_coins_pill.offset_right = -16
-	_coins_pill.offset_bottom = 64
-	screen.add_child(_coins_pill)
+	# --- middle: your fighter on a pedestal ---
+	var stage := Control.new()
+	stage.anchor_left = 0.25
+	stage.anchor_right = 0.66
+	stage.anchor_top = 0.0
+	stage.anchor_bottom = 1.0
+	stage.offset_top = 90
+	stage.offset_bottom = -90
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(stage)
+	_showcase_area = stage
+	_showcase_root = Node2D.new()
+	_showcase_root.draw.connect(_draw_pedestal)
+	stage.add_child(_showcase_root)
+	var plate := VBoxContainer.new()
+	plate.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	plate.offset_left = -270
+	plate.offset_right = 270
+	plate.offset_top = -96
+	plate.offset_bottom = 0
+	plate.alignment = BoxContainer.ALIGNMENT_END
+	plate.add_theme_constant_override("separation", 2)
+	var name_row := HBoxContainer.new()
+	name_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	name_row.add_theme_constant_override("separation", 12)
+	var prev := _icon_button(&"back", "", UiStyle.YELLOW, Vector2(54, 54), 0)
+	prev.pressed.connect(func() -> void: _set_showcase(_showcase_index - 1))
+	_showcase_name = UiStyle.game_label("", 34, true)
+	_showcase_name.custom_minimum_size.x = 300
+	_showcase_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var next := _icon_button(&"play", "", UiStyle.YELLOW, Vector2(54, 54), 0)
+	next.pressed.connect(func() -> void: _set_showcase(_showcase_index + 1))
+	name_row.add_child(prev)
+	name_row.add_child(_showcase_name)
+	name_row.add_child(next)
+	plate.add_child(name_row)
+	_showcase_weapon = UiStyle.game_label("", 18)
+	_showcase_weapon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plate.add_child(_showcase_weapon)
+	_showcase_special = UiStyle.game_label("", 16)
+	_showcase_special.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_showcase_special.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
+	plate.add_child(_showcase_special)
+	stage.add_child(plate)
 
-	var version := UiStyle.game_label(VERSION, 16)
+	# --- right: PLAY and chests ---
+	var right := VBoxContainer.new()
+	right.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	right.offset_left = -416
+	right.offset_right = -16
+	right.offset_top = 104
+	right.offset_bottom = -96
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	right.add_theme_constant_override("separation", 14)
+	screen.add_child(right)
+	var play := _button("", 18)
+	play.custom_minimum_size = Vector2(400, 150)
+	UiStyle.paint_button(play, UiStyle.GREEN)
+	play.pressed.connect(_open_select.bind(MatchController.Mode.VS_AI))
+	var play_stack := VBoxContainer.new()
+	play_stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	play_stack.offset_bottom = -8
+	play_stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	play_stack.add_theme_constant_override("separation", -6)
+	play_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var play_label := UiStyle.game_label("PLAY", 64, true)
+	play_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	play_stack.add_child(play_label)
+	var play_sub := UiStyle.ink_label("Battle the AI", 18)
+	play_sub.add_theme_color_override("font_color", INK.lightened(0.15))
+	play_stack.add_child(play_sub)
+	play.add_child(play_stack)
+	right.add_child(play)
+	_play_button = play
+
+	var chests := PanelContainer.new()
+	var chest_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.78), 18, 3)
+	chest_box.set_content_margin_all(10)
+	chests.add_theme_stylebox_override("panel", chest_box)
+	var chest_stack := VBoxContainer.new()
+	chest_stack.add_theme_constant_override("separation", 6)
+	var chest_title := UiStyle.game_label("CHESTS  ·  win new fighters", 20, true)
+	chest_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chest_stack.add_child(chest_title)
+	chest_stack.add_child(_chest_row())
+	chests.add_child(chest_stack)
+	right.add_child(chests)
+
+	# --- bottom: tab bar ---
+	var bar := PanelContainer.new()
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.offset_top = -80
+	var bar_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.88), 0, 0)
+	bar_box.border_color = Color(1, 1, 1, 0.12)
+	bar_box.border_width_top = 3
+	bar.add_theme_stylebox_override("panel", bar_box)
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 10)
+	var tab_list := [[&"home", "Home", Callable()], [&"duo", "Fighters", _open_fighters], [&"coin", "Shop", _open_shop], [&"trophy", "Trophies", _open_stats.bind(true)], [&"help", "Help", func() -> void: _show_screen(_howto_screen)]]
+	for i in tab_list.size():
+		var tab: Array = tab_list[i]
+		var button := _icon_button(tab[0], tab[1], UiStyle.YELLOW if i == 0 else Color(0.3, 0.27, 0.4), Vector2(200, 62), 20)
+		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if (tab[2] as Callable).is_valid():
+			button.pressed.connect(tab[2])
+		tabs.add_child(button)
+	bar.add_child(tabs)
+	screen.add_child(bar)
+
+	var version := UiStyle.game_label(VERSION, 14)
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	version.offset_left = -80
-	version.offset_top = -36
-	version.offset_right = -16
-	version.offset_bottom = -10
+	version.offset_left = -70
+	version.offset_top = -104
+	version.offset_right = -12
+	version.offset_bottom = -84
 	version.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	screen.add_child(version)
 	return screen
 
 
-func _menu_button(icon: StringName, title: String, subtitle: String, color: Color) -> Button:
+## A compact mode button: icon, title and a one-line subtitle (kept as meta "subtitle").
+func _mode_button(icon: StringName, title: String, subtitle: String, color: Color) -> Button:
 	var button := _button("", 18)
-	button.custom_minimum_size = Vector2(380, 80)
+	button.custom_minimum_size = Vector2(280, 76)
 	UiStyle.paint_button(button, color)
 	var row := HBoxContainer.new()
 	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = 22
+	row.offset_left = 16
 	row.offset_bottom = -6
-	row.add_theme_constant_override("separation", 16)
+	row.add_theme_constant_override("separation", 12)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(UiIcon.make(icon, 44))
+	row.add_child(UiIcon.make(icon, 38))
 	var text := VBoxContainer.new()
 	text.alignment = BoxContainer.ALIGNMENT_CENTER
 	text.add_theme_constant_override("separation", -4)
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var big := UiStyle.game_label(title, 30, true)
-	var small := UiStyle.ink_label(subtitle, 16)
-	button.set_meta("subtitle", small)
+	var big := UiStyle.game_label(title, 25, true)
+	var small := UiStyle.ink_label(subtitle, 14)
 	small.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	small.add_theme_color_override("font_color", INK.lightened(0.15))
 	text.add_child(big)
 	text.add_child(small)
 	row.add_child(text)
 	button.add_child(row)
+	button.set_meta("label", big)
+	button.set_meta("subtitle", small)
 	return button
 
 
+## Three chest buttons (wood, silver, gold) with their prices.
+func _chest_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	for kind: String in Chests.ORDER:
+		var info: Dictionary = Chests.KINDS[kind]
+		var button := _button("", 16)
+		button.custom_minimum_size = Vector2(122, 150)
+		UiStyle.paint_button(button, (info["color"] as Color).lerp(UiStyle.PAPER, 0.55))
+		var stack := VBoxContainer.new()
+		stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.offset_top = 4
+		stack.offset_bottom = -10
+		stack.add_theme_constant_override("separation", 0)
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var art := ChestArt.new()
+		art.color = info["color"]
+		art.custom_minimum_size = Vector2(0, 82)
+		stack.add_child(art)
+		var name_label := UiStyle.ink_label(String(info["name"]).split(" ")[0], 16, true)
+		stack.add_child(name_label)
+		var price := HBoxContainer.new()
+		price.alignment = BoxContainer.ALIGNMENT_CENTER
+		price.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		price.add_child(UiIcon.make(&"coin", 20))
+		price.add_child(UiStyle.ink_label(str(info["price"]), 17, true))
+		stack.add_child(price)
+		button.add_child(stack)
+		button.tooltip_text = "%s: %d%% common, %d%% rare, %d%% legendary" % [info["name"], info["odds"][0], info["odds"][1], info["odds"][2]]
+		button.pressed.connect(_buy_chest.bind(kind))
+		row.add_child(button)
+	return row
+
+
+func _buy_chest(kind: String) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var result := Chests.open(kind, _roster, Save, rng)
+	if result.is_empty():
+		toast("Not enough coins", Color(1.0, 0.6, 0.5))
+		return
+	_chest_opening.play(kind, result)
+	_refresh_title()
+	if _shop_screen.visible:
+		_fill_shop()
+
+
+## The fighters you own, in roster order (the showcase cycles through these).
+func _owned_fighters() -> Array[FighterData]:
+	var owned: Array[FighterData] = []
+	for fighter in _roster:
+		if Save.is_unlocked(fighter):
+			owned.append(fighter)
+	return owned
+
+
+## Shows owned fighter `index` on the pedestal and makes it your selected fighter.
 func _set_showcase(index: int) -> void:
-	_showcase_index = posmod(index, _roster.size())
+	var owned := _owned_fighters()
+	_showcase_index = posmod(index, owned.size())
 	_showcase_time = 0.0
 	if _showcase != null:
 		_showcase.queue_free()
-	var data := _roster[_showcase_index]
+	var data := owned[_showcase_index]
+	if Save.selected_fighter != String(data.id):
+		Save.selected_fighter = String(data.id)
+		Save.save_progress()
+		if _profile_portrait != null:
+			_refresh_profile_portrait()
 	_showcase = preload("res://scenes/fighter/fighter.tscn").instantiate()
 	_showcase_root.add_child(_showcase)
 	_showcase.setup(data, 1, false, false)
+	_showcase.ink_color = Save.ink_color()
 	_showcase.scale = Vector2.ONE * SHOWCASE_SCALE
 	_showcase.position.y = -40
 	_showcase.reset_physics_interpolation()
@@ -740,13 +902,23 @@ func _set_showcase(index: int) -> void:
 	var tween := _showcase.create_tween().set_parallel()
 	tween.tween_property(_showcase, "modulate:a", 1.0, 0.25)
 	tween.tween_property(_showcase, "position:y", 0.0, 0.45).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	var rarity_name: String = Chests.RARITY_NAMES.get(data.rarity, "Common")
 	_showcase_name.text = data.display_name
-	_showcase_weapon.text = "%s  ·  %d body / %d head" % [data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
+	_showcase_weapon.text = "%s  ·  %s  ·  %d / %d" % [rarity_name, data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
 	_showcase_special.text = "★ %s — %s" % [data.special_name, data.special_description]
 	_showcase_root.queue_redraw()
 
 
-## Idles, lines up a throw, throws, then moves on to the next fighter.
+## Index of the selected fighter among the ones you own.
+func _selected_index() -> int:
+	var owned := _owned_fighters()
+	for i in owned.size():
+		if String(owned[i].id) == Save.selected_fighter:
+			return i
+	return 0
+
+
+## Idles, then lines up and fakes a throw, on a loop.
 func _animate_showcase(delta: float) -> void:
 	if _showcase == null:
 		return
@@ -764,7 +936,7 @@ func _animate_showcase(delta: float) -> void:
 	if before < 3.6 and _showcase_time >= 3.6:
 		_showcase.holding_weapon = true
 	if _showcase_time >= SHOWCASE_CYCLE:
-		_set_showcase(_showcase_index + 1)
+		_showcase_time = 0.0
 	_showcase_root.queue_redraw()
 
 
@@ -772,9 +944,8 @@ func _draw_pedestal() -> void:
 	var root := _showcase_root
 	var glow := Color(1.0, 0.75, 0.4)
 	if _showcase != null and _showcase.data != null:
-		glow = _showcase.data.body_color
+		glow = Chests.RARITY_COLORS.get(_showcase.data.rarity, glow)
 	var pulse := 0.5 + 0.5 * sin(_time * 2.0)
-	# Light beam from above.
 	root.draw_colored_polygon(PackedVector2Array([Vector2(-60, -560), Vector2(60, -560), Vector2(150, 0), Vector2(-150, 0)]), Color(glow.lightened(0.5), 0.08 + 0.04 * pulse))
 	root.draw_set_transform(Vector2(0, 6), 0.0, Vector2(1.0, 0.26))
 	for i in 4:
@@ -895,7 +1066,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	lock.offset_bottom = -6
 	lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var lock_label := UiStyle.game_label("LOCKED
-%d coins in the Shop" % data.price, 18, true)
+Find in chests", 18, true)
 	lock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lock_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lock.add_child(lock_label)
@@ -1514,12 +1685,103 @@ func _refresh_title() -> void:
 	_set_coins(_coins_pill)
 	var subtitle: Label = _tournament_button.get_meta("subtitle")
 	if Save.tournament.is_empty():
-		subtitle.text = "4 rounds, each one harder"
+		subtitle.text = "4 rounds, each harder"
 	else:
 		subtitle.text = "Continue: round %d of %d" % [int(Save.tournament["round"]) + 1, (Save.tournament["rounds"] as Array).size()]
 	var done := Save.daily_done == Rewards.today()
 	(_daily_button.get_meta("label") as Label).text = "Daily ✓" if done else "Daily"
+	(_daily_button.get_meta("subtitle") as Label).text = "Done for today" if done else "New every day"
 	_daily_button.tooltip_text = Rewards.daily(Rewards.today(), _roster, _maps)["text"]
+	var info := Save.level_info()
+	_level_label.text = "Level %d" % info["level"]
+	_xp_bar.max_value = info["needed"]
+	_xp_bar.value = info["into"]
+	_xp_label.text = "%d / %d XP" % [info["into"], info["needed"]]
+	_refresh_profile_portrait()
+
+
+## Your selected fighter's face in the profile card.
+func _refresh_profile_portrait() -> void:
+	_clear(_profile_portrait)
+	var data := _roster[0]
+	for fighter in _roster:
+		if String(fighter.id) == Save.selected_fighter:
+			data = fighter
+	_profile_portrait.add_child(Portrait.make(data, 1, 56.0))
+
+
+func _open_fighters() -> void:
+	_fill_fighters()
+	_show_screen(_fighters_screen)
+
+
+## Every fighter with its rarity: owned ones can be picked as your fighter, the rest
+## are greyed out and found in chests.
+func _fill_fighters() -> void:
+	_clear(_fighters_content)
+	var owned_count := _owned_fighters().size()
+	var header := UiStyle.ink_label("%d of %d collected  ·  Tap one you own to make it your fighter" % [owned_count, _roster.size()], 18)
+	_fighters_content.add_child(header)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	for fighter in _roster:
+		grid.add_child(_fighter_tile(fighter))
+	_fighters_content.add_child(grid)
+	_fighters_content.add_child(_back_button(show_title))
+
+
+func _fighter_tile(fighter: FighterData) -> Button:
+	var owned := Save.is_unlocked(fighter)
+	var selected := String(fighter.id) == Save.selected_fighter
+	var rarity_color: Color = Chests.RARITY_COLORS.get(fighter.rarity, Color.WHITE)
+	var tile := _button("", 16)
+	tile.custom_minimum_size = Vector2(196, 196)
+	UiStyle.paint_button(tile, fighter.body_color.lerp(PAPER, 0.6) if owned else Color(0.45, 0.42, 0.5))
+	var stack := VBoxContainer.new()
+	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stack.offset_top = 6
+	stack.offset_bottom = -12
+	stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	stack.add_theme_constant_override("separation", 2)
+	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var badge := UiStyle.game_label(Chests.RARITY_NAMES.get(fighter.rarity, "Common"), 15, true)
+	badge.add_theme_color_override("font_color", rarity_color)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stack.add_child(badge)
+	var portrait_box := CenterContainer.new()
+	portrait_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var portrait := Portrait.make(fighter, 1, 96.0)
+	if not owned:
+		portrait.modulate = Color(0.15, 0.13, 0.2)
+	portrait_box.add_child(portrait)
+	stack.add_child(portrait_box)
+	stack.add_child(UiStyle.ink_label(fighter.short_name if owned else "???", 20, true))
+	var status := UiStyle.ink_label("✔ Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
+	status.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.35) if selected else INK.lightened(0.2))
+	stack.add_child(status)
+	tile.add_child(stack)
+	if selected:
+		var ring := UiStyle.flat(Color(0, 0, 0, 0), 16, 4)
+		ring.border_color = rarity_color
+		var frame := Panel.new()
+		frame.add_theme_stylebox_override("panel", ring)
+		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		frame.offset_left = -4
+		frame.offset_top = -4
+		frame.offset_right = 4
+		frame.offset_bottom = 0
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.add_child(frame)
+	if owned:
+		tile.pressed.connect(func() -> void:
+			Save.selected_fighter = String(fighter.id)
+			Save.save_progress()
+			_fill_fighters())
+	else:
+		tile.tooltip_text = "%s: find it in a chest" % Chests.RARITY_NAMES.get(fighter.rarity, "Common")
+	return tile
 
 
 ## A dimmed card screen whose content is rebuilt each time it opens.
@@ -1555,60 +1817,14 @@ func _fill_shop() -> void:
 	header.alignment = BoxContainer.ALIGNMENT_CENTER
 	header.add_theme_constant_override("separation", 16)
 	header.add_child(_coin_pill())
-	header.add_child(UiStyle.ink_label("Win matches to earn coins. Unlock fighters and pick your colours.", 18))
+	header.add_child(UiStyle.ink_label("Win matches to earn coins. Open chests and pick your colours.", 18))
 	_shop_content.add_child(header)
 
-	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	for fighter in _roster:
-		grid.add_child(_shop_fighter_tile(fighter))
-	_shop_content.add_child(grid)
+	_shop_content.add_child(UiStyle.ink_label("Each chest holds one fighter. Duplicates turn into coins.", 18))
+	_shop_content.add_child(_chest_row())
 	_shop_content.add_child(_cosmetic_row("Ink", "ink", Save.INKS, Save.ink))
 	_shop_content.add_child(_cosmetic_row("Trail", "trail", Save.TRAILS, Save.trail))
 	_shop_content.add_child(_back_button(show_title))
-
-
-func _shop_fighter_tile(fighter: FighterData) -> PanelContainer:
-	var tile := PanelContainer.new()
-	var owned := Save.is_unlocked(fighter)
-	var box := UiStyle.flat(fighter.body_color.lerp(PAPER, 0.65 if owned else 0.85), 14, 3)
-	box.set_content_margin_all(8)
-	tile.add_theme_stylebox_override("panel", box)
-	tile.custom_minimum_size = Vector2(250, 96)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	var portrait := Portrait.make(fighter, 1, 72.0)
-	if not owned:
-		portrait.modulate = Color(0.45, 0.42, 0.5)
-	row.add_child(portrait)
-	var column := VBoxContainer.new()
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	var name_label := UiStyle.ink_label(fighter.short_name, 20, true)
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	column.add_child(name_label)
-	if owned:
-		var tag := UiStyle.ink_label("✔ Owned", 16)
-		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		tag.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.3))
-		column.add_child(tag)
-	else:
-		var buy := _icon_button(&"coin", str(fighter.price), UiStyle.YELLOW, Vector2(130, 46), 20)
-		buy.theme = UiStyle.theme()
-		buy.pressed.connect(_buy_fighter.bind(fighter))
-		column.add_child(buy)
-	row.add_child(column)
-	tile.add_child(row)
-	return tile
-
-
-func _buy_fighter(fighter: FighterData) -> void:
-	if Save.buy_fighter(fighter):
-		toast("Unlocked %s!" % fighter.short_name, Color(0.6, 1.0, 0.6))
-	else:
-		toast("Not enough coins", Color(1.0, 0.6, 0.5))
-	_fill_shop()
 
 
 ## A row of colour swatches: equip owned ones, buy the rest.
