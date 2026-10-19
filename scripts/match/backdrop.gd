@@ -36,10 +36,31 @@ func _ready() -> void:
 	_rng.seed = 11
 	_add_sky()
 	_animated.append(_add_layer(0.0, _draw_stars))
-	_animated.append(_add_layer(0.02, _draw_aurora if map.sky_feature == &"aurora" else _draw_sun))
+	match map.sky_feature:
+		&"aurora":
+			_animated.append(_add_layer(0.02, _draw_aurora))
+		&"moon":
+			_animated.append(_add_layer(0.02, _draw_moon))
+		_:
+			_animated.append(_add_layer(0.02, _draw_sun))
 	_animated.append(_add_layer(0.06, _draw_clouds))
-	_animated.append(_add_layer(0.16, _draw_far_mountains))
 	match map.scenery:
+		&"ocean":
+			_add_layer(0.16, _draw_far_islands)
+			_animated.append(_add_layer(0.3, _draw_sea))
+			_animated.append(_add_layer(0.36, _draw_ships))
+		&"city":
+			_add_layer(0.18, _draw_skyline_far)
+			_animated.append(_add_layer(0.42, _draw_skyline_near))
+		&"islands":
+			_animated.append(_add_layer(0.16, _draw_floating_islands_far))
+			_animated.append(_add_layer(0.34, _draw_cloud_sea))
+			_animated.append(_add_layer(0.46, _draw_floating_islands_near))
+		_:
+			_animated.append(_add_layer(0.16, _draw_far_mountains))
+	match map.scenery:
+		&"ocean", &"city", &"islands":
+			pass
 		&"forest":
 			_add_layer(0.3, _draw_near_mountains)
 			_add_layer(0.42, _draw_forest_back)
@@ -364,3 +385,154 @@ func _draw_ridge(canvas: Node2D, base_y: float, height: float, frequency: float,
 	points.append(Vector2(HALF_WIDTH, 2000))
 	points.append(Vector2(-HALF_WIDTH, 2000))
 	canvas.draw_colored_polygon(points, color)
+
+
+# --- neon rooftops / pirate cove / sky islands ---
+
+func _draw_moon(canvas: Node2D) -> void:
+	var moon := Vector2(380, -280)
+	for i in 5:
+		canvas.draw_circle(moon, 50.0 + i * 26.0, Color(map.sun_glow, 0.06), true, -1.0, true)
+	canvas.draw_circle(moon, 44.0, map.sun_color, true, -1.0, true)
+	canvas.draw_circle(moon + Vector2(14, -10), 10.0, map.sun_color.darkened(0.08), true, -1.0, true)
+	canvas.draw_circle(moon + Vector2(-12, 12), 6.0, map.sun_color.darkened(0.08), true, -1.0, true)
+
+
+## Low green islands on the horizon.
+func _draw_far_islands(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var w := rng.randf_range(160, 420)
+		var h := rng.randf_range(30, 90)
+		var hump := PackedVector2Array()
+		for i in 13:
+			var t := i / 12.0
+			hump.append(Vector2(x + w * t, -30 - sin(t * PI) * h))
+		hump.append(Vector2(x + w, 40))
+		hump.append(Vector2(x, 40))
+		canvas.draw_colored_polygon(hump, map.far_color)
+		if rng.randf() < 0.5:
+			var palm := Vector2(x + w * 0.5, -30 - h)
+			canvas.draw_line(palm, palm + Vector2(6, -34), map.far_color.darkened(0.25), 4.0, true)
+			for k in 4:
+				canvas.draw_line(palm + Vector2(6, -34), palm + Vector2(6, -34) + Vector2.from_angle(PI + k * PI / 3) * 18.0, map.far_color.darkened(0.25), 3.0, true)
+		x += w + rng.randf_range(200, 600)
+
+
+## Open sea with rolling wave lines.
+func _draw_sea(canvas: Node2D) -> void:
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -40, HALF_WIDTH * 2, 2000), map.near_color)
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -40, HALF_WIDTH * 2, 8), map.near_color.lightened(0.35))
+	for row in 6:
+		var y := -24.0 + row * 22.0
+		var wave := PackedVector2Array()
+		for k in 90:
+			var x := -HALF_WIDTH + k * 72.0
+			wave.append(Vector2(x, y + sin(x * 0.02 + _time * (1.2 + row * 0.2) + row) * 4.0))
+		canvas.draw_polyline(wave, Color(1, 1, 1, 0.22 - row * 0.025), 3.0, true)
+
+
+## Distant sailing ships drifting along the horizon.
+func _draw_ships(canvas: Node2D) -> void:
+	for i in 3:
+		var x := fmod(-1400.0 + i * 1100.0 + _time * (10.0 + i * 4.0), 3200.0) - 1600.0
+		var bob := sin(_time * 1.5 + i) * 3.0
+		var base := Vector2(x, -44 + bob)
+		var hull := PackedVector2Array([base + Vector2(-70, 0), base + Vector2(70, 0), base + Vector2(52, 22), base + Vector2(-52, 22)])
+		canvas.draw_colored_polygon(hull, Color(0.2, 0.15, 0.14))
+		for m in 2:
+			var mast := base + Vector2(-20 + m * 44, 0)
+			canvas.draw_line(mast, mast + Vector2(0, -110), Color(0.2, 0.15, 0.14), 4.0)
+			canvas.draw_colored_polygon(PackedVector2Array([mast + Vector2(2, -100), mast + Vector2(34, -72), mast + Vector2(2, -30)]), Color(0.95, 0.93, 0.85))
+		canvas.draw_colored_polygon(PackedVector2Array([base + Vector2(-20, -110), base + Vector2(-2, -104), base + Vector2(-20, -98)]), Color(0.1, 0.08, 0.08))
+
+
+## Far towers: dark blocks with a scatter of lit windows.
+func _draw_skyline_far(canvas: Node2D) -> void:
+	_draw_skyline(canvas, 41, map.far_color, 120.0, 330.0, 0.12)
+
+
+func _draw_skyline(canvas: Node2D, seed_value: int, color: Color, min_height: float, max_height: float, lit: float) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -30, HALF_WIDTH * 2, 2000), color)
+	var x := -HALF_WIDTH
+	while x < HALF_WIDTH:
+		var w := rng.randf_range(60, 150)
+		var h := rng.randf_range(min_height, max_height)
+		canvas.draw_rect(Rect2(x, -30 - h, w, h + 40), color)
+		if rng.randf() < 0.3:
+			canvas.draw_line(Vector2(x + w * 0.5, -30 - h), Vector2(x + w * 0.5, -30 - h - 40), color, 3.0)
+		for wy in range(int(-h) + 12, -10, 16):
+			for wx in range(6, int(w) - 8, 14):
+				if rng.randf() < lit:
+					canvas.draw_rect(Rect2(x + wx, -30 + wy, 6, 8), Color(1.0, 0.85, 0.5, 0.75))
+		x += w + rng.randf_range(4, 30)
+
+
+## Nearer towers with flickering neon signs and blinking antenna lights.
+func _draw_skyline_near(canvas: Node2D) -> void:
+	_draw_skyline(canvas, 57, map.near_color, 80.0, 220.0, 0.2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 58
+	var neon := [Color(1.0, 0.3, 0.8), Color(0.3, 1.0, 0.9), Color(1.0, 0.85, 0.3), Color(0.5, 0.6, 1.0)]
+	for i in 14:
+		var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(-200, -90))
+		var color: Color = neon[i % neon.size()]
+		var flicker := 1.0 if sin(_time * (3.0 + i) + i * 7.0) > -0.85 else 0.25
+		var sign_rect := Rect2(at, Vector2(rng.randf_range(50, 90), 22))
+		canvas.draw_rect(sign_rect.grow(6), Color(color, 0.15 * flicker))
+		canvas.draw_rect(sign_rect, Color(0.08, 0.04, 0.12))
+		canvas.draw_rect(sign_rect, Color(color, 0.9 * flicker), false, 3.0)
+		canvas.draw_line(sign_rect.position + Vector2(8, 11), sign_rect.end - Vector2(8, 11), Color(color, flicker), 3.0)
+	for i in 10:
+		var light := Vector2(-HALF_WIDTH + 300 + i * 620, -260 + (i % 3) * 30)
+		if fmod(_time + i * 0.37, 1.4) < 0.5:
+			canvas.draw_circle(light, 5.0, Color(1.0, 0.25, 0.25), true, -1.0, true)
+
+
+## A floating island: grassy top, hanging rock, sometimes a waterfall.
+func _draw_island(canvas: Node2D, centre: Vector2, width: float, grass: Color, rock: Color, waterfall: bool) -> void:
+	var top := PackedVector2Array()
+	for i in 9:
+		var t := i / 8.0
+		top.append(centre + Vector2(-width * 0.5 + width * t, -sin(t * PI) * 10.0))
+	for i in range(8, -1, -1):
+		var t := i / 8.0
+		top.append(centre + Vector2(-width * 0.5 + width * t, sin(t * PI) * width * 0.45 + 4.0))
+	canvas.draw_colored_polygon(top, rock)
+	canvas.draw_rect(Rect2(centre + Vector2(-width * 0.5, -8), Vector2(width, 12)), grass)
+	if waterfall:
+		var fall := Rect2(centre + Vector2(width * 0.15, 0), Vector2(10, width * 0.7))
+		canvas.draw_rect(fall, Color(0.85, 0.95, 1.0, 0.7))
+	for k in 3:
+		canvas.draw_circle(centre + Vector2(-width * 0.3 + k * width * 0.3, -18), width * 0.08, grass.darkened(0.15), true, -1.0, true)
+
+
+func _draw_floating_islands_far(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 71
+	for i in 9:
+		var bob := sin(_time * 0.6 + i) * 6.0
+		var centre := Vector2(-HALF_WIDTH + 200 + i * 760 + rng.randf_range(-100, 100), rng.randf_range(-320, -160) + bob)
+		_draw_island(canvas, centre, rng.randf_range(120, 220), map.far_color.lerp(Color(0.5, 0.8, 0.5), 0.4), map.far_color, rng.randf() < 0.5)
+
+
+## A sea of cloud under the arena.
+func _draw_cloud_sea(canvas: Node2D) -> void:
+	canvas.draw_rect(Rect2(-HALF_WIDTH, -40, HALF_WIDTH * 2, 2000), Color(0.96, 0.97, 1.0))
+	for i in 70:
+		var x := -HALF_WIDTH + i * 95.0 + sin(_time * 0.3 + i) * 12.0
+		canvas.draw_circle(Vector2(x, -38 + sin(i * 1.7) * 8.0), 44.0 + sin(i * 2.3) * 12.0, Color(1, 1, 1), true, -1.0, true)
+		canvas.draw_circle(Vector2(x + 40, -10), 30.0, Color(0.88, 0.92, 1.0), true, -1.0, true)
+
+
+func _draw_floating_islands_near(canvas: Node2D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 73
+	for i in 6:
+		var bob := sin(_time * 0.8 + i * 2.0) * 8.0
+		var centre := Vector2(-HALF_WIDTH + 400 + i * 1150 + rng.randf_range(-150, 150), rng.randf_range(-230, -120) + bob)
+		_draw_island(canvas, centre, rng.randf_range(160, 260), map.near_color, map.near_color.darkened(0.35).lerp(Color(0.5, 0.36, 0.26), 0.5), rng.randf() < 0.6)

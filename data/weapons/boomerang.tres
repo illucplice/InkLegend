@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"boomerang"
+display_name = "Boomerang"
+max_speed = 1480.0
+body_damage = 22
+head_damage = 38
+count = 1
+spin = 18.0
+sticks = false
+shape = &"boomerang"
+size = 46.0
+color = Color(0.3, 0.75, 0.75, 1)
+special = &"twin"
+pull_back = 110.0

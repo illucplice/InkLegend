@@ -9,12 +9,17 @@ signal hit_fighter(projectile: Projectile, fighter: Fighter, part: StringName)
 ## collider is the ground, or the Obstacle that was hit.
 signal hit_ground(projectile: Projectile, collider: Object)
 signal finished(projectile: Projectile)
+## Bombs: went off at `at`. direct is the fighter it struck (or null), part where;
+## collider is what it touched.
+signal exploded(projectile: Projectile, at: Vector2, direct: Fighter, part: StringName, collider: Object)
+## Target Practice: a bullseye was hit (the throw stops there).
+signal hit_target(projectile: Projectile, target: PracticeTarget)
 ## A crate was touched; the projectile keeps flying.
 signal hit_crate(projectile: Projectile, crate: Crate)
 
 const INK := Color(0.12, 0.1, 0.14)
-## Ground and obstacles (1), hitboxes (2), crates (4).
-const COLLISION_MASK := 0b111
+## Ground and obstacles (1), hitboxes (2), crates (4), practice targets (8).
+const COLLISION_MASK := 0b1111
 const MAX_LIFETIME := 8.0
 const KILL_DEPTH := 300.0
 const KILL_RANGE := 4000.0
@@ -32,6 +37,8 @@ var target: Fighter
 var closest := INF
 ## Seconds in the air since launch, including bounces.
 var flight_time := 0.0
+## Blast radius (bombs), set from the weapon; Big Boom makes it bigger.
+var explode_radius := 0.0
 
 var _origin := Vector2.ZERO
 var _velocity := Vector2.ZERO
@@ -44,6 +51,7 @@ var _trail: Line2D
 func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, velocity: Vector2, wind_accel: float = 0.0) -> void:
 	wind = wind_accel
 	weapon = from_weapon
+	explode_radius = from_weapon.explode_radius
 	thrower = from_fighter
 	_origin = from
 	_velocity = velocity
@@ -109,6 +117,12 @@ func _physics_process(delta: float) -> void:
 			_finish(false)
 		return
 
+	var practice := hit["collider"] as PracticeTarget
+	if practice != null:
+		global_position = hit["position"]
+		hit_target.emit(self, practice)
+		_finish(weapon.sticks)
+		return
 	var crate := hit["collider"] as Crate
 	if crate != null:
 		_exclude.append(crate.get_rid())
@@ -116,6 +130,10 @@ func _physics_process(delta: float) -> void:
 		return
 	global_position = hit["position"]
 	var box := hit["collider"] as Hitbox
+	if explode_radius > 0.0:
+		exploded.emit(self, global_position, box.fighter if box != null else null, box.part if box != null else Rules.BODY, hit["collider"])
+		_finish(false)
+		return
 	if box != null:
 		hit_fighter.emit(self, box.fighter, box.part)
 		_finish(weapon.sticks)
@@ -197,6 +215,30 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 					canvas.draw_colored_polygon(PackedVector2Array([
 						Vector2(-s * 0.5, 0), Vector2(-s * 0.5 + 12, 0), Vector2(-s * 0.5 - 2, side * 7),
 					]), Color(0.9, 0.3, 0.3))
+		&"bomb":
+			canvas.draw_circle(Vector2.ZERO, s * 0.5, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2(-s * 0.16, -s * 0.16), s * 0.12, Color(0.6, 0.6, 0.66), true, -1.0, true)
+			canvas.draw_rect(Rect2(Vector2(s * 0.3, -s * 0.12), Vector2(s * 0.2, s * 0.24)), ink)
+			canvas.draw_line(Vector2(s * 0.5, 0), Vector2(s * 0.68, -s * 0.14), Color(0.6, 0.45, 0.3), 2.0, true)
+			canvas.draw_circle(Vector2(s * 0.7, -s * 0.16), 3.5, Color(1.0, 0.8, 0.3), true, -1.0, true)
+			canvas.draw_circle(Vector2(s * 0.7, -s * 0.16), 6.0, Color(1.0, 0.5, 0.2, 0.4), true, -1.0, true)
+		&"boomerang":
+			var arm := PackedVector2Array([Vector2(-s * 0.5, s * 0.22), Vector2(0, -s * 0.18), Vector2(s * 0.5, s * 0.22), Vector2(s * 0.38, s * 0.3), Vector2(0, 0), Vector2(-s * 0.38, s * 0.3)])
+			canvas.draw_colored_polygon(arm, ink)
+			canvas.draw_line(Vector2(-s * 0.36, s * 0.16), Vector2(-s * 0.12, -s * 0.02), w.color, 2.5, true)
+			canvas.draw_line(Vector2(s * 0.36, s * 0.16), Vector2(s * 0.12, -s * 0.02), w.color, 2.5, true)
+		&"axe":
+			canvas.draw_line(Vector2(-s * 0.55, 0), Vector2(s * 0.5, 0), ink, 5.0, true)
+			var blade := PackedVector2Array([Vector2(s * 0.22, -3), Vector2(s * 0.48, -3), Vector2(s * 0.62, -s * 0.42), Vector2(s * 0.7, 0), Vector2(s * 0.62, s * 0.42), Vector2(s * 0.48, 3), Vector2(s * 0.22, 3)])
+			canvas.draw_colored_polygon(blade, ink)
+			canvas.draw_polyline(PackedVector2Array([Vector2(s * 0.62, -s * 0.38), Vector2(s * 0.68, 0), Vector2(s * 0.62, s * 0.38)]), steel, 3.0, true)
+		&"plunger":
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.32, 0), Color(0.55, 0.36, 0.2), 4.0, true)
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.32, 0), ink, 1.0, true)
+			var cup := PackedVector2Array([Vector2(s * 0.3, -s * 0.12), Vector2(s * 0.5, -s * 0.28), Vector2(s * 0.56, 0), Vector2(s * 0.5, s * 0.28), Vector2(s * 0.3, s * 0.12)])
+			canvas.draw_colored_polygon(cup, w.color)
+			cup.append(cup[0])
+			canvas.draw_polyline(cup, ink, 2.5, true)
 		_:
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 1.5, ink, true, -1.0, true)
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 - 1.0, Color(0.32, 0.3, 0.34), true, -1.0, true)

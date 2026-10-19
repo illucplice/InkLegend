@@ -10,7 +10,8 @@ enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER }
 ## VS_AI: the left fighter is the player, the right one the AI.
 ## LOCAL_2P: two players take turns on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT }
+## PRACTICE: alone against 10 targets at growing distances (see start_practice).
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -22,11 +23,18 @@ const ROSTER := [
 	preload("res://data/fighters/klakla.tres"),
 	preload("res://data/fighters/pipmo.tres"),
 	preload("res://data/fighters/fentuk.tres"),
+	preload("res://data/fighters/bomba.tres"),
+	preload("res://data/fighters/rango.tres"),
+	preload("res://data/fighters/grak.tres"),
+	preload("res://data/fighters/plopo.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
 	preload("res://data/maps/frozen.tres"),
 	preload("res://data/maps/lava.tres"),
+	preload("res://data/maps/pirate.tres"),
+	preload("res://data/maps/neon.tres"),
+	preload("res://data/maps/sky.tres"),
 ]
 ## Tournament rounds: AI difficulty per round. The last round is the Champion boss.
 const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION]
@@ -42,6 +50,9 @@ const MAX_SETTLE_WAIT := 3.0
 const CRATE_CHANCE := 0.4
 ## Seconds a floating slab takes to drift to its new spot.
 const DRIFT_TIME := 0.8
+## Target Practice: number of targets and tries per target (stars = tries left + 1).
+const PRACTICE_TARGETS := 10
+const PRACTICE_TRIES := 3
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
 ## The headshot cam can trigger once a throw is this close (px) to a head.
@@ -107,6 +118,10 @@ var _gap := 1500.0
 var _crate: Crate
 var _turn_count := 0
 var _extra_throw := false
+## Target Practice progress: index, attempt, stars, and whether this throw hit.
+var _practice := {}
+var _practice_target: PracticeTarget
+var _practice_hit := false
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -151,7 +166,11 @@ func _ready() -> void:
 	add_child(_hud)
 	_hud.setup(roster(), maps())
 	_hud.play_requested.connect(_on_play_requested)
-	_hud.rematch_requested.connect(func() -> void: start_match(_last_left, _last_right, mode, _last_difficulty, _last_map))
+	_hud.rematch_requested.connect(func() -> void:
+		if mode == Mode.PRACTICE:
+			start_practice(_last_left)
+		else:
+			start_match(_last_left, _last_right, mode, _last_difficulty, _last_map))
 	_hud.round_requested.connect(play_tournament_round)
 	_hud.special_toggled.connect(_on_special_toggled)
 	_hud.ladder_requested.connect(func() -> void: _hud.show_ladder(_ladder_info()))
@@ -212,6 +231,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_stats = [_empty_stats(), _empty_stats()]
 	_hud.bind_fighters(fighters, names)
 	_hud.show_match()
+	_hud.set_practice(false)
 	_camera.snap()
 	current = 0
 	if not autoplay:
@@ -234,6 +254,8 @@ func _clear_match() -> void:
 		child.queue_free()
 	fighters.clear()
 	_in_flight.clear()
+	_practice_target = null
+	_practice_hit = false
 
 
 ## Swaps the backdrop and arena for another map's (no-op if it is already shown).
@@ -258,6 +280,8 @@ func _set_map(map: MapData) -> void:
 func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, difficulty: int, map: MapData) -> void:
 	if match_mode == Mode.TOURNAMENT:
 		start_tournament(left)
+	elif match_mode == Mode.PRACTICE:
+		start_practice(left)
 	else:
 		start_match(left, right, match_mode, difficulty, map)
 
@@ -270,6 +294,7 @@ func start_tournament(pick: FighterData) -> void:
 		if fighter != pick:
 			foes.append(fighter)
 	foes.shuffle()
+	foes = foes.slice(0, TOURNAMENT_DIFFICULTIES.size() - 1)
 	foes.append(_shadow_of(pick))
 	var map_order := maps()
 	map_order.shuffle()
@@ -280,6 +305,182 @@ func start_tournament(pick: FighterData) -> void:
 		rounds.append({"opponent": foes[i], "map": map, "difficulty": TOURNAMENT_DIFFICULTIES[i]})
 	tournament = {"pick": pick, "round": 0, "rounds": rounds}
 	_hud.show_ladder(_ladder_info())
+
+
+## The sideways push a fighter's throws feel: the turn's wind, plus a boomerang's
+## pull back toward the thrower.
+func _wind_for(fighter: Fighter) -> float:
+	return wind - fighter.facing * fighter.data.weapon.pull_back
+
+
+## Plunger: drag the target toward the thrower, but never into the obstacle zone.
+func _pull_fighter(target: Fighter, thrower: Fighter, amount: float) -> void:
+	var nearest := 450.0
+	for box in _obstacle_rects:
+		nearest = maxf(nearest, maxf(absf(box.position.x), absf(box.end.x)) + 150.0)
+	var direction := signf(thrower.global_position.x - target.global_position.x)
+	var x := target.position.x + direction * amount
+	if absf(x) < nearest:
+		x = signf(target.position.x) * nearest
+	if absf(x - target.position.x) < 2.0:
+		return
+	Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "PULLED!", Color(1.0, 0.55, 0.75), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	target.create_tween().tween_property(target, "position:x", x, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Bomb: everyone in the blast takes damage (less toward the edge) and is thrown
+## outward; obstacles in it are chipped.
+func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighter, part: StringName, collider: Object) -> void:
+	var radius := projectile.explode_radius
+	Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
+	Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
+	Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Audio.play("ground", 2.0, 0.45, 0.0)
+	Audio.play("hit_body", -2.0, 0.6, 0.0)
+	_camera.shake(0.9)
+	for fighter in fighters:
+		if fighter == projectile.thrower or fighter.is_knocked_out():
+			continue
+		var centre := fighter.aim_point(false)
+		var distance := 0.0 if fighter == direct else centre.distance_to(at)
+		if distance > radius:
+			continue
+		var falloff := lerpf(1.0, 0.35, distance / radius)
+		var push := (centre - at).normalized() * 900.0 + Vector2(0, -500)
+		_on_projectile_hit(projectile, fighter, part if fighter == direct else Rules.BODY, falloff, push)
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle != null and not obstacle.is_destroyed and (obstacle == collider or obstacle.rect.grow(radius * 0.5).has_point(at)):
+			obstacle.damage(2)
+
+
+## Target Practice: you alone against 10 targets, each further away (and from the
+## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
+## earns 3 stars, second 2, third 1.
+func start_practice(pick: FighterData) -> void:
+	_clear_match()
+	get_tree().paused = false
+	mode = Mode.PRACTICE
+	tournament = {}
+	_last_left = pick
+	_set_map(MAPS[0])
+	Audio.play_music("battle")
+	for child in _obstacle_layer.get_children():
+		child.queue_free()
+	_obstacle_rects.clear()
+	_gap = 2000.0
+	fighters.append(_spawn_fighter(pick, -700, 1, false))
+	# An invisible stand-in opponent keeps the two-sided turn code happy; it can't be hit.
+	var stand_in := _spawn_fighter(pick, 3600, -1, true)
+	stand_in.visible = false
+	for child in stand_in.get_children():
+		if child is Hitbox:
+			(child as Hitbox).collision_layer = 0
+	fighters.append(stand_in)
+	_brains = [null, null]
+	_stats = [_empty_stats(), _empty_stats()]
+	_special_used = [true, true]  # no specials in practice
+	_combo = [0, 0]
+	_turn_count = 0
+	_extra_throw = false
+	_crate = null
+	_practice = {"index": 0, "attempt": 0, "stars": 0}
+	_hud.bind_fighters(fighters, ["You", ""])
+	_hud.show_match()
+	_hud.set_practice(true)
+	_spawn_practice_target()
+	_camera.snap()
+	current = 0
+	_begin_turn()
+
+
+func _practice_wind() -> float:
+	var index: int = _practice["index"]
+	if index < 3:
+		return 0.0
+	return Rules.random_wind(rng, 0.5 if index < 7 else 1.0)
+
+
+func _spawn_practice_target() -> void:
+	var index: int = _practice["index"]
+	var thrower_x := fighters[0].global_position.x
+	var distance := (25.0 + index * 6.0) * Rules.PX_PER_M
+	var floating := index >= 3 and index % 2 == 1
+	var height := rng.randf_range(160.0, 340.0) if floating else 70.0
+	var at := Vector2(thrower_x + distance, -height)
+	# From the 6th target on, a wall stands in the way.
+	for child in _obstacle_layer.get_children():
+		child.queue_free()
+	_obstacle_rects.clear()
+	if index >= 5:
+		var wall := Obstacle.new()
+		var mid := thrower_x + distance * 0.5
+		var box := Rect2(mid - 45, -rng.randf_range(160.0, 260.0), 90, 0)
+		box.size.y = -box.position.y
+		wall.setup(&"tower", box, rng.randi(), current_map)
+		wall.destroyed.connect(_on_obstacle_destroyed)
+		_obstacle_layer.add_child(wall)
+		_obstacle_rects.append(box)
+	_practice_target = PracticeTarget.new()
+	_practice_target.setup(at, floating)
+	_actors.add_child(_practice_target)
+
+
+func _on_practice_target_hit(projectile: Projectile, target: PracticeTarget) -> void:
+	if _practice_hit:
+		return
+	_practice_hit = true
+	var stars := PRACTICE_TRIES - int(_practice["attempt"])
+	var bullseye := target.is_bullseye(projectile.global_position)
+	_practice["stars"] += stars
+	_stats[0]["hits"] += 1
+	target.pop()
+	Effects.burst(_actors, target.global_position, Color(1.0, 0.85, 0.3), 30, 520.0, 180.0, 1.3)
+	Audio.play("hit_head" if bullseye else "hit_body")
+	_hud.announce(("BULLSEYE!  " if bullseye else "HIT!  ") + "★".repeat(stars), Color(1.0, 0.85, 0.3))
+	_camera.shake(0.35)
+
+
+## After each practice throw: score it, move on to the next target, or finish.
+func _practice_next() -> void:
+	var hit := _practice_hit
+	_practice_hit = false
+	if hit or int(_practice["attempt"]) + 1 >= PRACTICE_TRIES:
+		if not hit:
+			_hud.announce("MISSED  ☆☆☆", Color(0.8, 0.82, 0.9))
+			if _practice_target != null and is_instance_valid(_practice_target):
+				_practice_target.pop()
+		_practice["index"] += 1
+		_practice["attempt"] = 0
+		if int(_practice["index"]) >= PRACTICE_TARGETS:
+			_end_practice()
+			return
+		_spawn_practice_target()
+	else:
+		_practice["attempt"] += 1
+	_begin_turn()
+
+
+func _end_practice() -> void:
+	state = State.GAME_OVER
+	_aim.finish()
+	_hud.show_hint(false)
+	_hud.set_turn("")
+	fighters[0].celebrate()
+	var stars: int = _practice["stars"]
+	var best := PRACTICE_TARGETS * PRACTICE_TRIES
+	var rating := "Sharpshooter!" if stars >= best * 0.8 else ("Nice aim!" if stars >= best * 0.5 else "Keep practising!")
+	Audio.play("win", -3.0, 1.0, 0.0)
+	_hud.show_result({
+		"title": "PRACTICE DONE",
+		"color": Color(0.3, 0.55, 0.95),
+		"detail": "★ %d / %d   ·   %s" % [stars, best, rating],
+		"winner": fighters[0].data,
+		"winner_facing": 1,
+		"names": ["You", ""],
+		"stats": _stats,
+		"practice": stars,
+	})
 
 
 ## Plays the current tournament round (also used to retry after a loss).
@@ -411,6 +612,8 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 	var fighter: Fighter = FIGHTER_SCENE.instantiate()
 	fighter.position = Vector2(x, 0)
 	_actors.add_child(fighter)
+	# Fighters only move when a plunger drags them, by tween, so skip interpolation.
+	fighter.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	fighter.reset_physics_interpolation()
 	fighter.setup(data, facing, is_ai)
 	return fighter
@@ -431,19 +634,22 @@ func _begin_turn() -> void:
 	for other in fighters:
 		other.is_turn = other == fighter
 	fighter.holding_weapon = true
-	wind = Rules.random_wind(rng, _wind_strength)
-	_aim.wind = wind
+	wind = _practice_wind() if mode == Mode.PRACTICE else Rules.random_wind(rng, _wind_strength)
+	_aim.wind = _wind_for(fighter)
 	_hud.set_wind(wind)
 	_special_armed = false
 	_throw_closest = INF
-	if _turn_count > 0:
+	if _turn_count > 0 and mode != Mode.PRACTICE:
 		_drift_obstacles()
 		_maybe_spawn_crate(CRATE_CHANCE)
 	_turn_count += 1
 	_turn_hit = false
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
-		_hud.set_turn("PLAYER %d'S TURN" % (current + 1) if mode == Mode.LOCAL_2P else "YOUR TURN", SIDE_COLORS[current])
+		var turn_text := "PLAYER %d'S TURN" % (current + 1) if mode == Mode.LOCAL_2P else "YOUR TURN"
+		if mode == Mode.PRACTICE:
+			turn_text = "TARGET %d/%d  ·  TRY %d/%d" % [_practice["index"] + 1, PRACTICE_TARGETS, _practice["attempt"] + 1, PRACTICE_TRIES]
+		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, not _special_used[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
 		Audio.play("turn", -6.0)
@@ -459,7 +665,7 @@ func _begin_turn() -> void:
 	if not _special_used[current] and brain.wants_special(fighter.health):
 		_special_armed = true
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
-	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, wind)
+	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter))
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -560,19 +766,28 @@ func _throw(angle: float, power: float) -> void:
 		&"triple":
 			count = 3
 			spread = 3.0
+		&"twin":
+			count = 2
+			spread = 7.0
 	for i in count:
 		var offset := (i - (count - 1) / 2.0) * spread
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 		_actors.add_child(projectile)
-		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), wind)
+		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
 		if special == &"shockwave":
 			projectile.bounces = 1
 		if special == &"pin":
 			projectile.set_meta("pin", true)
+		if special == &"bigboom":
+			projectile.explode_radius *= 1.6
+		if special == &"chop" or special == &"suck":
+			projectile.set_meta(special, true)
+		projectile.exploded.connect(_on_projectile_exploded)
 		projectile.hit_fighter.connect(_on_projectile_hit)
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.hit_crate.connect(_on_projectile_hit_crate)
+		projectile.hit_target.connect(_on_practice_target_hit)
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -580,7 +795,9 @@ func _throw(angle: float, power: float) -> void:
 	fighter.powered = false
 
 
-func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName) -> void:
+## scale (bomb blasts fall off with distance) and push (the blast direction) are
+## only used by explosions.
+func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName, scale: float = 1.0, push: Vector2 = Vector2.ZERO) -> void:
 	var side := fighters.find(projectile.thrower)
 	# Combo counts turns in a row with at least one hit.
 	if side >= 0 and not _turn_hit:
@@ -590,6 +807,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			_hud.announce("COMBO x%d!" % _combo[side], Color(1.0, 0.55, 0.9))
 	var combo: int = _combo[side] if side >= 0 else 0
 	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
+	damage = roundi(damage * scale * (1.5 if projectile.get_meta("chop", false) else 1.0))
 	if projectile.get_meta("double", false):
 		damage *= 2
 	if target.shielded:
@@ -600,7 +818,17 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	var was_healthy := target.health > LAST_STAND_HEALTH
-	target.take_hit(part, damage, projectile.current_velocity())
+	var impact := push if push != Vector2.ZERO else projectile.current_velocity()
+	target.take_hit(part, maxi(damage, Fighter.KNOCKDOWN_DAMAGE) if projectile.get_meta("chop", false) and target.health > Fighter.KNOCKDOWN_DAMAGE else damage, impact)
+	var pull := projectile.weapon.pull_target * (2.2 if projectile.get_meta("suck", false) else 1.0)
+	if pull > 0.0 and not target.is_knocked_out():
+		_pull_fighter(target, projectile.thrower, pull)
+	if projectile.get_meta("suck", false) and side >= 0:
+		var stolen := mini(10, target.health)
+		target.health -= stolen
+		target.health_changed.emit(target, target.health)
+		fighters[side].heal(stolen)
+		_hud.announce("SUPER SUCK! +%d" % stolen, Color(1.0, 0.5, 0.75))
 	if projectile.weapon.sticks:
 		target.stick(projectile.weapon, projectile.global_position, projectile.current_velocity())
 		projectile.visible = false
@@ -684,6 +912,12 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 		_combo[current] = 0
 		if _throw_closest < CLOSE_CALL_DISTANCE:
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
+	if mode == Mode.PRACTICE:
+		var practice_id := _match_id
+		await get_tree().create_timer(SETTLE_TIME, false).timeout
+		if practice_id == _match_id:
+			_practice_next()
+		return
 	var match_id := _match_id
 	await get_tree().create_timer(SETTLE_TIME, false).timeout
 	if match_id != _match_id:
@@ -791,8 +1025,12 @@ func _camera_points() -> PackedVector2Array:
 		points.append(Vector2(550, 0))
 		return points
 	for fighter in fighters:
+		if not fighter.visible:
+			continue
 		points.append(fighter.global_position)
 		points.append(fighter.aim_point(true))
+	if _practice_target != null and is_instance_valid(_practice_target):
+		points.append(_practice_target.global_position + Vector2(0, 60))
 	for box in _obstacle_rects:
 		points.append(Vector2(box.get_center().x, box.position.y))
 	for projectile in _in_flight:

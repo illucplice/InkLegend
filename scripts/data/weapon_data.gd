@@ -21,6 +21,12 @@ extends Resource
 ## Drawn length (or diameter for pebbles), in px.
 @export var size: float = 30.0
 @export var color: Color = Color.WHITE
+## Bombs: blast radius in px (0 = no explosion). Everyone in it is hurt, less at the edge.
+@export var explode_radius: float = 0.0
+## Boomerangs: backward pull in px/s², which curves the flight back toward the thrower.
+@export var pull_back: float = 0.0
+## Plungers: how far (px) a hit drags the target toward the thrower.
+@export var pull_target: float = 0.0
 ## Once-per-match special: shockwave (bounces once more), lucky (5 pebbles),
 ## pin (target skips a turn) or triple (three arrows).
 @export var special: StringName = &""

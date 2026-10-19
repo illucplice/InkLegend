@@ -80,7 +80,7 @@ var _difficulty_box: Control
 var _go_label: Label
 ## null means a random map.
 var _map_choice: MapData
-var _map_box: Control
+var _map_screen: Control
 
 # Tournament ladder
 var _ladder_screen: Control
@@ -105,6 +105,7 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_build_match_hud()
 	_title_screen = _build_title()
 	_select_screen = _build_select()
+	_map_screen = _build_map_screen()
 	_ladder_screen = _build_ladder()
 	_settings_screen = _build_settings()
 	_howto_screen = _build_howto()
@@ -175,6 +176,11 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 		_ghosts[i].value = fighter.health
 		_hp_labels[i].text = str(fighter.health)
 		fighter.health_changed.connect(_on_health_changed.bind(i))
+
+
+## Target Practice has no opponent, so hide the right-hand plate.
+func set_practice(on: bool) -> void:
+	_plates[1].visible = not on
 
 
 func set_wind(wind: float) -> void:
@@ -252,6 +258,7 @@ func show_result(outcome: Dictionary) -> void:
 		child.queue_free()
 	_result_portrait_holder.add_child(Portrait.make(outcome["winner"], outcome["winner_facing"], 128.0))
 	_fill_stats(outcome["names"], outcome["stats"])
+	_result_stats.get_parent().get_parent().visible = not outcome.has("practice")
 	_fill_result_buttons(outcome.get("tournament", {}))
 	_special_button.hide()
 	_pause_button.hide()
@@ -303,6 +310,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 	if _settings_screen.visible:
 		_close_settings()
+	elif _map_screen.visible:
+		_show_screen(_select_screen)
 	elif _select_screen.visible:
 		_select_back()
 	elif _howto_screen.visible:
@@ -567,9 +576,15 @@ func _build_title() -> Control:
 	var tournament := _menu_button(&"trophy", "Tournament", "4 rounds, each one harder", UiStyle.YELLOW)
 	tournament.pressed.connect(_open_select.bind(MatchController.Mode.TOURNAMENT))
 	_menu.add_child(tournament)
-	var play_2p := _menu_button(&"duo", "1v1 with a friend", "Take turns on one device", UiStyle.ORANGE)
+	var duo_row := HBoxContainer.new()
+	duo_row.add_theme_constant_override("separation", 12)
+	var play_2p := _icon_button(&"duo", "1v1 friend", UiStyle.ORANGE, Vector2(184, 70), 22)
 	play_2p.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
-	_menu.add_child(play_2p)
+	var practice := _icon_button(&"target", "Practice", UiStyle.BLUE, Vector2(184, 70), 22)
+	practice.pressed.connect(_open_select.bind(MatchController.Mode.PRACTICE))
+	duo_row.add_child(play_2p)
+	duo_row.add_child(practice)
+	_menu.add_child(duo_row)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	var settings := _icon_button(&"gear", "Settings", UiStyle.BLUE.lightened(0.25), Vector2(184, 62), 22)
@@ -692,9 +707,10 @@ func _draw_pedestal() -> void:
 func _build_select() -> Control:
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 14)
-	var cards := HBoxContainer.new()
-	cards.alignment = BoxContainer.ALIGNMENT_CENTER
-	cards.add_theme_constant_override("separation", 14)
+	var cards := GridContainer.new()
+	cards.columns = 4
+	cards.add_theme_constant_override("h_separation", 12)
+	cards.add_theme_constant_override("v_separation", 10)
 	var group := ButtonGroup.new()
 	for i in _roster.size():
 		var card := _fighter_card(_roster[i], group)
@@ -726,19 +742,6 @@ func _build_select() -> Control:
 	content.add_child(difficulty)
 	_difficulty_box = difficulty
 
-	var map_row := HBoxContainer.new()
-	map_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	map_row.add_theme_constant_override("separation", 10)
-	var map_label := UiStyle.ink_label("Map", 22, true)
-	map_label.custom_minimum_size.x = 70
-	map_row.add_child(map_label)
-	var map_group := ButtonGroup.new()
-	for map in _maps:
-		map_row.add_child(_map_button(map, map_group))
-	map_row.add_child(_map_button(null, map_group))
-	content.add_child(map_row)
-	_map_box = map_row
-
 	var bottom := HBoxContainer.new()
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
 	bottom.add_theme_constant_override("separation", 14)
@@ -759,7 +762,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	var card := Button.new()
 	card.toggle_mode = true
 	card.button_group = group
-	card.custom_minimum_size = Vector2(232, 300)
+	card.custom_minimum_size = Vector2(232, 200)
 	card.add_theme_stylebox_override("normal", UiStyle.candy(data.body_color.lerp(PAPER, 0.72)))
 	card.add_theme_stylebox_override("hover", UiStyle.candy(data.body_color.lerp(PAPER, 0.5)))
 	card.add_theme_stylebox_override("pressed", UiStyle.candy(data.body_color.lerp(PAPER, 0.15), true))
@@ -775,25 +778,24 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	stack.add_theme_constant_override("separation", 3)
 	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(0, 150)
+	preview.custom_minimum_size = Vector2(0, 100)
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.clip_contents = true
 	var fighter: Fighter = preload("res://scenes/fighter/fighter.tscn").instantiate()
 	preview.add_child(fighter)
 	fighter.setup(data, 1, false, false)
-	fighter.scale = Vector2(0.98, 0.98)
+	fighter.scale = Vector2(0.62, 0.62)
 	preview.resized.connect(func() -> void:
-		fighter.position = Vector2(preview.size.x / 2, preview.size.y - 16)
+		fighter.position = Vector2(preview.size.x / 2, preview.size.y - 6)
 		fighter.reset_physics_interpolation())
 	stack.add_child(preview)
-	stack.add_child(UiStyle.ink_label(data.display_name, 21, true))
+	stack.add_child(UiStyle.ink_label(data.display_name, 19, true))
 	var weapon := UiStyle.ink_label(data.weapon.display_name, 15)
 	weapon.add_theme_color_override("font_color", INK.lightened(0.25))
 	stack.add_child(weapon)
 	var power := data.weapon.body_damage * data.weapon.count
 	stack.add_child(_stat_row("Power", clampi(roundi(power / 7.0), 1, 5), data.body_color))
 	stack.add_child(_stat_row("Speed", clampi(roundi((data.weapon.max_speed - 1150.0) / 55.0), 1, 5), data.body_color))
-	stack.add_child(_stat_row("Shots", data.weapon.count, data.body_color))
 	card.add_child(stack)
 	card.set_meta("fighter", fighter)
 	return card
@@ -805,7 +807,7 @@ func _map_button(map: MapData, group: ButtonGroup) -> Button:
 	var button := _button("", 16)
 	button.toggle_mode = true
 	button.button_group = group
-	button.custom_minimum_size = Vector2(196, 74)
+	button.custom_minimum_size = Vector2(330, 120)
 	button.add_theme_stylebox_override("normal", UiStyle.candy(color.lerp(PAPER, 0.6)))
 	button.add_theme_stylebox_override("hover", UiStyle.candy(color.lerp(PAPER, 0.4)))
 	button.add_theme_stylebox_override("pressed", UiStyle.candy(color, true))
@@ -821,7 +823,7 @@ func _map_button(map: MapData, group: ButtonGroup) -> Button:
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(64, 0)
+	preview.custom_minimum_size = Vector2(150, 0)
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.draw.connect(func() -> void:
 		var r := Rect2(Vector2.ZERO, preview.size)
@@ -874,6 +876,9 @@ func _refresh_select() -> void:
 	if is_tournament:
 		label.text = "CHOOSE YOUR CHAMPION"
 		color = UiStyle.ORANGE
+	elif _select_mode == MatchController.Mode.PRACTICE:
+		label.text = "TARGET PRACTICE"
+		color = UiStyle.BLUE
 	elif vs_ai:
 		label.text = "CHOOSE YOUR FIGHTER"
 	else:
@@ -881,9 +886,9 @@ func _refresh_select() -> void:
 		color = UiStyle.BLUE if _select_step == 0 else UiStyle.RED
 	_select_ribbon.add_theme_stylebox_override("panel", UiStyle.candy(color))
 	_difficulty_box.visible = vs_ai
-	_map_box.visible = not is_tournament
 	var two_player := _select_mode == MatchController.Mode.LOCAL_2P
-	_go_label.text = "Next" if two_player and _select_step == 0 else ("Start!" if is_tournament else "Fight!")
+	var picks_map := vs_ai or (two_player and _select_step == 1)
+	_go_label.text = "Next" if picks_map or (two_player and _select_step == 0) else "Start!"
 	var picked := _roster.find(_picks[_select_step])
 	for i in _card_buttons.size():
 		_card_buttons[i].set_pressed_no_signal(i == picked)
@@ -911,8 +916,44 @@ func _select_next() -> void:
 			_picks[1] = _roster[(_roster.find(_picks[0]) + 1) % _roster.size()]
 		_refresh_select()
 		return
+	# Vs AI and 1v1 go on to choose a map; tournaments and practice start straight away.
+	if _select_mode == MatchController.Mode.VS_AI or _select_mode == MatchController.Mode.LOCAL_2P:
+		_show_screen(_map_screen)
+		return
+	_start_selected()
+
+
+func _start_selected() -> void:
 	var right := _picks[1] if _select_mode == MatchController.Mode.LOCAL_2P else null
 	play_requested.emit(_picks[0], right, _select_mode, _difficulty, _map_choice)
+
+
+## Choose a map (or Random) before a vs AI or 1v1 match.
+func _build_map_screen() -> Control:
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 16)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	var group := ButtonGroup.new()
+	for map in _maps:
+		grid.add_child(_map_button(map, group))
+	content.add_child(grid)
+	var random := _map_button(null, group)
+	random.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	content.add_child(random)
+	var bottom := HBoxContainer.new()
+	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
+	bottom.add_theme_constant_override("separation", 14)
+	var back := _icon_button(&"back", "Back", UiStyle.GREY, Vector2(170, 70), 24)
+	back.pressed.connect(func() -> void: _show_screen(_select_screen))
+	var go := _icon_button(&"sword", "Fight!", UiStyle.GREEN, Vector2(280, 70), 34)
+	go.pressed.connect(_start_selected)
+	bottom.add_child(back)
+	bottom.add_child(go)
+	content.add_child(bottom)
+	return _card_screen("CHOOSE A MAP", UiStyle.PURPLE, content)
 
 
 # --- settings, how to play, pause, results ---

@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"plunger"
+display_name = "Plunger"
+max_speed = 1300.0
+body_damage = 15
+head_damage = 26
+count = 1
+spin = 0.0
+sticks = true
+shape = &"plunger"
+size = 52.0
+color = Color(0.9, 0.3, 0.4, 1)
+special = &"suck"
+pull_target = 120.0

@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/bomb.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"bomba"
+display_name = "Bomba the Loud"
+short_name = "Bomba"
+body_color = Color(1, 0.55, 0.15, 1)
+accent_color = Color(1, 0.55, 0.15, 1)
+weapon = ExtResource("2_weapon")
+special_name = "Big Boom"
+special_description = "The blast is half as big again."
+unlocked_by_default = false
+cape_color = Color(1, 0.55, 0.15, 1)

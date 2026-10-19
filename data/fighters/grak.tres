@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/axe.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"grak"
+display_name = "Grak the Heavy"
+short_name = "Grak"
+body_color = Color(0.7, 0.35, 0.22, 1)
+accent_color = Color(0.7, 0.35, 0.22, 1)
+weapon = ExtResource("2_weapon")
+special_name = "Heavy Chop"
+special_description = "+50% damage and always knocks down."
+unlocked_by_default = false
+cape_color = Color(0.7, 0.35, 0.22, 1)

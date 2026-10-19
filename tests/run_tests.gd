@@ -105,6 +105,7 @@ func _test_ai_vs_ai_match() -> void:
 	_check(turns["count"] >= 2, "turns alternated (%d turn changes)" % turns["count"])
 	print("AI vs AI: %s won after %d turn changes" % [winner.data.short_name, turns["count"]])
 	await _test_maps_and_tournament(game)
+	await _test_practice(game)
 	game.queue_free()
 
 
@@ -189,3 +190,17 @@ func _test_destructible_obstacles() -> void:
 	_check(not tower.damage(1) and not tower.damage(2), "a tower survives 3 damage")
 	_check(tower.damage(1) and tower.is_destroyed and tower.collision_layer == 0, "the 4th point of damage breaks it and removes its collision")
 	_check(broke["count"] == 1 and not tower.damage(5), "it breaks only once")
+
+
+func _test_practice(game: Node) -> void:
+	game.start_practice(game.roster()[4])
+	await process_frame
+	_check(game.mode == game.Mode.PRACTICE and game._practice_target != null, "practice starts with a target")
+	_check(not game.fighters[1].visible, "practice has no visible opponent")
+	game._practice_hit = true
+	game._practice["stars"] += 3
+	game._practice_next()
+	_check(game._practice["index"] == 1 and game._practice["attempt"] == 0, "a hit moves practice to the next target")
+	for i in 3:
+		game._practice_next()
+	_check(game._practice["index"] == 2, "three misses move practice on too")
