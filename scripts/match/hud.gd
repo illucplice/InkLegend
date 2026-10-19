@@ -103,6 +103,7 @@ var _picks: Array[FighterData] = [null, null]
 var _difficulty: int = AiAimer.Difficulty.NORMAL
 var _select_ribbon: PanelContainer
 var _card_buttons: Array[Button] = []
+var _card_scroll: ScrollContainer
 var _difficulty_box: Control
 var _go_label: Label
 ## null means a random map.
@@ -967,7 +968,7 @@ func _build_select() -> Control:
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 14)
 	var cards := GridContainer.new()
-	cards.columns = 4
+	cards.columns = 5
 	cards.add_theme_constant_override("h_separation", 12)
 	cards.add_theme_constant_override("v_separation", 10)
 	var group := ButtonGroup.new()
@@ -976,7 +977,13 @@ func _build_select() -> Control:
 		card.pressed.connect(_on_card_picked.bind(i))
 		cards.add_child(card)
 		_card_buttons.append(card)
-	content.add_child(cards)
+	# Two rows show at once; any more scroll, so the buttons below always fit.
+	_card_scroll = ScrollContainer.new()
+	_card_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_card_scroll.scroll_deadzone = 12
+	_card_scroll.custom_minimum_size = Vector2(cards.get_combined_minimum_size().x + 14, 2 * 190 + 10 + 6)
+	_card_scroll.add_child(cards)
+	content.add_child(_card_scroll)
 
 	var difficulty := HBoxContainer.new()
 	difficulty.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1021,7 +1028,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	var card := Button.new()
 	card.toggle_mode = true
 	card.button_group = group
-	card.custom_minimum_size = Vector2(232, 200)
+	card.custom_minimum_size = Vector2(204, 190)
 	card.add_theme_stylebox_override("normal", UiStyle.candy(data.body_color.lerp(PAPER, 0.72)))
 	card.add_theme_stylebox_override("hover", UiStyle.candy(data.body_color.lerp(PAPER, 0.5)))
 	card.add_theme_stylebox_override("pressed", UiStyle.candy(data.body_color.lerp(PAPER, 0.15), true))
@@ -1037,7 +1044,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	stack.add_theme_constant_override("separation", 3)
 	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(0, 100)
+	preview.custom_minimum_size = Vector2(0, 86)
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.clip_contents = true
 	var fighter: Fighter = preload("res://scenes/fighter/fighter.tscn").instantiate()
@@ -1048,7 +1055,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 		fighter.position = Vector2(preview.size.x / 2, preview.size.y - 6)
 		fighter.reset_physics_interpolation())
 	stack.add_child(preview)
-	stack.add_child(UiStyle.ink_label(data.display_name, 19, true))
+	stack.add_child(UiStyle.ink_label(data.short_name, 20, true))
 	var weapon := UiStyle.ink_label(data.weapon.display_name, 15)
 	weapon.add_theme_color_override("font_color", INK.lightened(0.25))
 	stack.add_child(weapon)
@@ -1129,15 +1136,15 @@ func _stat_row(label_text: String, value: int, color: Color) -> HBoxContainer:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var label := UiStyle.ink_label(label_text, 14)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.custom_minimum_size.x = 64
+	label.custom_minimum_size.x = 56
 	row.add_child(label)
 	var pips := Control.new()
-	pips.custom_minimum_size = Vector2(130, 18)
+	pips.custom_minimum_size = Vector2(110, 16)
 	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pips.draw.connect(func() -> void:
 		for i in 5:
 			var filled := i < value
-			pips.draw_style_box(UiStyle.flat(color if filled else Color(0, 0, 0, 0.12), 5, 2 if filled else 0), Rect2(i * 26.0, 2, 22, 14)))
+			pips.draw_style_box(UiStyle.flat(color if filled else Color(0, 0, 0, 0.12), 5, 2 if filled else 0), Rect2(i * 22.0, 2, 18, 12)))
 	row.add_child(pips)
 	return row
 
@@ -1170,6 +1177,8 @@ func _refresh_select() -> void:
 				_picks[_select_step] = fighter
 				break
 	var picked := _roster.find(_picks[_select_step])
+	if picked >= 0:
+		_card_scroll.ensure_control_visible.call_deferred(_card_buttons[picked])
 	for i in _card_buttons.size():
 		_card_buttons[i].set_pressed_no_signal(i == picked)
 		var locked := not Save.is_unlocked(_card_buttons[i].get_meta("data"))
