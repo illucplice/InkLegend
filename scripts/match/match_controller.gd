@@ -27,6 +27,8 @@ const ROSTER := [
 	preload("res://data/fighters/rango.tres"),
 	preload("res://data/fighters/grak.tres"),
 	preload("res://data/fighters/plopo.tres"),
+	preload("res://data/fighters/kenzo.tres"),
+	preload("res://data/fighters/hikari.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -55,6 +57,16 @@ const PRACTICE_TARGETS := 10
 const PRACTICE_TRIES := 3
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
+## Special meter gains: per hit, per headshot, and when you get hit.
+const CHARGE_HIT := 0.4
+const CHARGE_HEADSHOT := 0.6
+const CHARGE_WHEN_HIT := 0.2
+## Anime specials: the beam's reach and damage, and the Spirit Orb's blast.
+const BEAM_RANGE := 3600.0
+const BEAM_MULTIPLIER := 2.5
+const ORB_RADIUS := 240.0
+const ORB_MULTIPLIER := 2.4
+const ORB_RAISE_TIME := 0.9
 ## The headshot cam can trigger once a throw is this close (px) to a head.
 const CINEMATIC_RANGE := 260.0
 ## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
@@ -104,6 +116,10 @@ var _sky_shown := false
 ## Wind for this turn (px/s²) and how strong winds get this match (0 = calm).
 var wind := 0.0
 var _wind_strength := 1.0
+## Special meter per side (0..1): fills as you land hits (and a little when hit). Full
+## means the special can be armed for the next throw; using it empties the meter.
+var _charge: Array[float] = [0.0, 0.0]
+## Whether each side has used its special this match (for the daily challenge).
 var _special_used: Array[bool] = [false, false]
 var _special_armed := false
 var _combo: Array[int] = [0, 0]
@@ -129,6 +145,8 @@ var _smashed := 0
 var _crates_collected := 0
 var _specials_used := 0
 var _daily := {}
+## Where a Mega Wave beam ends, to keep it on camera (INF when there is none).
+var _beam_end := Vector2.INF
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -237,6 +255,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 
 	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
 	_special_used = [false, false]
+	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
 	_extra_throw = false
@@ -330,6 +349,15 @@ func start_tournament(pick: FighterData) -> void:
 	_hud.show_ladder(_ladder_info())
 
 
+## Adds to a side's special meter; says so when the player's fills up.
+func _add_charge(side: int, amount: float) -> void:
+	var was_full := _charge[side] >= 1.0
+	_charge[side] = minf(1.0, _charge[side] + amount)
+	fighters[side].charge = _charge[side]
+	if not was_full and _charge[side] >= 1.0 and not fighters[side].is_ai:
+		_hud.announce("%s: SPECIAL READY!" % fighters[side].data.short_name.to_upper(), fighters[side].data.body_color.lightened(0.35))
+
+
 ## The sideways push a fighter's throws feel: the turn's wind, plus a boomerang's
 ## pull back toward the thrower.
 func _wind_for(fighter: Fighter) -> float:
@@ -403,7 +431,8 @@ func start_practice(pick: FighterData) -> void:
 	fighters.append(stand_in)
 	_brains = [null, null]
 	_stats = [_empty_stats(), _empty_stats()]
-	_special_used = [true, true]  # no specials in practice
+	_special_used = [false, false]
+	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
 	_extra_throw = false
@@ -730,7 +759,7 @@ func _begin_turn() -> void:
 		if mode == Mode.PRACTICE:
 			turn_text = "TARGET %d/%d  ·  TRY %d/%d" % [_practice["index"] + 1, PRACTICE_TARGETS, _practice["attempt"] + 1, PRACTICE_TRIES]
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
-		_hud.set_special(fighter.data, not _special_used[current], false)
+		_hud.set_special(null if mode == Mode.PRACTICE else fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
@@ -738,14 +767,16 @@ func _begin_turn() -> void:
 
 	state = State.AI_AIM
 	_aim.finish()
-	_hud.set_special(null, false, false)
+	_hud.set_special(null, 0.0, false)
 	_hud.set_timer(-1)
 	_hud.set_turn("%s IS AIMING…" % fighter.data.short_name.to_upper(), SIDE_COLORS[current])
 	var brain := _brains[current]
-	if not _special_used[current] and brain.wants_special(fighter.health):
+	if _charge[current] >= 1.0 and brain.wants_special(fighter.health):
 		_special_armed = true
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
-	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter))
+	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter), Rules.GRAVITY * fighter.data.weapon.gravity_scale)
+	if _special_armed and fighter.data.weapon.special == &"beam":
+		shot = {"angle": beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(true), fighter.facing) + brain.rng.randfn(0.0, 1.2), "power": 1.0}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -805,8 +836,10 @@ func _start_cinematic(projectile: Projectile) -> void:
 
 
 func _on_special_toggled(armed: bool) -> void:
-	if state == State.PLAYER_AIM and not _special_used[current]:
+	if state == State.PLAYER_AIM and _charge[current] >= 1.0:
 		_special_armed = armed
+		# The beam fires in a straight line, so the aim guide straightens and can point down.
+		_aim.set_beam(armed and fighters[current].data.weapon.special == &"beam")
 
 
 func _on_player_throw(angle: float, power: float) -> void:
@@ -821,7 +854,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 func _throw(angle: float, power: float) -> void:
 	state = State.FLYING
 	_hud.set_turn("")
-	_hud.set_special(null, false, false)
+	_hud.set_special(null, 0.0, false)
 	_blocked_shown = false
 	_sky_shown = false
 	_cinematic_used = false
@@ -838,10 +871,20 @@ func _throw(angle: float, power: float) -> void:
 	var special := weapon.special if _special_armed else &""
 	if special != &"":
 		_special_used[current] = true
+		_charge[current] = 0.0
+		fighter.charge = 0.0
 		if current == 0:
 			_specials_used += 1
 		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
 		Audio.play("win", -8.0, 1.6, 0.0)
+	if special == &"beam":
+		fighter.powered = false
+		_fire_beam(fighter, angle)
+		return
+	if special == &"orb":
+		fighter.powered = false
+		_throw_orb(fighter, angle, power)
+		return
 	match special:
 		&"lucky":
 			count = 5
@@ -857,7 +900,7 @@ func _throw(angle: float, power: float) -> void:
 		_actors.add_child(projectile)
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
-		if not fighter.is_ai:
+		if not fighter.is_ai and weapon.shape != &"ki":
 			projectile.set_trail_color(Save.trail_color())
 		if special == &"shockwave":
 			projectile.bounces = 1
@@ -894,6 +937,10 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	var combo: int = _combo[side] if side >= 0 else 0
 	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
 	damage = roundi(damage * scale * (1.5 if projectile.get_meta("chop", false) else 1.0))
+	if projectile.get_meta("beam", false):
+		damage = roundi(damage * BEAM_MULTIPLIER)
+	if projectile.get_meta("orb", false):
+		damage = roundi(damage * ORB_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
 	if target.shielded:
@@ -903,6 +950,10 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		Audio.play("tick", 0.0, 0.6, 0.0)
 		_camera.shake(0.3)
 		return
+	# Charge the special meters: the thrower for landing a hit, the target a little.
+	if side >= 0 and mode != Mode.PRACTICE:
+		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
+		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
 	var impact := push if push != Vector2.ZERO else projectile.current_velocity()
 	target.take_hit(part, maxi(damage, Fighter.KNOCKDOWN_DAMAGE) if projectile.get_meta("chop", false) and target.health > Fighter.KNOCKDOWN_DAMAGE else damage, impact)
@@ -996,6 +1047,126 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 	_in_flight.erase(projectile)
 	if not _in_flight.is_empty() or state != State.FLYING:
 		return
+	_after_throw()
+
+
+## Mega Wave: gather energy, then fire a straight beam. It smashes through obstacles
+## and stops at the first fighter (or the ground) it meets.
+func _fire_beam(fighter: Fighter, angle: float) -> void:
+	fighter.power_up(1.8)
+	var origin := fighter.throw_origin()
+	var a := deg_to_rad(angle)
+	var direction := Vector2(cos(a) * fighter.facing, -sin(a))
+	var exclude := fighter.get_hitbox_rids()
+	var space := get_world_2d().direct_space_state
+	var from := origin
+	var end := origin + direction * BEAM_RANGE
+	var victim: Fighter = null
+	var part := Rules.BODY
+	var smashed: Array[Obstacle] = []
+	for step in 8:
+		var query := PhysicsRayQueryParameters2D.create(from, origin + direction * BEAM_RANGE, 0b11, exclude)
+		query.collide_with_areas = true
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			break
+		var collider: Object = hit["collider"]
+		if collider is Obstacle:
+			smashed.append(collider)
+			exclude.append((collider as Obstacle).get_rid())
+			from = hit["position"]
+			continue
+		end = hit["position"]
+		if collider is Hitbox:
+			victim = (collider as Hitbox).fighter
+			part = (collider as Hitbox).part
+		break
+	var beam := Beam.new()
+	beam.setup(origin, end, fighter.data.weapon.color)
+	_actors.add_child(beam)
+	_beam_end = end
+	Audio.play("whoosh", -2.0, 0.4, 0.0)
+	var match_id := _match_id
+	await beam.fired
+	if match_id != _match_id:
+		return
+	Audio.play("hit_head", 2.0, 0.45, 0.0)
+	Audio.play("ground", 0.0, 0.7, 0.0)
+	Device.vibrate(160)
+	_camera.shake(1.0)
+	_slow_time(0.25, 0.4)
+	for obstacle in smashed:
+		if is_instance_valid(obstacle) and not obstacle.is_destroyed:
+			obstacle.damage(3)
+	Effects.burst(_actors, end, fighter.data.weapon.color.lightened(0.3), 34, 620.0, 180.0, 1.6)
+	if victim != null:
+		# Damage goes through the usual hit code, via a stand-in projectile.
+		var carrier := Projectile.new()
+		carrier.weapon = fighter.data.weapon
+		carrier.thrower = fighter
+		carrier.position = end
+		carrier.set_meta("beam", true)
+		_on_projectile_hit(carrier, victim, part, 1.0, direction * 1500.0 + Vector2(0, -300))
+		carrier.free()
+	await beam.finished
+	_beam_end = Vector2.INF
+	if match_id == _match_id:
+		_after_throw()
+
+
+## Spirit Orb: raise a giant ball of energy overhead, then hurl it; it bursts in a
+## huge blast wherever it lands.
+func _throw_orb(fighter: Fighter, angle: float, power: float) -> void:
+	fighter.power_up(2.2)
+	fighter.aiming = true
+	fighter.aim_angle = 80.0
+	var weapon := fighter.data.weapon
+	var glow := Node2D.new()
+	glow.z_index = 22
+	glow.position = fighter.global_position + Vector2(0, -200)
+	_actors.add_child(glow)
+	var grow := {"size": 0.0}
+	glow.draw.connect(func() -> void:
+		var r: float = 12.0 + grow["size"] * 58.0
+		for ring in 4:
+			glow.draw_circle(Vector2.ZERO, r * (1.35 - ring * 0.15), Color(weapon.color, 0.12 + ring * 0.08), true, -1.0, true)
+		glow.draw_circle(Vector2.ZERO, r * 0.7, weapon.color.lightened(0.4), true, -1.0, true)
+		glow.draw_circle(Vector2.ZERO, r * 0.4, Color.WHITE, true, -1.0, true))
+	var tween := glow.create_tween()
+	tween.tween_method(func(value: float) -> void:
+		grow["size"] = value
+		glow.queue_redraw(), 0.0, 1.0, ORB_RAISE_TIME)
+	Audio.play("whoosh", -2.0, 0.35, 0.0)
+	var match_id := _match_id
+	await get_tree().create_timer(ORB_RAISE_TIME, false).timeout
+	glow.queue_free()
+	if match_id != _match_id:
+		return
+	fighter.aiming = false
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
+	projectile.target = fighters[1 - current]
+	projectile.scale = Vector2(3.0, 3.0)
+	projectile.explode_radius = ORB_RADIUS
+	projectile.set_meta("orb", true)
+	projectile.hit_fighter.connect(_on_projectile_hit)
+	projectile.hit_ground.connect(_on_projectile_hit_ground)
+	projectile.hit_crate.connect(_on_projectile_hit_crate)
+	projectile.hit_target.connect(_on_practice_target_hit)
+	projectile.exploded.connect(_on_projectile_exploded)
+	projectile.finished.connect(_on_projectile_finished)
+	_in_flight.append(projectile)
+
+
+## The angle that points a beam straight at a target.
+static func beam_angle(origin: Vector2, target: Vector2, facing: int) -> float:
+	var to := target - origin
+	return rad_to_deg(atan2(-to.y, to.x * facing))
+
+
+## Once everything thrown has landed: combos, close calls, settling, then the next turn.
+func _after_throw() -> void:
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
@@ -1040,7 +1211,7 @@ func _all_settled() -> bool:
 func _end_match() -> void:
 	state = State.GAME_OVER
 	_aim.finish()
-	_hud.set_special(null, false, false)
+	_hud.set_special(null, 0.0, false)
 	_hud.show_hint(false)
 	_hud.set_turn("")
 	var winner := fighters[1] if fighters[0].is_knocked_out() else fighters[0]
@@ -1189,6 +1360,8 @@ func _camera_points() -> PackedVector2Array:
 		points.append(fighter.aim_point(true))
 	if _practice_target != null and is_instance_valid(_practice_target):
 		points.append(_practice_target.global_position + Vector2(0, 60))
+	if _beam_end != Vector2.INF:
+		points.append(_beam_end)
 	for box in _obstacle_rects:
 		points.append(Vector2(box.get_center().x, box.position.y))
 	for projectile in _in_flight:

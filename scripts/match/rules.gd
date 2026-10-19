@@ -66,26 +66,26 @@ static func launch_velocity(angle_deg: float, power: float, max_speed: float, fa
 
 ## Where a projectile is t seconds after launch, with gravity and wind. Exact, so it
 ## doesn't drift with frame rate.
-static func position_at(origin: Vector2, velocity: Vector2, t: float, wind: float = 0.0) -> Vector2:
-	return origin + velocity * t + Vector2(0.5 * wind * t * t, 0.5 * GRAVITY * t * t)
+static func position_at(origin: Vector2, velocity: Vector2, t: float, wind: float = 0.0, gravity: float = GRAVITY) -> Vector2:
+	return origin + velocity * t + Vector2(0.5 * wind * t * t, 0.5 * gravity * t * t)
 
 
-static func velocity_at(velocity: Vector2, t: float, wind: float = 0.0) -> Vector2:
-	return velocity + Vector2(wind * t, GRAVITY * t)
+static func velocity_at(velocity: Vector2, t: float, wind: float = 0.0, gravity: float = GRAVITY) -> Vector2:
+	return velocity + Vector2(wind * t, gravity * t)
 
 
 ## Launch speed needed to pass through a point dx px ahead and dy px above (up is positive)
 ## at the given angle. wind_along is the wind in the throw direction. Returns -1 when
 ## that angle can't reach it.
-static func solve_speed(dx: float, dy: float, angle_deg: float, wind_along: float = 0.0) -> float:
+static func solve_speed(dx: float, dy: float, angle_deg: float, wind_along: float = 0.0, gravity: float = GRAVITY) -> float:
 	var a := deg_to_rad(angle_deg)
 	if dx <= 0.0:
 		return -1.0
 	# With x = v·cos·t + ½·w·t² and y = v·sin·t − ½·g·t², eliminating v gives t² directly.
 	var cot := cos(a) / sin(a)
-	var denom := 0.5 * (GRAVITY * cot + wind_along)
+	var denom := 0.5 * (gravity * cot + wind_along)
 	var numer := dx - dy * cot
 	if denom <= 0.0 or numer <= 0.0:
 		return -1.0
 	var t := sqrt(numer / denom)
-	return (dy + 0.5 * GRAVITY * t * t) / (sin(a) * t)
+	return (dy + 0.5 * gravity * t * t) / (sin(a) * t)

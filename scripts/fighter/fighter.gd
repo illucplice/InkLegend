@@ -63,6 +63,10 @@ var pinned := false
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
 var powered := false
+## Special meter (0..1), mirrored from the match; anime fighters glow when it is full.
+var charge := 0.0
+## Seconds left of a special's power-up glow (set while charging a beam or orb).
+var _powering := 0.0
 ## Pen colour (a Shop cosmetic for the player's fighter).
 var ink_color := INK
 
@@ -191,7 +195,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow")
+	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow" or data.weapon.shape == &"ki")
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -245,6 +249,7 @@ func _process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 5.0)
 	_squash = maxf(0.0, _squash - delta * 4.0)
 	_ouch = maxf(0.0, _ouch - delta * 1.5)
+	_powering = maxf(0.0, _powering - delta)
 
 	var posed := _posed_points()
 	if _ragdoll == null:
@@ -333,6 +338,9 @@ func _draw() -> void:
 	draw_arc(Vector2.ZERO, 34.0, 0.0, TAU, 32, Color(data.body_color, 0.55), 6.0, true)
 	draw_set_transform(Vector2.ZERO)
 
+	if _is_anime() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
+		_draw_aura(p)
+
 	# Pen-and-ink: every line solid black (flashing white on a hit).
 	var ink := ink_color.lerp(Color.WHITE, _flash * 0.85)
 	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
@@ -350,6 +358,8 @@ func _draw() -> void:
 
 	var head: Vector2 = p[&"head"]
 	draw_circle(head, HEAD_RADIUS, ink, true, -1.0, true)
+	if _is_anime():
+		_draw_hair(head, p[&"neck"], ink)
 	if knocked:
 		var tilt := (head - (p[&"neck"] as Vector2)).angle() + PI / 2
 		draw_set_transform_matrix(Transform2D(tilt, Vector2(f, 1), 0.0, head))
@@ -457,3 +467,66 @@ func _draw_star(at: Vector2, radius: float) -> void:
 	draw_colored_polygon(points, Color(1.0, 0.86, 0.25))
 	points.append(points[0])
 	draw_polyline(points, OUTLINE, 1.5, true)
+
+
+# --- anime fighters ---
+
+func _is_anime() -> bool:
+	return data != null and (data.style == &"anime" or data.style == &"anime2")
+
+
+## Glow while powering up for a special.
+func power_up(seconds: float) -> void:
+	_powering = seconds
+
+
+## Spiky hair swept up and back, gold when the special meter is full.
+func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
+	var rest := Vector2((HEAD_CENTER - NECK_REST).x * facing, (HEAD_CENTER - NECK_REST).y)
+	var tilt := (head - neck).angle() - rest.angle()
+	draw_set_transform_matrix(Transform2D(tilt, Vector2(facing, 1), 0.0, head))
+	var powered := charge >= 1.0 or _powering > 0.0
+	var color := data.hair_color.lerp(Color.WHITE, 0.15 * sin(_time * 10.0)) if powered else ink
+	var r := HEAD_RADIUS
+	var spikes: Array
+	if data.style == &"anime":
+		# Tall spikes fanning up and back.
+		spikes = [[-160.0, 30.0], [-130.0, 34.0], [-100.0, 30.0], [-70.0, 24.0], [-195.0, 26.0], [-225.0, 20.0]]
+	else:
+		# A wild mane flowing back, with a long tail.
+		spikes = [[-150.0, 24.0], [-120.0, 26.0], [-90.0, 20.0], [-185.0, 30.0], [-210.0, 40.0], [-235.0, 30.0]]
+	var bob := sin(_time * 8.0) * 2.0 if powered else 0.0
+	for spike: Array in spikes:
+		var a := deg_to_rad(spike[0])
+		var length: float = spike[1] + (8.0 if powered else 0.0)
+		var base := Vector2.from_angle(a) * (r - 3.0)
+		var tip := Vector2.from_angle(a - 0.25) * (r + length) + Vector2(0, bob)
+		var side := Vector2.from_angle(a + PI / 2) * 7.0
+		draw_colored_polygon(PackedVector2Array([base - side, tip, base + side]), color)
+	var cap := PackedVector2Array()
+	for i in 13:
+		cap.append(Vector2.from_angle(lerpf(PI * 1.02, TAU * 0.99, i / 12.0)) * (r + 1.0))
+	cap.append(Vector2(r * 0.55, -r * 0.1))
+	cap.append(Vector2(-r * 0.7, r * 0.15))
+	draw_colored_polygon(cap, color)
+	# Fringe over the brow.
+	draw_colored_polygon(PackedVector2Array([Vector2(2, -r + 2), Vector2(r + 6, -2), Vector2(r * 0.5, -r * 0.35)]), color)
+	draw_set_transform(Vector2.ZERO)
+
+
+## A flickering flame aura around the body in the fighter's colour.
+func _draw_aura(p: Dictionary) -> void:
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.4)
+	var glow := data.body_color.lightened(0.3)
+	for layer in 3:
+		var points := PackedVector2Array()
+		var count := 18
+		for i in count:
+			var a := TAU * i / count
+			var flame := 1.0 + 0.25 * sin(_time * 14.0 + i * 2.7 + layer) + (0.35 if sin(a) < -0.3 else 0.0)
+			var radius := Vector2(46.0, 70.0) * (1.0 - layer * 0.22) * flame
+			points.append(centre + Vector2(cos(a) * radius.x, sin(a) * radius.y - (8.0 if sin(a) < 0.0 else 0.0)))
+		draw_colored_polygon(points, Color(glow, 0.16 + layer * 0.08))
+	for i in 5:
+		var rise := fmod(_time * 1.6 + i * 0.2, 1.0)
+		draw_circle(centre + Vector2(sin(i * 2.1) * 30.0, 40.0 - rise * 110.0), 3.0 * (1.0 - rise), Color(glow, 0.8), true, -1.0, true)

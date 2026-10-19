@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"ki_blast"
+display_name = "Ki Blast"
+max_speed = 1060.0
+body_damage = 20
+head_damage = 35
+count = 1
+spin = 0.0
+sticks = false
+shape = &"ki"
+size = 24.0
+color = Color(0.35, 0.8, 1, 1)
+gravity_scale = 0.55
+special = &"beam"

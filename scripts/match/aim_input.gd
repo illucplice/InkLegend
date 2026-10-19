@@ -19,6 +19,9 @@ var angle := 45.0
 var power := 0.6
 ## Current wind, so the aim guide bends with it.
 var wind := 0.0
+## Beam special: aim in a straight line, allowed to point below level.
+var straight := false
+var min_angle := Rules.MIN_ANGLE
 
 var _active := false
 var _dragging := false
@@ -36,7 +39,16 @@ func begin(for_fighter: Fighter) -> void:
 	show()
 
 
+func set_beam(on: bool) -> void:
+	straight = on
+	min_angle = -25.0 if on else Rules.MIN_ANGLE
+	angle = clampf(angle, min_angle, Rules.MAX_ANGLE)
+	if not on and angle < Rules.MIN_ANGLE:
+		angle = 20.0
+
+
 func finish() -> void:
+	set_beam(false)
 	_active = false
 	_dragging = false
 	if fighter != null:
@@ -69,7 +81,7 @@ func _apply_drag(drag: Vector2) -> void:
 	_cancelling = drag.length() < CANCEL_RADIUS
 	if _cancelling:
 		return
-	angle = clampf(rad_to_deg(atan2(-drag.y, drag.x * fighter.facing)), Rules.MIN_ANGLE, Rules.MAX_ANGLE)
+	angle = clampf(rad_to_deg(atan2(-drag.y, drag.x * fighter.facing)), min_angle, Rules.MAX_ANGLE)
 	power = clampf(drag.length() / FULL_POWER_DRAG, 0.05, 1.0)
 
 
@@ -81,7 +93,7 @@ func _throw() -> void:
 func _process(delta: float) -> void:
 	if not _active:
 		return
-	angle = clampf(angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * delta, Rules.MIN_ANGLE, Rules.MAX_ANGLE)
+	angle = clampf(angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * delta, min_angle, Rules.MAX_ANGLE)
 	power = clampf(power + Input.get_axis("ui_left", "ui_right") * KEY_POWER_SPEED * delta, 0.05, 1.0)
 	fighter.aim_angle = angle
 	fighter.aim_power = power
@@ -97,12 +109,19 @@ func _draw() -> void:
 	var alpha := 0.35 if faded else 1.0
 	var origin := fighter.throw_origin()
 	var velocity := Rules.launch_velocity(angle, power, fighter.data.weapon.max_speed, fighter.facing)
+	if straight:
+		var a := deg_to_rad(angle)
+		var direction := Vector2(cos(a) * fighter.facing, -sin(a))
+		for i in range(1, 22):
+			draw_circle(origin + direction * i * 34.0, 6.0 * inv_zoom, Color(fighter.data.weapon.color, alpha * (1.0 - i / 24.0)), true, -1.0, true)
+		_draw_angle_arc(origin, inv_zoom, alpha)
+		return
 	var guide_time := LONG_PREVIEW_TIME if Save.long_aim_guide else PREVIEW_TIME
 	var dots := int(PREVIEW_DOTS * guide_time / PREVIEW_TIME)
 	for i in range(1, dots + 1):
 		var t := guide_time * i / dots
 		var fade := 1.0 - float(i) / (dots + 2)
-		draw_circle(Rules.position_at(origin, velocity, t, wind), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
+		draw_circle(Rules.position_at(origin, velocity, t, wind, Rules.GRAVITY * fighter.data.weapon.gravity_scale), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
 
 	_draw_angle_arc(origin, inv_zoom, alpha)
 	_draw_power_gauge(inv_zoom, alpha)

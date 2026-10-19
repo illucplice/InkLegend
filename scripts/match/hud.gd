@@ -49,6 +49,8 @@ var _turn_label: Label
 var _turn_text := ""
 var _wind_gauge: WindGauge
 var _special_button: Button
+var _special_meter: ProgressBar
+var _special_ready := false
 var _announcer: VBoxContainer
 var _hint: Label
 var _pause_button: Button
@@ -219,17 +221,24 @@ func set_wind(wind: float) -> void:
 	_wind_gauge.set_wind(wind)
 
 
-## Shows the special button for this fighter (null hides it). available is false once used.
-func set_special(data: FighterData, available: bool, armed: bool) -> void:
-	if data == null or not available:
+## Shows the special button for this fighter (null hides it). charge (0..1) fills the
+## meter along its bottom; it can be tapped only when full.
+func set_special(data: FighterData, charge: float, armed: bool) -> void:
+	if data == null:
 		_special_button.hide()
 		return
+	var ready := charge >= 1.0
 	var label: Label = _special_button.get_meta("label")
-	label.text = data.special_name
-	UiStyle.paint_button(_special_button, data.body_color)
+	label.text = data.special_name if ready else "%s  %d%%" % [data.special_name, roundi(charge * 100.0)]
+	UiStyle.paint_button(_special_button, data.body_color if ready else UiStyle.GREY)
+	_special_button.disabled = not ready
 	_special_button.set_pressed_no_signal(armed)
+	_special_meter.value = charge
+	_special_meter.add_theme_stylebox_override("fill", UiStyle.flat(data.body_color.lightened(0.2), 4))
 	_special_button.show()
 	_special_button.tooltip_text = data.special_description
+	_special_button.pivot_offset = _special_button.size / 2
+	_special_ready = ready
 
 
 ## Seconds left in a 1v1 turn, shown in the banner (negative hides it).
@@ -365,6 +374,9 @@ func _process(delta: float) -> void:
 	if _title_screen != null and _title_screen.visible:
 		_showcase_root.position = Vector2(_showcase_area.size.x * 0.5, _showcase_area.size.y * 0.64)
 		_animate_showcase(delta)
+	# A ready special button breathes so you notice it.
+	if _special_button != null and _special_button.visible and _special_ready:
+		_special_button.scale = Vector2.ONE * (1.0 + 0.04 * sin(_time * 6.0))
 	# Low health bars pulse red.
 	for bar in _bars:
 		if bar.value > 0 and bar.value <= LOW_HEALTH:
@@ -470,6 +482,17 @@ func _build_match_hud() -> void:
 	_special_button.offset_right = 246
 	_special_button.offset_bottom = -64
 	_special_button.toggled.connect(func(on: bool) -> void: special_toggled.emit(on))
+	_special_meter = ProgressBar.new()
+	_special_meter.max_value = 1.0
+	_special_meter.show_percentage = false
+	_special_meter.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_special_meter.offset_left = 14
+	_special_meter.offset_right = -14
+	_special_meter.offset_top = -16
+	_special_meter.offset_bottom = -9
+	_special_meter.add_theme_stylebox_override("background", UiStyle.flat(Color(0, 0, 0, 0.3), 4))
+	_special_meter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_special_button.add_child(_special_meter)
 	_special_button.hide()
 	add_child(_special_button)
 

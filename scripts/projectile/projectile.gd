@@ -29,6 +29,8 @@ var weapon: WeaponData
 var thrower: Fighter
 ## Sideways push in px/s² (see Rules.MAX_WIND).
 var wind := 0.0
+## Downward pull in px/s² (energy attacks fall slower).
+var gravity := Rules.GRAVITY
 ## Shockwave: how many more times this bounces off the ground or obstacles.
 var bounces := 0
 ## The fighter being aimed at, to measure near misses.
@@ -50,6 +52,7 @@ var _trail: Line2D
 
 func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, velocity: Vector2, wind_accel: float = 0.0) -> void:
 	wind = wind_accel
+	gravity = Rules.GRAVITY * from_weapon.gravity_scale
 	weapon = from_weapon
 	explode_radius = from_weapon.explode_radius
 	thrower = from_fighter
@@ -76,12 +79,15 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	fade.set_color(1, Color(1, 1, 1, 0.55))
 	_trail.gradient = fade
 	_trail.z_index = -1
+	if weapon.shape == &"ki":
+		set_trail_color(weapon.color)
+		_trail.width = 16.0
 	add_child(_trail)
 
 
 ## Where this will be dt seconds from now if nothing gets in the way.
 func predict(dt: float) -> Vector2:
-	return Rules.position_at(_origin, _velocity, _t + dt, wind)
+	return Rules.position_at(_origin, _velocity, _t + dt, wind, gravity)
 
 
 func is_flying() -> bool:
@@ -97,7 +103,7 @@ func set_trail_color(color: Color) -> void:
 
 
 func current_velocity() -> Vector2:
-	return Rules.velocity_at(_velocity, _t, wind)
+	return Rules.velocity_at(_velocity, _t, wind, gravity)
 
 
 func _physics_process(delta: float) -> void:
@@ -111,7 +117,7 @@ func _physics_process(delta: float) -> void:
 	_trail.add_point(global_position)
 	if _trail.get_point_count() > TRAIL_POINTS:
 		_trail.remove_point(0)
-	var next := Rules.position_at(_origin, _velocity, _t, wind)
+	var next := Rules.position_at(_origin, _velocity, _t, wind, gravity)
 	var query := PhysicsRayQueryParameters2D.create(global_position, next, COLLISION_MASK, _exclude)
 	query.collide_with_areas = true
 	var hit := get_world_2d().direct_space_state.intersect_ray(query)
@@ -223,6 +229,13 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 					canvas.draw_colored_polygon(PackedVector2Array([
 						Vector2(-s * 0.5, 0), Vector2(-s * 0.5 + 12, 0), Vector2(-s * 0.5 - 2, side * 7),
 					]), Color(0.9, 0.3, 0.3))
+		&"ki":
+			# Glowing energy: soft halo, coloured body, white-hot core.
+			for ring in 4:
+				canvas.draw_circle(Vector2.ZERO, s * (1.15 - ring * 0.12), Color(w.color, 0.12 + ring * 0.05), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.55, w.color, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.32, w.color.lightened(0.6), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.18, Color.WHITE, true, -1.0, true)
 		&"bomb":
 			canvas.draw_circle(Vector2.ZERO, s * 0.5, ink, true, -1.0, true)
 			canvas.draw_circle(Vector2(-s * 0.16, -s * 0.16), s * 0.12, Color(0.6, 0.6, 0.66), true, -1.0, true)
@@ -287,6 +300,10 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.92, 0.9, 0.85), 1.5, true)
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, nock + Vector2(w.size * 0.5, 0)))
+		&"ki":
+			# A ball of energy gathering in the palm; it grows as you power up.
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
 		&"hammer":
 			# Held low across the body by the middle of the shaft, head out front.
 			if loaded:

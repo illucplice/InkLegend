@@ -22,6 +22,7 @@ func _initialize() -> void:
 	_test_destructible_obstacles()
 	_test_progression(root.get_node("Save"))
 	await _test_ai_vs_ai_match()
+	await _test_anime_match()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -242,3 +243,29 @@ func _test_progression(save: Node) -> void:
 	save.coins = 200
 	_check(save.choose_cosmetic("trail", "gold") and save.trail == "gold" and save.coins == 120, "buying a trail equips it")
 	save.reset_progress()
+
+
+func _test_anime_match() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	var roster: Array = game.roster()
+	var kenzo: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"kenzo")[0]
+	var hikari: FighterData = roster.filter(func(f: FighterData) -> bool: return f.id == &"hikari")[0]
+	var result := {}
+	game.match_ended.connect(func(winner: Fighter) -> void: result["winner"] = winner)
+	Engine.time_scale = 6.0
+	game.start_match(kenzo, hikari, game.Mode.VS_AI, AiAimer.Difficulty.HARD)
+	# Fill both meters so the AI gets to use the beam and the orb.
+	for frame in 9000:
+		if not result.is_empty():
+			break
+		if frame % 200 == 0:
+			game._charge[0] = 1.0
+			game._charge[1] = 1.0
+		await physics_frame
+	Engine.time_scale = 1.0
+	_check(not result.is_empty(), "a Kenzo vs Hikari match ends in a knockout")
+	_check(game._special_used[0] or game._special_used[1], "the AI used an anime special")
+	game.queue_free()
