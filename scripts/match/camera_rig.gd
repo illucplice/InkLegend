@@ -9,6 +9,7 @@ const MARGIN_TOP := 280.0
 const MARGIN_BOTTOM := 110.0
 const MIN_ZOOM := 0.3
 const MAX_ZOOM := 1.1
+const CINEMATIC_ZOOM := 1.6
 const MOVE_SPEED := 3.0
 const ZOOM_SPEED := 2.2
 const MAX_SHAKE := 26.0
@@ -16,6 +17,9 @@ const MAX_SHAKE := 26.0
 ## Returns a PackedVector2Array of world points to keep in view.
 var points_provider: Callable
 
+## Cinematic: while active, frame these points tightly instead (see focus_on).
+var _focus: Callable
+var _focus_until := 0
 var _trauma := 0.0
 var _time := 0.0
 
@@ -38,6 +42,12 @@ func shake(amount: float) -> void:
 	_trauma = minf(1.0, _trauma + amount)
 
 
+## Swoop in on the points from `points` (a Callable) for `seconds` of real time.
+func focus_on(points: Callable, seconds: float) -> void:
+	_focus = points
+	_focus_until = Time.get_ticks_msec() + int(seconds * 1000.0)
+
+
 func snap() -> void:
 	_follow(1.0, 1.0)
 	reset_physics_interpolation()
@@ -53,16 +63,22 @@ func _physics_process(delta: float) -> void:
 
 
 func _follow(move_weight: float, zoom_weight: float) -> void:
-	if not points_provider.is_valid():
+	var cinematic := _focus.is_valid() and Time.get_ticks_msec() < _focus_until
+	var provider := _focus if cinematic else points_provider
+	if not provider.is_valid():
 		return
-	var points: PackedVector2Array = points_provider.call()
+	var points: PackedVector2Array = provider.call()
 	if points.is_empty():
 		return
 	var rect := Rect2(points[0], Vector2.ZERO)
 	for point in points:
 		rect = rect.expand(point)
-	rect = rect.grow_individual(MARGIN_SIDE, MARGIN_TOP, MARGIN_SIDE, MARGIN_BOTTOM)
+	var margin := 0.45 if cinematic else 1.0
+	rect = rect.grow_individual(MARGIN_SIDE * margin, MARGIN_TOP * margin, MARGIN_SIDE * margin, MARGIN_BOTTOM * margin)
 	var view := get_viewport_rect().size
-	var z := clampf(minf(view.x / rect.size.x, view.y / rect.size.y), MIN_ZOOM, MAX_ZOOM)
+	var z := clampf(minf(view.x / rect.size.x, view.y / rect.size.y), MIN_ZOOM, CINEMATIC_ZOOM if cinematic else MAX_ZOOM)
+	if cinematic:
+		move_weight = minf(1.0, move_weight * 3.0)
+		zoom_weight = minf(1.0, zoom_weight * 3.0)
 	zoom = zoom.lerp(Vector2(z, z), zoom_weight)
 	position = position.lerp(rect.get_center(), move_weight)

@@ -38,6 +38,8 @@ const TURN_TIME := 12.0
 const LAST_STAND_HEALTH := 20
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
+## The headshot cam can trigger once a throw is this close (px) to a head.
+const CINEMATIC_RANGE := 260.0
 ## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
 const DIFFICULTY_WIND := [0.0, 0.6, 1.0, 1.0]
 const LOCAL_WIND := 0.8
@@ -91,6 +93,8 @@ var _combo: Array[int] = [0, 0]
 var _turn_hit := false
 var _throw_closest := INF
 var _turn_timer := -1.0
+## One slow-mo headshot cam per throw at most.
+var _cinematic_used := false
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -153,6 +157,7 @@ func go_to_menu() -> void:
 	_build_obstacles(MENU_GAP, 1210.0)
 	_camera.snap()
 	_hud.show_title()
+	Audio.play_music("menu")
 
 
 ## In VS_AI mode `right` may be null to pick a random opponent; a null map is random.
@@ -163,6 +168,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	if mode != Mode.TOURNAMENT:
 		tournament = {}
 	_last_map = map
+	Audio.play_music("battle")
 	_set_map(map if map != null else MAPS[rng.randi_range(0, MAPS.size() - 1)])
 	if right == null:
 		var foes: Array[FighterData] = []
@@ -386,6 +392,38 @@ func _process(delta: float) -> void:
 		_on_player_throw(_aim.angle, _aim.power)
 
 
+## Slow-mo cam: if a throw is about to hit a head, slow time and swoop in on it.
+func _physics_process(_delta: float) -> void:
+	if state != State.FLYING or _cinematic_used or autoplay:
+		return
+	for projectile in _in_flight:
+		if not is_instance_valid(projectile) or not projectile.is_flying() or projectile.target == null:
+			continue
+		var head := projectile.target.aim_point(true)
+		if projectile.global_position.distance_to(head) > CINEMATIC_RANGE:
+			continue
+		for step in 30:
+			if projectile.predict(step / 60.0).distance_to(head) < Fighter.HEAD_RADIUS + 4.0:
+				_start_cinematic(projectile)
+				return
+
+
+func _start_cinematic(projectile: Projectile) -> void:
+	_cinematic_used = true
+	var target := projectile.target
+	var framing := func() -> PackedVector2Array:
+		var points := PackedVector2Array()
+		if is_instance_valid(target):
+			points.append(target.aim_point(true))
+			points.append(target.global_position)
+		if is_instance_valid(projectile):
+			points.append(projectile.global_position)
+		return points
+	_camera.focus_on(framing, 1.1)
+	_slow_time(0.8, 0.2)
+	Audio.play("whoosh", -4.0, 0.5, 0.0)
+
+
 func _on_special_toggled(armed: bool) -> void:
 	if state == State.PLAYER_AIM and not _special_used[current]:
 		_special_armed = armed
@@ -406,6 +444,7 @@ func _throw(angle: float, power: float) -> void:
 	_hud.set_special(null, false, false)
 	_blocked_shown = false
 	_sky_shown = false
+	_cinematic_used = false
 	var fighter := fighters[current]
 	var weapon := fighter.data.weapon
 	fighter.play_throw()
@@ -455,6 +494,9 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
 	var was_healthy := target.health > LAST_STAND_HEALTH
 	target.take_hit(part, damage, projectile.current_velocity())
+	if projectile.weapon.sticks:
+		target.stick(projectile.weapon, projectile.global_position, projectile.current_velocity())
+		projectile.visible = false
 	if side >= 0:
 		_stats[side]["hits"] += 1
 		_stats[side]["headshots"] += 1 if part == Rules.HEAD else 0
@@ -555,6 +597,7 @@ func _end_match() -> void:
 	for fighter in fighters:
 		fighter.is_turn = false
 	var winner_side := fighters.find(winner)
+	winner.celebrate()
 	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
 	var title := "DEFEAT"
 	var color := Color(0.92, 0.3, 0.3)

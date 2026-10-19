@@ -919,7 +919,7 @@ func _select_next() -> void:
 
 func _build_settings() -> Control:
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 14)
+	content.add_theme_constant_override("separation", 10)
 	content.add_child(_toggle_row("Sound", "sound_on"))
 	var volume_row := _setting_row("Volume")
 	var slider := HSlider.new()
@@ -936,6 +936,21 @@ func _build_settings() -> Control:
 	slider.drag_ended.connect(func(_changed: bool) -> void: Audio.play("click"))
 	volume_row.add_child(slider)
 	content.add_child(volume_row)
+	content.add_child(_toggle_row("Music", "music_on"))
+	var music_row := _setting_row("Music volume")
+	var music_slider := HSlider.new()
+	music_slider.min_value = 0.0
+	music_slider.max_value = 1.0
+	music_slider.step = 0.05
+	music_slider.value = Save.music_volume
+	music_slider.custom_minimum_size = Vector2(220, 36)
+	music_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	music_slider.value_changed.connect(func(value: float) -> void:
+		Save.music_volume = value
+		Save.apply()
+		Save.save_settings())
+	music_row.add_child(music_slider)
+	content.add_child(music_row)
 	content.add_child(_toggle_row("Screen shake", "screen_shake"))
 	content.add_child(_toggle_row("Long aim guide", "long_aim_guide"))
 	content.add_child(_toggle_row("Controls hint", "show_hints"))

@@ -68,6 +68,15 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	add_child(_trail)
 
 
+## Where this will be dt seconds from now if nothing gets in the way.
+func predict(dt: float) -> Vector2:
+	return Rules.position_at(_origin, _velocity, _t + dt, wind)
+
+
+func is_flying() -> bool:
+	return not _done
+
+
 func current_velocity() -> Vector2:
 	return Rules.velocity_at(_velocity, _t, wind)
 
@@ -140,32 +149,50 @@ func _draw() -> void:
 static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> void:
 	canvas.draw_set_transform_matrix(xf)
 	var s := w.size
+	var ink := Color(0.06, 0.055, 0.07)
+	var steel := Color(0.78, 0.8, 0.86)
 	match w.shape:
 		&"hammer":
-			_stick(canvas, Vector2(-s * 0.5, 0), Vector2(s * 0.3, 0), 6.0, Color(0.55, 0.36, 0.2))
-			var head := Rect2(Vector2(s * 0.22, -s * 0.28), Vector2(s * 0.32, s * 0.56))
-			canvas.draw_rect(head.grow(2.5), INK)
-			canvas.draw_rect(head, w.color)
-			canvas.draw_rect(Rect2(head.position, Vector2(head.size.x, head.size.y * 0.3)), w.color.lightened(0.3))
+			# A war hammer like the sketch: a long shaft with a spike at the butt and a
+			# big rounded block for a head, with a keyhole emblem punched through it.
+			var length := s * 1.7
+			canvas.draw_line(Vector2(-length * 0.55, 0), Vector2(length * 0.35, 0), ink, 5.0, true)
+			canvas.draw_colored_polygon(PackedVector2Array([Vector2(-length * 0.55, -4), Vector2(-length * 0.55 - 16, 0), Vector2(-length * 0.55, 4)]), ink)
+			canvas.draw_circle(Vector2(-length * 0.5, 0), 4.0, ink, true, -1.0, true)
+			var head := Rect2(Vector2(length * 0.28, -s * 0.5), Vector2(s * 0.62, s * 1.0))
+			var block := StyleBoxFlat.new()
+			block.bg_color = ink
+			block.set_corner_radius_all(int(s * 0.12))
+			block.anti_aliasing = true
+			canvas.draw_style_box(block, head)
+			canvas.draw_line(head.position + Vector2(5, 4), head.position + Vector2(5, head.size.y - 4), steel.darkened(0.3), 2.0, true)
+			canvas.draw_line(head.position + Vector2(head.size.x - 5, 4), head.position + Vector2(head.size.x - 5, head.size.y - 4), steel.darkened(0.3), 2.0, true)
+			var mid := head.get_center()
+			canvas.draw_circle(mid + Vector2(0, -3), s * 0.11, w.color.lightened(0.4), true, -1.0, true)
+			canvas.draw_colored_polygon(PackedVector2Array([mid + Vector2(-s * 0.07, -2), mid + Vector2(s * 0.07, -2), mid + Vector2(s * 0.03, s * 0.2), mid + Vector2(-s * 0.03, s * 0.2)]), w.color.lightened(0.4))
 		&"spear", &"arrow":
 			var is_spear := w.shape == &"spear"
-			var tip_len := s * (0.22 if is_spear else 0.16)
-			_stick(canvas, Vector2(-s * 0.5, 0), Vector2(s * 0.5, 0), 5.0 if is_spear else 3.5, w.color)
-			var tip := PackedVector2Array([
-				Vector2(s * 0.5, -tip_len * 0.4), Vector2(s * 0.5 + tip_len, 0), Vector2(s * 0.5, tip_len * 0.4),
+			var tip_len := s * (0.26 if is_spear else 0.16)
+			var shaft := 4.5 if is_spear else 3.0
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.5, 0), ink, shaft, true)
+			# A leaf-shaped steel blade.
+			var blade := PackedVector2Array([
+				Vector2(s * 0.46, 0), Vector2(s * 0.5 + tip_len * 0.35, -tip_len * 0.32), Vector2(s * 0.5 + tip_len, 0), Vector2(s * 0.5 + tip_len * 0.35, tip_len * 0.32),
 			])
-			canvas.draw_colored_polygon(tip, Color(0.82, 0.84, 0.88))
-			tip.append(tip[0])
-			canvas.draw_polyline(tip, INK, 2.0, true)
-			if not is_spear:
+			canvas.draw_colored_polygon(blade, steel)
+			blade.append(blade[0])
+			canvas.draw_polyline(blade, ink, 2.0, true)
+			if is_spear:
+				canvas.draw_line(Vector2(s * 0.4, -4), Vector2(s * 0.4, 4), ink, 3.0, true)
+			else:
 				for side: float in [-1.0, 1.0]:
 					canvas.draw_colored_polygon(PackedVector2Array([
-						Vector2(-s * 0.5, 0), Vector2(-s * 0.5 + 10, 0), Vector2(-s * 0.5 - 2, side * 7),
+						Vector2(-s * 0.5, 0), Vector2(-s * 0.5 + 12, 0), Vector2(-s * 0.5 - 2, side * 7),
 					]), Color(0.9, 0.3, 0.3))
 		_:
-			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 2.5, INK, true, -1.0, true)
-			canvas.draw_circle(Vector2.ZERO, s * 0.5, w.color, true, -1.0, true)
-			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.15), s * 0.18, w.color.lightened(0.35), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 1.5, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5 - 1.0, Color(0.32, 0.3, 0.34), true, -1.0, true)
+			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.15), s * 0.16, Color(0.75, 0.75, 0.8), true, -1.0, true)
 
 
 ## Draws the weapon as held in the hand, in hand space (+x points where the throw goes).
@@ -173,36 +200,39 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 ## false). The slingshot and bow stay in the hand; only the pebble or arrow leaves.
 ## pull (0..1) draws the band or string back while aiming.
 static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded: bool, pull: float) -> void:
+	var ink := Color(0.06, 0.055, 0.07)
 	match w.shape:
 		&"pebble":
 			canvas.draw_set_transform_matrix(xf)
-			var wood := Color(0.55, 0.36, 0.2)
-			# Y-shaped frame: stem from the fist, two prongs ahead.
-			_stick(canvas, Vector2(-2, 0), Vector2(10, 0), 4.0, wood)
+			# Y-shaped frame in ink: stem from the fist, two prongs ahead.
+			canvas.draw_line(Vector2(-2, 0), Vector2(11, 0), ink, 5.0, true)
 			for side: float in [-1.0, 1.0]:
-				_stick(canvas, Vector2(9, 0), Vector2(18, side * 10), 3.5, wood)
+				canvas.draw_line(Vector2(10, 0), Vector2(20, side * 11), ink, 4.5, true)
+				canvas.draw_circle(Vector2(20, side * 11), 2.5, ink, true, -1.0, true)
 			var pouch := Vector2(4 - pull * 22, 0)
 			for side: float in [-1.0, 1.0]:
-				canvas.draw_line(Vector2(18, side * 10), pouch, INK, 3.0, true)
-				canvas.draw_line(Vector2(18, side * 10), pouch, Color(0.85, 0.3, 0.3), 1.5, true)
-			canvas.draw_circle(pouch, 4.5, Color(0.45, 0.28, 0.18), true, -1.0, true)
+				canvas.draw_line(Vector2(20, side * 11), pouch, Color(0.9, 0.3, 0.3), 2.0, true)
+			canvas.draw_circle(pouch, 4.0, ink, true, -1.0, true)
 			if loaded:
-				canvas.draw_circle(pouch, w.size * 0.42 + 2.0, INK, true, -1.0, true)
-				canvas.draw_circle(pouch, w.size * 0.42, w.color, true, -1.0, true)
+				canvas.draw_circle(pouch, w.size * 0.42 + 1.5, ink, true, -1.0, true)
+				canvas.draw_circle(pouch, w.size * 0.42 - 1.0, Color(0.32, 0.3, 0.34), true, -1.0, true)
 		&"arrow":
 			canvas.draw_set_transform_matrix(xf)
-			# A curved bow across the aim line with the string drawn back to the nock.
+			# A recurve bow across the aim line, string drawn back to the nock.
 			var limb := PackedVector2Array()
-			for i in 13:
-				var a := lerpf(-1.15, 1.15, i / 12.0)
-				limb.append(Vector2(4 + cos(a) * 9.0, sin(a) * 23.0))
-			canvas.draw_polyline(limb, INK, 7.0, true)
-			canvas.draw_polyline(limb, w.color, 4.0, true)
-			var nock := Vector2(2 - pull * 16, 0)
-			canvas.draw_line(limb[0], nock, Color(0.95, 0.92, 0.85), 1.5, true)
-			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.95, 0.92, 0.85), 1.5, true)
+			for i in 15:
+				var a := lerpf(-1.2, 1.2, i / 14.0)
+				limb.append(Vector2(4 + cos(a) * 10.0 - absf(a) * absf(a) * 2.0, sin(a) * 26.0))
+			canvas.draw_polyline(limb, ink, 5.0, true)
+			var nock := Vector2(2 - pull * 18, 0)
+			canvas.draw_line(limb[0], nock, Color(0.92, 0.9, 0.85), 1.5, true)
+			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.92, 0.9, 0.85), 1.5, true)
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, nock + Vector2(w.size * 0.5, 0)))
+		&"hammer":
+			# Held low across the body by the middle of the shaft, head out front.
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(-0.35, Vector2(w.size * 0.25, 0)))
 		_:
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(-0.7, Vector2.ZERO))

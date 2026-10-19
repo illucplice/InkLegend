@@ -1,6 +1,7 @@
 class_name Fighter
 extends Node2D
-## Stickman fighter: ink limbs, a coloured scarf and headgear per FighterData.style,
+## Ink-silhouette stickman: tapered brush limbs, a solid head, headgear per FighterData.style
+## and a coloured scarf,
 ## drawn in code and wobbling on a spring. Phase 2 can swap the drawing for ragdoll parts; the
 ## hitboxes and this API stay the same.
 
@@ -8,6 +9,8 @@ signal health_changed(fighter: Fighter, health: int)
 signal knocked_out(fighter: Fighter)
 
 const OUTLINE := Color(0.12, 0.1, 0.14)
+## The silhouette colour, like a heavy ink pen.
+const INK := Color(0.06, 0.055, 0.07)
 const STEEL := Color(0.7, 0.73, 0.8)
 const GOLD := Color(1.0, 0.8, 0.3)
 const LEATHER := Color(0.36, 0.22, 0.15)
@@ -18,8 +21,8 @@ const BODY_SIZE := Vector2(38, 60)
 const HIP_HEIGHT := 44.0
 const HEAD_CENTER := Vector2(0, -104)
 const HEAD_RADIUS := 19.0
-const SHOULDER := Vector2(2, -75)
-const BACK_SHOULDER := Vector2(-1, -75)
+const SHOULDER := Vector2(5, -77)
+const BACK_SHOULDER := Vector2(3, -77)
 const ARM_LENGTH := 26.0
 ## Slingshot and bow users hold their weapon out at arm's length, lowered when idle.
 const RANGED_ARM_LENGTH := 33.0
@@ -56,6 +59,11 @@ var _ouch := 0.0
 var _time := 0.0
 var _next_blink := 2.0
 var _hitboxes: Array[Hitbox] = []
+## Spears and arrows that hit stay stuck in the body: [{weapon, xf}] in body space.
+var _stuck: Array[Dictionary] = []
+var _body_xf := Transform2D.IDENTITY
+var _celebrating := false
+const MAX_STUCK := 6
 
 
 ## with_hitboxes is false for menu previews, which must never be hit.
@@ -115,6 +123,25 @@ func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 		knocked_out.emit(self)
 
 
+## Leaves a copy of a sticking weapon in the body where it hit, angled along its flight.
+func stick(weapon: WeaponData, global_point: Vector2, velocity: Vector2) -> void:
+	var to_body := Transform2D(0.0, global_position) * _body_xf
+	var local_point := to_body.affine_inverse() * global_point
+	var local_dir := to_body.affine_inverse().basis_xform(velocity.normalized())
+	# Sink the tip a little way in.
+	var xf := Transform2D(local_dir.angle(), local_point) * Transform2D(0.0, Vector2(-weapon.size * 0.32, 0))
+	_stuck.append({"weapon": weapon, "xf": xf})
+	if _stuck.size() > MAX_STUCK:
+		_stuck.pop_front()
+
+
+## Victory: hop on the spot waving the weapon overhead.
+func celebrate() -> void:
+	_celebrating = true
+	holding_weapon = true
+	aiming = false
+
+
 func play_throw() -> void:
 	aiming = false
 	holding_weapon = false
@@ -148,7 +175,9 @@ func _process(delta: float) -> void:
 	_tilt += _tilt_velocity * delta
 	var ranged := _is_ranged()
 	var arm_target := RANGED_REST_ANGLE if ranged else ARM_REST_ANGLE
-	if aiming:
+	if _celebrating:
+		arm_target = -1.9 + sin(_time * 10.0) * 0.4
+	elif aiming:
 		# Throwers wind up behind the head; archers point straight down the aim line.
 		arm_target = -deg_to_rad(aim_angle) - (0.0 if ranged else aim_power * 0.9)
 	_arm = lerp_angle(_arm, arm_target, 1.0 - exp(-ARM_FOLLOW_SPEED * delta))
@@ -166,41 +195,62 @@ func _draw() -> void:
 	var knocked := is_knocked_out()
 
 	draw_set_transform(Vector2(0, 1), 0.0, Vector2(1.0, 0.22))
-	draw_circle(Vector2.ZERO, 30.0 - absf(_tilt) * 6.0, Color(0, 0, 0, 0.28), true, -1.0, true)
+	draw_circle(Vector2.ZERO, 32.0 - absf(_tilt) * 6.0, Color(0, 0, 0, 0.3), true, -1.0, true)
 
 	var breathe := 0.0 if knocked else sin(_time * 3.0)
 	var wobble := sin(_time * 18.0) * 0.12 * _squash
 	var stretch := Vector2(1.0 + 0.12 * _squash, 1.0 - 0.12 * _squash)
-	var sway := 0.0 if knocked else sin(_time * 2.2) * 0.035
-	var body_xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2.ZERO)
+	var sway := 0.0 if knocked else sin(_time * 2.2) * 0.03
+	var hop := -absf(sin(_time * 7.0)) * 16.0 if _celebrating else 0.0
+	var body_xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2(0, hop))
+	_body_xf = body_xf
 	draw_set_transform_matrix(body_xf)
 
-	# Lines flash white on a hit; accessories keep their colours.
-	var ink := OUTLINE.lerp(Color.WHITE, _flash * 0.8)
+	# Solid ink silhouette (flashes white on a hit); back limbs a shade lighter for depth.
+	var ink := INK.lerp(Color.WHITE, _flash * 0.85)
+	var back_ink := ink.lerp(Color(0.32, 0.3, 0.36), 0.45)
 	var scarf := data.cape_color.lerp(Color.WHITE, _flash * 0.6)
 	var flutter := sin(_time * 3.4) * 5.0 + sin(_time * 7.1) * 2.0 - _tilt_velocity * 4.0
 	var bob := breathe * 1.5
-	var hip := Vector2(0, -44 + bob * 0.5)
-	var neck := Vector2(1, -82 + bob)
+	# A lunging stance: hips low, torso leaning into the throw.
+	var hip := Vector2(-1, -46 + bob * 0.6)
+	var neck := Vector2(5, -83 + bob)
 
 	_draw_scarf(neck, scarf, flutter)
 	if data.style == &"ranger":
 		_draw_quiver(neck)
 
-	# Back arm hangs loose, then legs, torso, head, and the throwing arm in front.
-	var back_hand := BACK_SHOULDER + Vector2(-10 + sin(_time * 2.2) * 3.0, 26)
-	_bone(BACK_SHOULDER, BACK_SHOULDER + Vector2(-9, 12), back_hand, ink, true)
-	var knee_bend := 2.0 + breathe * 1.2 + _squash * 6.0
-	_bone(hip + Vector2(-2, 0), Vector2(-9 - knee_bend, -22), Vector2(-15, -3), ink, true)
-	_bone(hip + Vector2(2, 0), Vector2(10 + knee_bend, -22), Vector2(14, -3), ink, false)
-	_foot(Vector2(-15, -3), ink)
-	_foot(Vector2(14, -3), ink)
-	_stroke(hip, neck, ink, 8.0)
-	draw_circle(hip, 5.0, ink, true, -1.0, true)
+	# Back arm: a fist held up in front of the chest (or waving when celebrating).
+	var back_hand := BACK_SHOULDER + Vector2(15, -6 + sin(_time * 2.2) * 2.0)
+	var back_elbow := BACK_SHOULDER + Vector2(10, 9)
+	if _celebrating:
+		back_hand = BACK_SHOULDER + Vector2(-12 + sin(_time * 10.0 + 1.0) * 5.0, -28)
+		back_elbow = BACK_SHOULDER + Vector2(-12, -10)
+	_taper(BACK_SHOULDER, back_elbow, 6.5, 5.0, back_ink)
+	_taper(back_elbow, back_hand, 5.0, 4.0, back_ink)
+	draw_circle(back_hand, 5.5, back_ink, true, -1.0, true)
+
+	# Legs: the back one stretched out behind, the front one bent forward.
+	var knee_bend := breathe * 1.2 + _squash * 6.0
+	var back_knee := Vector2(-11 - knee_bend * 0.5, -25)
+	var back_foot := Vector2(-24, -2)
+	var front_knee := Vector2(15 + knee_bend, -27)
+	var front_foot := Vector2(11, -2)
+	_taper(hip, back_knee, 9.0, 6.5, back_ink)
+	_taper(back_knee, back_foot, 6.5, 4.0, back_ink)
+	_foot(back_foot, back_ink)
+	_taper(hip, front_knee, 9.5, 7.0, ink)
+	_taper(front_knee, front_foot, 7.0, 4.5, ink)
+	_foot(front_foot, ink)
+
+	_taper(hip, neck, 9.0, 6.0, ink)
 	if data.style == &"knight":
 		_draw_tabard(hip, neck)
 
 	_draw_head(knocked, ink)
+	for stuck in _stuck:
+		Projectile.draw_weapon(self, stuck["weapon"], body_xf * stuck["xf"])
+	draw_set_transform_matrix(body_xf)
 
 	var arm_angle := _arm + _swing * (0.4 if _is_ranged() else 1.6)
 	var hand := SHOULDER + Vector2.from_angle(arm_angle) * (RANGED_ARM_LENGTH if _is_ranged() else ARM_LENGTH)
@@ -208,9 +258,9 @@ func _draw() -> void:
 	Projectile.draw_held(self, data.weapon, body_xf * Transform2D(arm_angle, hand), holding_weapon, pull)
 	draw_set_transform_matrix(body_xf)
 	var elbow := SHOULDER.lerp(hand, 0.5) + Vector2.from_angle(arm_angle + PI / 2) * 6.0
-	_bone(SHOULDER, elbow, hand, ink, false)
-	draw_circle(hand, 6.5, ink, true, -1.0, true)
-	draw_circle(hand, 3.5, data.accent_color, true, -1.0, true)
+	_taper(SHOULDER, elbow, 7.0, 5.5, ink)
+	_taper(elbow, hand, 5.5, 4.5, ink)
+	draw_circle(hand, 6.0, ink, true, -1.0, true)
 
 	if pinned and not knocked:
 		_draw_chains()
@@ -242,26 +292,26 @@ func _draw_chains() -> void:
 	draw_arc(Vector2(0, -22), 14.0, 0.0, TAU, 16, Color(0.75, 0.78, 0.85), 2.5, true)
 
 
-# --- stickman parts (local space, facing right) ---
+# --- ink silhouette parts (local space, facing right) ---
 
-## A crisp, solid ink stroke with round ends.
-func _stroke(from: Vector2, to: Vector2, ink: Color, width: float) -> void:
-	draw_line(from, to, ink, width, true)
-	draw_circle(from, width / 2, ink, true, -1.0, true)
-	draw_circle(to, width / 2, ink, true, -1.0, true)
+## A brush-like stroke: width `from_width` at one end narrowing to `to_width`, with
+## round ends, like an ink pen pressed harder at the joints.
+func _taper(from: Vector2, to: Vector2, from_width: float, to_width: float, color: Color) -> void:
+	var along := to - from
+	if along.length() < 0.5:
+		return
+	var side := along.normalized().orthogonal()
+	draw_colored_polygon(PackedVector2Array([
+		from + side * from_width * 0.5, to + side * to_width * 0.5,
+		to - side * to_width * 0.5, from - side * from_width * 0.5,
+	]), color)
+	draw_circle(from, from_width * 0.5, color, true, -1.0, true)
+	draw_circle(to, to_width * 0.5, color, true, -1.0, true)
 
 
-## A two-segment limb (thigh and shin, or upper arm and forearm). Back limbs are a
-## little thinner and greyer so the body reads with some depth.
-func _bone(from: Vector2, joint: Vector2, to: Vector2, ink: Color, back: bool) -> void:
-	var width := 6.0 if back else 7.5
-	var color := ink.lerp(Color(0.3, 0.27, 0.34), 0.35) if back else ink
-	_stroke(from, joint, color, width)
-	_stroke(joint, to, color, width)
-
-
-func _foot(at: Vector2, ink: Color) -> void:
-	_stroke(at, at + Vector2(9, 1), ink, 7.0)
+## A pointed foot, heel to toe.
+func _foot(at: Vector2, color: Color) -> void:
+	draw_colored_polygon(PackedVector2Array([at + Vector2(-4, -4), at + Vector2(13, 1), at + Vector2(-3, 2)]), color)
 
 
 ## A scarf in the fighter's colour streaming back from the neck.
@@ -271,102 +321,76 @@ func _draw_scarf(neck: Vector2, color: Color, flutter: float) -> void:
 	for i in steps + 1:
 		var t := float(i) / steps
 		var wave := sin(_time * 6.0 - t * 4.0) * 6.0 * t
-		tail.append(neck + Vector2(-4 - t * (46 + flutter), 2 + t * 10 + wave))
+		tail.append(neck + Vector2(-4 - t * (50 + flutter), 2 + t * 8 + wave))
 	var thick := PackedVector2Array()
 	for i in tail.size():
-		thick.append(tail[i] + Vector2(0, -6.0 * (1.0 - float(i) / tail.size()) - 2))
+		thick.append(tail[i] + Vector2(0, -5.0 * (1.0 - float(i) / tail.size()) - 1.5))
 	for i in range(tail.size() - 1, -1, -1):
-		thick.append(tail[i] + Vector2(0, 6.0 * (1.0 - float(i) / tail.size()) + 2))
+		thick.append(tail[i] + Vector2(0, 5.0 * (1.0 - float(i) / tail.size()) + 1.5))
 	draw_colored_polygon(thick, color)
 	thick.append(thick[0])
-	draw_polyline(thick, OUTLINE, 2.5, true)
-	draw_circle(neck + Vector2(0, 2), 7.0, OUTLINE, true, -1.0, true)
-	draw_circle(neck + Vector2(0, 2), 5.0, color, true, -1.0, true)
+	draw_polyline(thick, INK, 2.0, true)
+	draw_circle(neck + Vector2(0, 2), 6.0, INK, true, -1.0, true)
+	draw_circle(neck + Vector2(0, 2), 4.0, color, true, -1.0, true)
 
 
 func _draw_quiver(neck: Vector2) -> void:
-	var quiver := Rect2(neck + Vector2(-16, -6), Vector2(10, 34))
-	_rounded(quiver.grow(2.5), OUTLINE, 5)
-	_rounded(quiver, LEATHER, 4)
+	var quiver := Rect2(neck + Vector2(-17, -4), Vector2(9, 32))
+	_rounded(quiver.grow(1.5), INK, 4)
+	_rounded(quiver, INK.lightened(0.15), 4)
 	for i in 3:
-		var x := quiver.position.x + 2 + i * 3.5
-		draw_line(Vector2(x, quiver.position.y), Vector2(x - 2, quiver.position.y - 12), Color(0.6, 0.45, 0.3), 2.0, true)
-		draw_colored_polygon(PackedVector2Array([Vector2(x - 2, quiver.position.y - 12), Vector2(x - 6, quiver.position.y - 18), Vector2(x + 1, quiver.position.y - 16)]), Color(0.9, 0.3, 0.3))
+		var x := quiver.position.x + 2 + i * 3.0
+		draw_line(Vector2(x, quiver.position.y), Vector2(x - 2, quiver.position.y - 12), INK, 2.0, true)
+		draw_colored_polygon(PackedVector2Array([Vector2(x - 2, quiver.position.y - 12), Vector2(x - 6, quiver.position.y - 18), Vector2(x + 1, quiver.position.y - 16)]), data.cape_color)
 
 
 func _draw_tabard(hip: Vector2, neck: Vector2) -> void:
-	var top := neck.lerp(hip, 0.15)
-	var mid := top.lerp(hip, 0.35)
-	_poly([top + Vector2(-9, 0), top + Vector2(9, 0), hip + Vector2(8, 8), hip + Vector2(0, 14), hip + Vector2(-8, 8)], data.body_color, 2.5)
-	_poly([mid + Vector2(0, -6), mid + Vector2(5, 0), mid + Vector2(0, 8), mid + Vector2(-5, 0)], GOLD, 1.5)
+	var top := neck.lerp(hip, 0.18)
+	var mid := top.lerp(hip, 0.4)
+	_poly([top + Vector2(-7, 0), top + Vector2(7, 0), hip + Vector2(7, 6), hip + Vector2(0, 12), hip + Vector2(-7, 6)], data.body_color, 2.0)
+	_poly([mid + Vector2(0, -5), mid + Vector2(4, 0), mid + Vector2(0, 6), mid + Vector2(-4, 0)], GOLD, 1.0)
 
 
+## A solid ink head with the fighter's headgear in silhouette (plus one colour
+## accent so you can tell them apart). Faceless, except white X eyes when knocked out.
 func _draw_head(knocked: bool, ink: Color) -> void:
 	var c := HEAD_CENTER
 	var r := HEAD_RADIUS
-	draw_circle(c, r + 3.5, ink, true, -1.0, true)
-	draw_circle(c, r - 0.5, Color.WHITE.lerp(data.skin_color, 0.15), true, -1.0, true)
-	# A crisp crescent of shade on the back of the head.
-	draw_arc(c, r - 3.5, PI * 0.55, PI * 1.25, 12, Color(0.82, 0.8, 0.86), 4.0, true)
-
 	match data.style:
 		&"viking":
-			_poly(_arc(c + Vector2(0, -6), r + 3, PI, TAU, 14), STEEL)
-			var band := Rect2(c + Vector2(-r - 3, -9), Vector2(2 * r + 6, 5))
-			draw_rect(band, GOLD)
-			draw_rect(band, OUTLINE, false, 2.0)
 			for side: float in [-1.0, 1.0]:
-				_poly([c + Vector2(side * 12, -15), c + Vector2(side * 19, -10), c + Vector2(side * 29, -24), c + Vector2(side * 32, -42), c + Vector2(side * 23, -28)], Color(0.97, 0.92, 0.78))
-		&"rogue":
-			# Ninja-style headband with two tails that whip in the wind.
-			_poly([c + Vector2(-r - 2, -10), c + Vector2(r + 2, -12), c + Vector2(r + 2, -4), c + Vector2(-r - 2, -2)], data.accent_color, 2.5)
-			for k in 2:
-				var tail := PackedVector2Array()
-				var base := c + Vector2(-r - 1, -6)
-				for i in 6:
-					var t := float(i) / 5.0
-					tail.append(base + Vector2(-t * (30 + k * 8), t * (6 + k * 8) + sin(_time * 9.0 - t * 5.0 + k) * 5.0 * t))
-				draw_polyline(tail, OUTLINE, 7.0, true)
-				draw_polyline(tail, data.accent_color, 4.0, true)
+				_poly([c + Vector2(side * 10, -12), c + Vector2(side * 18, -6), c + Vector2(side * 30, -22), c + Vector2(side * 33, -44), c + Vector2(side * 23, -26)], ink, 0.0)
+		&"ranger":
+			# Hood pulled to a point behind the head.
+			_poly([c + Vector2(4, -r - 3), c + Vector2(-r - 22, 6), c + Vector2(-r + 4, 12)], ink, 0.0)
 		&"knight":
-			var helm := _arc(c + Vector2(0, -1), r + 5, PI * 0.95, TAU * 1.03, 16)
-			helm.append(c + Vector2(r + 3, 8))
-			helm.append(c + Vector2(-r - 4, 10))
-			_poly(helm, STEEL)
-			_poly([c + Vector2(4, -6), c + Vector2(22, -6), c + Vector2(20, 2), c + Vector2(4, 2)], OUTLINE, 0.0)
-			draw_line(c + Vector2(6, -2), c + Vector2(19, -2), Color(1, 0.85, 0.4, 0.9), 2.0, true)
 			for i in 5:
 				var a := PI * 1.2 + i * 0.22
-				var plume := c + Vector2(-6, -12) + Vector2.from_angle(a) * 26.0 + Vector2(sin(_time * 3.0 + i) * 1.5, 0)
-				draw_circle(plume, 9.0 - i * 0.6, OUTLINE, true, -1.0, true)
-				draw_circle(plume, 7.0 - i * 0.6, data.cape_color, true, -1.0, true)
-			return
+				var plume := c + Vector2(-3, -6) + Vector2.from_angle(a) * 21.0 + Vector2(sin(_time * 3.0 + i) * 1.5, 0)
+				draw_circle(plume, 8.5 - i * 0.6, data.cape_color.lerp(Color.WHITE, _flash * 0.6), true, -1.0, true)
+	draw_circle(c, r, ink, true, -1.0, true)
+	match data.style:
+		&"viking":
+			draw_line(c + Vector2(-r + 1, -9), c + Vector2(r - 1, -11), GOLD, 3.0, true)
+		&"rogue":
+			# Headband with two tails that whip in the wind.
+			draw_line(c + Vector2(-r, -7), c + Vector2(r - 1, -9), data.accent_color, 4.5, true)
+			for k in 2:
+				var tail := PackedVector2Array()
+				var base := c + Vector2(-r + 1, -7)
+				for i in 6:
+					var t := float(i) / 5.0
+					tail.append(base + Vector2(-t * (32 + k * 9), t * (6 + k * 8) + sin(_time * 9.0 - t * 5.0 + k) * 5.0 * t))
+				draw_polyline(tail, data.accent_color, 4.0, true)
+		&"knight":
+			draw_line(c + Vector2(5, -3), c + Vector2(r - 1, -3), Color(0.8, 0.82, 0.88), 3.0, true)
 		&"ranger":
-			_poly([c + Vector2(-2, -r - 6), c + Vector2(14, -18), c + Vector2(r + 4, -4), c + Vector2(14, -10), c + Vector2(-6, -14), c + Vector2(-r + 2, -2), c + Vector2(-r - 14, 4), c + Vector2(-r - 4, -12)], data.cape_color)
-	_draw_face(c, knocked)
-
-
-func _draw_face(c: Vector2, knocked: bool) -> void:
-	var eye := c + Vector2(9, -1)
+			draw_arc(c, r - 2, -PI * 0.15, PI * 0.35, 8, data.cape_color, 3.0, true)
 	if knocked:
-		draw_line(eye + Vector2(-4, -4), eye + Vector2(4, 4), OUTLINE, 3.0, true)
-		draw_line(eye + Vector2(-4, 4), eye + Vector2(4, -4), OUTLINE, 3.0, true)
-	elif _time > _next_blink:
-		draw_line(eye + Vector2(-4, 0), eye + Vector2(4, 0), OUTLINE, 3.0, true)
-	else:
-		var look := Vector2.from_angle(-deg_to_rad(aim_angle)) * 1.5 if aiming else Vector2(1.0, 0.0)
-		draw_colored_polygon(_ellipse(eye + look, Vector2(3.2, 4.6), 14), OUTLINE)
-		draw_circle(eye + look + Vector2(-0.8, -1.6), 1.2, Color.WHITE, true, -1.0, true)
-	# Brow: angry while aiming, raised when hurt.
-	var brow_tilt := 4.0 if aiming else (-3.0 if _ouch > 0.2 else 0.0)
-	draw_line(eye + Vector2(-5, -8 - brow_tilt * 0.5), eye + Vector2(5, -8 + brow_tilt * 0.5), OUTLINE, 3.0, true)
-	var mouth := c + Vector2(10, 9)
-	if _ouch > 0.3 or knocked:
-		draw_colored_polygon(_ellipse(mouth, Vector2(3.0, 4.0), 14), OUTLINE)
-	elif aiming:
-		draw_line(mouth + Vector2(-4, 0), mouth + Vector2(4, -1), OUTLINE, 2.5, true)
-	else:
-		draw_arc(mouth + Vector2(0, -4), 5.0, 0.5, 2.0, 8, OUTLINE, 2.5, true)
+		var eye := c + Vector2(8, -2)
+		for e: Vector2 in [eye, eye + Vector2(-10, 0)]:
+			draw_line(e + Vector2(-3, -3), e + Vector2(3, 3), Color.WHITE, 2.5, true)
+			draw_line(e + Vector2(-3, 3), e + Vector2(3, -3), Color.WHITE, 2.5, true)
 
 
 # --- drawing helpers ---
