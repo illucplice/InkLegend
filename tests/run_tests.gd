@@ -26,6 +26,7 @@ func _initialize() -> void:
 	await _test_anime_match()
 	await _test_straw_reaper_match()
 	await _test_homing_and_balance()
+	await _test_practice_specials()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -469,4 +470,42 @@ func _test_homing_and_balance() -> void:
 	_check(full_barrage <= 60, "a full Gum Barrage body hit is at most 60 (%d)" % full_barrage)
 	var gok: FighterData = load("res://data/fighters/gok.tres")
 	_check(roundi(gok.weapon.head_damage * game.BEAM_MULTIPLIER) <= 60, "Mega Wave headshots are no longer near one-hit kills")
+	game.queue_free()
+
+
+## Target Practice lets you use your special: it starts charged, straight specials
+## hit the target they are pointed at, and the round carries on afterwards.
+func _test_practice_specials() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	for id: String in ["gok", "ichi", "egita", "lufi"]:
+		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
+		game.start_practice(pick)
+		for frame in 300:
+			if game.state == game.State.PLAYER_AIM:
+				break
+			await process_frame
+		_check(game._charge[0] >= 1.0 and game._hud._special_button.visible, "%s starts practice with the special ready" % id)
+		game._on_special_toggled(true)
+		var origin: Vector2 = game.fighters[0].throw_origin()
+		var target: Vector2 = game._practice_target.global_position
+		var angle := 0.0
+		var power := 1.0
+		if game.is_straight_special(pick.weapon.special):
+			angle = game.beam_angle(origin, target, 1)
+		else:
+			var shot := AiAimer.solve(origin, target, pick.weapon.max_speed, 1, 40.0, [], 0.0, Rules.GRAVITY * pick.weapon.gravity_scale)
+			angle = shot["angle"]
+			power = shot["power"]
+		var stars_before: int = game._practice["stars"]
+		game._on_player_throw(angle, power)
+		_check(game._special_used[0], "%s used the special in practice" % id)
+		for frame in 900:
+			if game.state == game.State.PLAYER_AIM:
+				break
+			await process_frame
+		_check(game.state == game.State.PLAYER_AIM, "practice carries on after %s's special" % id)
+		if game.is_straight_special(pick.weapon.special):
+			_check(int(game._practice["stars"]) > stars_before, "%s's straight special hits the practice target" % id)
 	game.queue_free()

@@ -45,9 +45,9 @@ var flight_time := 0.0
 var explode_radius := 0.0
 ## Flies through obstacles (cutting them) instead of stopping.
 var pierce := false
-## Gum Barrage: once within homing_range px of this fighter, steer toward them at up
+## Gum Barrage: once within homing_range px of this fighter (or practice target), steer toward it at up
 ## to homing_turn rad/s.
-var homing_target: Fighter
+var homing_target: Node2D
 var homing_range := 0.0
 var homing_turn := 0.0
 
@@ -177,9 +177,13 @@ func _physics_process(delta: float) -> void:
 ## Bends the flight toward the homing target when close, by restarting the path from
 ## here with the turned velocity.
 func _home(delta: float) -> void:
-	if homing_target == null or homing_target.is_knocked_out():
+	if homing_target == null or not is_instance_valid(homing_target):
 		return
-	var to := homing_target.aim_point(false) - global_position
+	var fighter := homing_target as Fighter
+	if fighter != null and fighter.is_knocked_out():
+		return
+	var point := fighter.aim_point(false) if fighter != null else homing_target.global_position
+	var to := point - global_position
 	if to.length() > homing_range:
 		return
 	var velocity := Rules.velocity_at(_velocity, _t - delta, wind, gravity)

@@ -1757,7 +1757,13 @@ func _fill_fighters() -> void:
 	grid.add_theme_constant_override("v_separation", 10)
 	for fighter in _roster:
 		grid.add_child(_fighter_tile(fighter))
-	_fighters_content.add_child(grid)
+	# Two rows show at once and the rest scroll, so Back always stays on screen.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.scroll_deadzone = 12
+	scroll.custom_minimum_size = Vector2(grid.get_combined_minimum_size().x + 14, 2 * 196 + 10 + 6)
+	scroll.add_child(grid)
+	_fighters_content.add_child(scroll)
 	_fighters_content.add_child(_back_button(show_title))
 
 

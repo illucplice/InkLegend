@@ -60,6 +60,8 @@ const DRIFT_TIME := 0.8
 ## Target Practice: number of targets and tries per target (stars = tries left + 1).
 const PRACTICE_TARGETS := 10
 const PRACTICE_TRIES := 3
+## Target Practice: how much of the special meter each target hit fills.
+const PRACTICE_CHARGE := 0.5
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
 ## Special meter gains: per hit, per headshot, and when you get hit.
@@ -457,7 +459,9 @@ func start_practice(pick: FighterData) -> void:
 	_brains = [null, null]
 	_stats = [_empty_stats(), _empty_stats()]
 	_special_used = [false, false]
-	_charge = [0.0, 0.0]
+	# Specials start charged so you can try yours straight away; hits refill it.
+	_charge = [1.0, 0.0]
+	fighters[0].charge = 1.0
 	_combo = [0, 0]
 	_turn_count = 0
 	_extra_throw = false
@@ -512,6 +516,7 @@ func _on_practice_target_hit(projectile: Projectile, target: PracticeTarget) -> 
 	var bullseye := target.is_bullseye(projectile.global_position)
 	_practice["stars"] += stars
 	_stats[0]["hits"] += 1
+	_add_charge(0, PRACTICE_CHARGE)
 	target.pop()
 	Effects.burst(_actors, target.global_position, Color(1.0, 0.85, 0.3), 30, 520.0, 180.0, 1.3)
 	Audio.play("hit_head" if bullseye else "hit_body")
@@ -784,7 +789,7 @@ func _begin_turn() -> void:
 		if mode == Mode.PRACTICE:
 			turn_text = "TARGET %d/%d  ·  TRY %d/%d" % [_practice["index"] + 1, PRACTICE_TARGETS, _practice["attempt"] + 1, PRACTICE_TRIES]
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
-		_hud.set_special(null if mode == Mode.PRACTICE else fighter.data, _charge[current], false)
+		_hud.set_special(fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
@@ -1105,9 +1110,10 @@ func _fire_beam(fighter: Fighter, angle: float) -> void:
 	var end := origin + direction * BEAM_RANGE
 	var victim: Fighter = null
 	var part := Rules.BODY
+	var struck_target: PracticeTarget = null
 	var smashed: Array[Obstacle] = []
 	for step in 8:
-		var query := PhysicsRayQueryParameters2D.create(from, origin + direction * BEAM_RANGE, 0b11, exclude)
+		var query := PhysicsRayQueryParameters2D.create(from, origin + direction * BEAM_RANGE, 0b1011, exclude)
 		query.collide_with_areas = true
 		var hit := space.intersect_ray(query)
 		if hit.is_empty():
@@ -1122,6 +1128,7 @@ func _fire_beam(fighter: Fighter, angle: float) -> void:
 		if collider is Hitbox:
 			victim = (collider as Hitbox).fighter
 			part = (collider as Hitbox).part
+		struck_target = collider as PracticeTarget
 		break
 	var beam := Beam.new()
 	beam.setup(origin, end, fighter.data.weapon.color)
@@ -1150,6 +1157,13 @@ func _fire_beam(fighter: Fighter, angle: float) -> void:
 		carrier.set_meta("beam", true)
 		_on_projectile_hit(carrier, victim, part, 1.0, direction * 1500.0 + Vector2(0, -300))
 		carrier.free()
+	if struck_target != null and is_instance_valid(struck_target):
+		var marker := Projectile.new()
+		marker.weapon = fighter.data.weapon
+		marker.thrower = fighter
+		marker.position = end
+		_on_practice_target_hit(marker, struck_target)
+		marker.free()
 	await beam.finished
 	_beam_end = Vector2.INF
 	if match_id == _match_id:
@@ -1456,7 +1470,7 @@ func _barrage(fighter: Fighter, angle: float, power: float) -> void:
 		var spread := rng.randf_range(-BARRAGE_SPREAD, BARRAGE_SPREAD)
 		projectile.launch(fist, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + spread, power * rng.randf_range(0.97, 1.03), fist.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
-		projectile.homing_target = fighters[1 - current]
+		projectile.homing_target = _practice_target if mode == Mode.PRACTICE else fighters[1 - current]
 		projectile.homing_range = BARRAGE_HOMING_RANGE
 		projectile.homing_turn = BARRAGE_HOMING_TURN
 		projectile.set_meta("barrage", true)
