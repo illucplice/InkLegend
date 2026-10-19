@@ -48,6 +48,12 @@ func focus_on(points: Callable, seconds: float) -> void:
 	_focus_until = Time.get_ticks_msec() + int(seconds * 1000.0)
 
 
+## Ends any cinematic focus straight away (and drops the callback).
+func release_focus() -> void:
+	_focus = Callable()
+	_focus_until = 0
+
+
 func snap() -> void:
 	_follow(1.0, 1.0)
 	reset_physics_interpolation()
@@ -63,7 +69,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _follow(move_weight: float, zoom_weight: float) -> void:
-	var cinematic := _focus.is_valid() and Time.get_ticks_msec() < _focus_until
+	var cinematic := Time.get_ticks_msec() < _focus_until and _focus.is_valid()
 	var provider := _focus if cinematic else points_provider
 	if not provider.is_valid():
 		return

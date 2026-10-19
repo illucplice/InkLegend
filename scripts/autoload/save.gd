@@ -27,6 +27,8 @@ const TRAILS := {
 var sound_on := true
 var volume := 0.8
 var screen_shake := true
+## Fatalities show red blood (off: black ink splats instead).
+var gore := true
 var long_aim_guide := false
 var show_hints := true
 var music_on := true
@@ -71,6 +73,7 @@ func load_settings() -> void:
 	sound_on = config.get_value("audio", "sound_on", sound_on)
 	volume = config.get_value("audio", "volume", volume)
 	screen_shake = config.get_value("game", "screen_shake", screen_shake)
+	gore = config.get_value("game", "gore", gore)
 	long_aim_guide = config.get_value("game", "long_aim_guide", long_aim_guide)
 	show_hints = config.get_value("game", "show_hints", show_hints)
 	music_on = config.get_value("audio", "music_on", music_on)
@@ -83,6 +86,7 @@ func save_settings() -> void:
 	config.set_value("audio", "sound_on", sound_on)
 	config.set_value("audio", "volume", volume)
 	config.set_value("game", "screen_shake", screen_shake)
+	config.set_value("game", "gore", gore)
 	config.set_value("game", "long_aim_guide", long_aim_guide)
 	config.set_value("game", "show_hints", show_hints)
 	config.set_value("audio", "music_on", music_on)

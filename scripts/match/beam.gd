@@ -11,6 +11,8 @@ const FIRE_TIME := 0.8
 const FADE_TIME := 0.3
 
 var color := Color(0.35, 0.8, 1.0)
+## Thickness multiplier (Ichi's Cero is far bigger than a Mega Wave).
+var width_scale := 1.0
 var _start := Vector2.ZERO
 var _end := Vector2.ZERO
 var _time := 0.0
@@ -44,8 +46,8 @@ func _draw() -> void:
 		# A ball of energy swelling between the hands.
 		var grow := _time / CHARGE_TIME
 		for ring in 4:
-			draw_circle(_start, (10.0 + grow * 26.0) * (1.3 - ring * 0.2), Color(color, 0.15 + ring * 0.15), true, -1.0, true)
-		draw_circle(_start, 6.0 + grow * 10.0, Color.WHITE, true, -1.0, true)
+			draw_circle(_start, (10.0 + grow * 26.0) * (1.3 - ring * 0.2) * width_scale, Color(color, 0.15 + ring * 0.15), true, -1.0, true)
+		draw_circle(_start, (6.0 + grow * 10.0) * width_scale, Color.WHITE, true, -1.0, true)
 		return
 	var fade := 1.0
 	if _phase == 2:
@@ -57,7 +59,7 @@ func _draw() -> void:
 	var widths := [64.0, 44.0, 26.0, 12.0]
 	var colors := [Color(color, 0.18), Color(color, 0.4), color.lightened(0.35), Color.WHITE]
 	for i in widths.size():
-		var w: float = widths[i] * flicker * fade
+		var w: float = widths[i] * flicker * fade * width_scale
 		var c: Color = colors[i]
 		c.a *= fade
 		draw_colored_polygon(PackedVector2Array([_start + side * w * 0.5, tip + side * w * 0.5, tip - side * w * 0.5, _start - side * w * 0.5]), c)
@@ -66,5 +68,5 @@ func _draw() -> void:
 	# Sparks racing along the beam.
 	for k in 10:
 		var t := fmod(_time * 2.5 + k * 0.1, 1.0)
-		var at := _start.lerp(tip, t) + side * sin(k * 3.7 + _time * 20.0) * 18.0
+		var at := _start.lerp(tip, t) + side * sin(k * 3.7 + _time * 20.0) * 18.0 * width_scale
 		draw_circle(at, 3.0 * fade, Color(Color.WHITE, fade), true, -1.0, true)

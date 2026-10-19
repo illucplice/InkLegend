@@ -344,6 +344,32 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_colored_polygon(blade, ink)
 			canvas.draw_polyline(PackedVector2Array([Vector2(-s * 0.3, -s * 0.11), Vector2(s * 0.5, -s * 0.11), Vector2(s * 0.64, -s * 0.02)]), steel, 2.5, true)
 			canvas.draw_line(Vector2(-s * 0.32, -s * 0.13), Vector2(-s * 0.32, s * 0.15), steel.darkened(0.3), 3.0, true)
+		&"katana":
+			# Bankai sword: a slim all-black blade, a manji-shaped guard and a broken
+			# chain hanging from the pommel.
+			var guard_x := -s * 0.32
+			canvas.draw_line(Vector2(-s * 0.56, 0), Vector2(guard_x, 0), ink, 6.0, true)
+			for k in 3:
+				var x := lerpf(-s * 0.54, guard_x - 4.0, (k + 0.5) / 3.0)
+				canvas.draw_line(Vector2(x - 3, -3), Vector2(x + 3, 3), Color(0.85, 0.85, 0.9), 1.5, true)
+			var blade := PackedVector2Array()
+			for k in 9:
+				var t := k / 8.0
+				blade.append(Vector2(lerpf(guard_x, s * 0.72, t), -sin(t * PI * 0.5) * 3.0 - 2.5 * (1.0 - t)))
+			for k in range(8, -1, -1):
+				var t := k / 8.0
+				blade.append(Vector2(lerpf(guard_x, s * 0.72, t) - (2.0 if k == 8 else 0.0), -sin(t * PI * 0.5) * 3.0 + 2.5 * (1.0 - t) + (0.0 if k == 8 else 0.5)))
+			canvas.draw_colored_polygon(blade, ink)
+			canvas.draw_line(Vector2(guard_x + 4, -2.0), Vector2(s * 0.68, -3.0), Color(0.75, 0.15, 0.2), 1.2, true)
+			for arm in 4:
+				var a := arm * PI / 2
+				var tip := Vector2(guard_x, 0) + Vector2.from_angle(a) * 8.0
+				canvas.draw_line(Vector2(guard_x, 0), tip, ink, 3.0, true)
+				canvas.draw_line(tip, tip + Vector2.from_angle(a + PI / 2) * 5.0, ink, 3.0, true)
+			var link := Vector2(-s * 0.58, 0)
+			for k in 4:
+				link += Vector2(-3.0, 5.0)
+				canvas.draw_arc(link, 2.6, 0.0, TAU, 8, ink, 1.6, true)
 		&"crescent":
 			# Moon Fang: a crescent of dark energy with a blood-red rim.
 			var outer := PackedVector2Array()

@@ -5,8 +5,10 @@ extends Node2D
 ## spawns projectiles, applies damage and ends the match on a knockout.
 
 signal match_ended(winner: Fighter)
+## The finishing throw after a knockout has hit or missed (see _finisher_throw).
+signal finisher_resolved
 
-enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER }
+enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## VS_AI: the left fighter is the player, the right one the AI.
 ## LOCAL_2P: two players take turns on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
@@ -48,6 +50,8 @@ const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NO
 const AI_THINK_TIME := 1.0
 const SETTLE_TIME := 0.9
 const RESULT_DELAY := 0.6
+## Seconds the dazed loser stands there before the winner can throw the finisher.
+const FINISHER_DELAY := 1.0
 ## 1v1 turns time out after this many seconds.
 const TURN_TIME := 12.0
 const LAST_STAND_HEALTH := 20
@@ -118,6 +122,8 @@ var _in_flight: Array[Projectile] = []
 ## True while a special is still launching projectiles (Gum Gatling), so the turn
 ## does not end when the first punch lands.
 var _launching := false
+## The finishing throw in progress: loser, projectiles in flight, hit, done.
+var _finisher := {}
 var _last_left: FighterData
 var _last_right: FighterData
 var _last_difficulty: int = AiAimer.Difficulty.NORMAL
@@ -309,6 +315,7 @@ static func _empty_stats() -> Dictionary:
 func _clear_match() -> void:
 	_match_id += 1
 	_launching = false
+	_finisher = {}
 	_end_slow_time()
 	_aim.finish()
 	for child in _actors.get_children():
@@ -878,6 +885,10 @@ func _on_special_toggled(armed: bool) -> void:
 
 
 func _on_player_throw(angle: float, power: float) -> void:
+	if state == State.FINISHER:
+		_aim.finish()
+		_finisher_launch(angle, power)
+		return
 	if state != State.PLAYER_AIM:
 		return
 	_aim.finish()
@@ -1274,6 +1285,27 @@ func _end_match() -> void:
 	var loser := fighters[0] if winner == fighters[1] else fighters[1]
 	for fighter in fighters:
 		fighter.is_turn = false
+	# The winner gets one finishing throw at the dazed loser. A hit earns the fatality
+	# (tap skips it); a miss goes straight to the result.
+	var fatality_id := _match_id
+	var landed := await _finisher_throw(winner, loser)
+	if fatality_id != _match_id:
+		return
+	if landed:
+		var fatality := Fatality.new()
+		fatality.setup(winner, loser, _camera, _hud, Save.gore)
+		_actors.add_child(fatality)
+		fatality.play(false)
+		if not fatality.is_done():
+			await fatality.finished
+		if fatality_id != _match_id:
+			return
+	else:
+		_hud.announce("MISSED THE FINISHER!", Color(0.8, 0.82, 0.9))
+		await get_tree().create_timer(1.0, false).timeout
+		if fatality_id != _match_id:
+			return
+	state = State.GAME_OVER
 	var winner_side := fighters.find(winner)
 	winner.celebrate()
 	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
@@ -1511,3 +1543,83 @@ func _on_projectile_pierced(projectile: Projectile, obstacle: Obstacle) -> void:
 	Effects.popup(_actors, at + Vector2(0, -50), "SLICED!", Color(1.0, 0.45, 0.45), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Audio.play("thunk", 0.0, 0.5, 0.0)
 	_camera.shake(0.35)
+
+
+## After a knockout: the loser staggers up and the winner gets one throw at them, like
+## Bowmasters. Returns true if it hit (the fatality then plays), false on a miss.
+func _finisher_throw(winner: Fighter, loser: Fighter) -> bool:
+	var match_id := _match_id
+	loser.stand_dazed()
+	_hud.announce("FINISH THEM!", Color(0.95, 0.15, 0.18))
+	Audio.play("ko", -2.0, 0.7, 0.0)
+	await get_tree().create_timer(FINISHER_DELAY, false).timeout
+	if match_id != _match_id:
+		return false
+	current = fighters.find(winner)
+	winner.holding_weapon = true
+	winner.is_turn = true
+	_finisher = {"loser": loser, "in_flight": 0, "hit": false, "done": false}
+	state = State.FINISHER
+	if winner.is_ai:
+		var brain := _brains[current]
+		var shot := brain.aim(winner.throw_origin(), loser.aim_point(brain.wants_headshot()), winner.data.weapon.max_speed, winner.facing, _obstacle_rects, _wind_for(winner), Rules.GRAVITY * winner.data.weapon.gravity_scale)
+		winner.aiming = true
+		var wind_up := winner.create_tween().set_parallel().set_trans(Tween.TRANS_SINE)
+		wind_up.tween_property(winner, "aim_angle", float(shot["angle"]), AI_THINK_TIME * 0.8)
+		wind_up.tween_property(winner, "aim_power", float(shot["power"]), AI_THINK_TIME * 0.8)
+		await get_tree().create_timer(AI_THINK_TIME, false).timeout
+		if match_id != _match_id:
+			return false
+		_finisher_launch(shot["angle"], shot["power"])
+	else:
+		_hud.set_turn("FINISH THEM!", Color(0.95, 0.15, 0.18))
+		_aim.wind = _wind_for(winner)
+		_aim.begin(winner)
+	if not _finisher["done"]:
+		await finisher_resolved
+	if match_id != _match_id:
+		return false
+	winner.is_turn = false
+	_hud.set_turn("")
+	return _finisher["hit"]
+
+
+## Throws the finishing shot (no special). It only counts if it touches the loser.
+func _finisher_launch(angle: float, power: float) -> void:
+	if _finisher.is_empty() or _finisher["done"]:
+		return
+	var winner := fighters[current]
+	var weapon := winner.data.weapon
+	winner.play_throw()
+	var sound: Array = THROW_SOUNDS.get(weapon.shape, ["whoosh", 1.0])
+	Audio.play(sound[0], -2.0, sound[1])
+	for i in weapon.count:
+		var offset := (i - (weapon.count - 1) / 2.0) * weapon.spread_deg
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(weapon, winner, winner.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, winner.facing), _wind_for(winner))
+		projectile.target = _finisher["loser"]
+		projectile.hit_fighter.connect(func(p: Projectile, who: Fighter, _part: StringName) -> void:
+			if who == _finisher["loser"]:
+				Effects.burst(_actors, p.global_position, Color(1, 1, 1, 0.9), 14, 420.0)
+				Audio.play("hit_body", 0.0, 0.9, 0.0)
+				_camera.shake(0.5)
+				_resolve_finisher(true))
+		projectile.finished.connect(func(p: Projectile) -> void:
+			_in_flight.erase(p)
+			_finisher["in_flight"] -= 1
+			if _finisher["in_flight"] <= 0:
+				_resolve_finisher(false))
+		_finisher["in_flight"] += 1
+		_in_flight.append(projectile)
+	state = State.FLYING
+
+
+## Ends the finishing throw once: hit (true) or every projectile gone (false).
+func _resolve_finisher(hit: bool) -> void:
+	if _finisher.is_empty() or _finisher["done"]:
+		return
+	_finisher["done"] = true
+	_finisher["hit"] = hit
+	state = State.GAME_OVER
+	finisher_resolved.emit()

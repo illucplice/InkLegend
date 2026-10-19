@@ -27,6 +27,7 @@ func _initialize() -> void:
 	await _test_straw_reaper_match()
 	await _test_homing_and_balance()
 	await _test_practice_specials()
+	await _test_fatalities()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -508,4 +509,56 @@ func _test_practice_specials() -> void:
 		_check(game.state == game.State.PLAYER_AIM, "practice carries on after %s's special" % id)
 		if game.is_straight_special(pick.weapon.special):
 			_check(int(game._practice["stars"]) > stars_before, "%s's straight special hits the practice target" % id)
+	game.queue_free()
+
+
+## Fatalities: after a KO the winner gets a finishing throw. A hit plays the winner's
+## fatality (and a tap skips it); a miss goes straight to the result.
+func _test_fatalities() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	var roster: Array = game.roster()
+	# Loaded at runtime: the Fatality class uses autoloads, which this script cannot see.
+	var fatality_script: GDScript = load("res://scripts/match/fatality.gd")
+	var names: Dictionary = fatality_script.NAMES
+	_check(roster.all(func(f: FighterData) -> bool: return names.has(f.id)), "every fighter has a fatality")
+	for case: String in ["hit", "miss", "skip"]:
+		game.start_match(roster[1], roster[0], game.Mode.VS_AI, 1, load("res://data/maps/colosseum.tres"))
+		await process_frame
+		game._match_id += 1
+		var loser: Fighter = game.fighters[1]
+		loser.take_hit(&"body", 100, Vector2(-300, 0))
+		for k in 40:
+			await physics_frame
+		var ended := {"done": false}
+		game.match_ended.connect(func(_w: Fighter) -> void: ended["done"] = true, CONNECT_ONE_SHOT)
+		game._end_match()
+		var saw_finisher := false
+		var fatality: Node = null
+		for k in 1200:
+			await process_frame
+			if game.state == game.State.FINISHER:
+				saw_finisher = true
+			if game.state == game.State.FLYING and not game._finisher.is_empty() and not game._finisher["done"]:
+				game._resolve_finisher(case != "miss")
+			for child in game._actors.get_children():
+				if child.get_script() == fatality_script:
+					fatality = child
+			if case == "skip" and fatality != null and not fatality.is_done():
+				var tap := InputEventMouseButton.new()
+				tap.button_index = MOUSE_BUTTON_LEFT
+				tap.pressed = true
+				fatality._unhandled_input(tap)
+			if ended["done"]:
+				break
+		_check(saw_finisher, "%s: the winner gets a finishing throw" % case)
+		_check(ended["done"], "%s: the match ends after the finisher" % case)
+		if case == "miss":
+			_check(fatality == null and loser.visible, "a missed finisher plays no fatality")
+		elif case == "hit":
+			_check(fatality != null and fatality.is_done() and not loser.visible, "a hit finisher plays the fatality")
+		else:
+			_check(fatality != null and fatality.is_done(), "tapping skips the fatality")
 	game.queue_free()

@@ -1305,6 +1305,7 @@ func _build_settings() -> Control:
 	music_row.add_child(music_slider)
 	content.add_child(music_row)
 	content.add_child(_toggle_row("Screen shake", "screen_shake"))
+	content.add_child(_toggle_row("Gore in fatalities", "gore"))
 	content.add_child(_toggle_row("Long aim guide", "long_aim_guide"))
 	content.add_child(_toggle_row("Controls hint", "show_hints"))
 	if Device.is_mobile():

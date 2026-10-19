@@ -88,6 +88,11 @@ var _celebrating := false
 var _ragdoll: StickRagdoll
 var _ragdoll_time := 0.0
 var _getup := 0.0
+## Fatality: a knocked-out fighter staggers back up, dazed, to take the finisher.
+var _dazed := false
+## A transformation drawn instead of the usual look: "vasto" (Ichi's Vasto Lorde).
+var form: StringName = &""
+var _bankai_sword: WeaponData
 ## The skeleton drawn last frame, in node space.
 var _points := {}
 
@@ -177,6 +182,25 @@ func stick(weapon: WeaponData, global_point: Vector2, velocity: Vector2) -> void
 
 
 ## Victory: hop on the spot waving the weapon overhead.
+## Fatality: stand a knocked-out fighter back up, swaying and seeing stars.
+func stand_dazed() -> void:
+	_dazed = true
+	_celebrating = false
+	aiming = false
+	if _ragdoll != null:
+		_ragdoll_time = maxf(_ragdoll_time, DOWN_TIME)
+		_getup = 0.0
+
+
+## Where each joint is in the world right now, plus the shoulder.
+func body_points() -> Dictionary:
+	var out := {}
+	for point: StringName in _points:
+		out[point] = to_global(_points[point])
+	out[&"shoulder"] = (out[&"neck"] as Vector2).lerp(out[&"hip"], 0.15)
+	return out
+
+
 func heal(amount: int) -> void:
 	health = mini(Rules.MAX_HEALTH, health + amount)
 	health_changed.emit(self, health)
@@ -258,7 +282,7 @@ func _process(delta: float) -> void:
 		_points = posed
 	else:
 		_ragdoll_time += delta
-		if is_knocked_out() or _ragdoll_time < DOWN_TIME:
+		if (is_knocked_out() and not _dazed) or _ragdoll_time < DOWN_TIME:
 			_ragdoll.step(delta)
 			_points = _ragdoll.pos.duplicate()
 		else:
@@ -282,6 +306,8 @@ func _posed_points() -> Dictionary:
 	var wobble := sin(_time * 18.0) * 0.12 * _squash
 	var stretch := Vector2(1.0 + 0.12 * _squash, 1.0 - 0.12 * _squash)
 	var sway := sin(_time * 2.2) * 0.025
+	if _dazed:
+		sway = sin(_time * 3.1) * 0.16
 	var hop := -absf(sin(_time * 7.0)) * 16.0 if _celebrating else 0.0
 	var xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2(0, hop))
 	var bob := breathe * 1.2
@@ -348,8 +374,12 @@ func _draw() -> void:
 	# Powered-up anime fighters glow gold from head to toe, with a shimmer.
 	if _is_anime() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		ink = POWER_GOLD.lerp(Color(1.0, 0.95, 0.6), 0.25 + 0.25 * sin(_time * 9.0)).lerp(Color.WHITE, _flash * 0.85)
+	if form == &"vasto":
+		ink = Color(0.96, 0.95, 0.92).lerp(Color(1.0, 0.6, 0.6), _flash * 0.6)
 	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
 
+	if form == &"vasto":
+		_draw_vasto_outline(p, shoulder)
 	_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)
 	_taper(p[&"belbow"], p[&"bhand"], LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(p[&"bhand"], 4.5, ink, true, -1.0, true)
@@ -368,8 +398,12 @@ func _draw() -> void:
 		_draw_hair(head, p[&"neck"], ink)
 	elif data.style == &"straw":
 		_draw_straw_hat(head, p[&"neck"], ink)
-	elif data.style == &"reaper":
+	elif data.style == &"reaper" and form != &"vasto":
 		_draw_reaper_hair(head, p[&"neck"], ink)
+	if form == &"vasto":
+		_draw_vasto_details(p)
+	elif _bankai():
+		_draw_hollow_mask(head, p[&"neck"])
 	if knocked:
 		var tilt := (head - (p[&"neck"] as Vector2)).angle() + PI / 2
 		draw_set_transform_matrix(Transform2D(tilt, Vector2(f, 1), 0.0, head))
@@ -388,10 +422,10 @@ func _draw() -> void:
 	if data.weapon.shape == &"hammer" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.08 if facing == 1 else PI - 0.08
 	# The cleaver is carried low in front, the blade slanting up across the back.
-	if data.weapon.shape == &"cleaver" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
+	if data.weapon.shape == &"cleaver" and not _bankai() and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.9 if facing == 1 else PI - 0.9
 	var pull := aim_power if aiming else 0.0
-	Projectile.draw_held(self, data.weapon, Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
+	Projectile.draw_held(self, _held_weapon(), Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
 	draw_set_transform(Vector2.ZERO)
 	_taper(shoulder, p[&"felbow"], LINE, LINE * 0.85, ink)
 	_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
@@ -594,6 +628,15 @@ func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
 		_taper(neck, hip, LINE * 1.6, LINE * 1.6, ink)
 		_taper(hip + side * 9.0 + spine * 2.0, hip - side * 9.0 + spine * 2.0, 5.0, 5.0, Color(0.98, 0.82, 0.35))
 		return
+	if form == &"vasto":
+		return
+	if _bankai():
+		_draw_bankai_coat(p, side)
+		_poly([neck + side * 10.0, hip + side * 11.0, hip - side * 11.0, neck - side * 10.0], Color(0.08, 0.07, 0.1), 2.5)
+		draw_colored_polygon(PackedVector2Array([neck + side * 6.0, neck.lerp(hip, 0.35), neck - side * 6.0]), Color(0.95, 0.94, 0.9))
+		_taper(neck + side * 9.0, hip - side * 10.0, 4.0, 4.0, Color(0.55, 0.15, 0.15))
+		_draw_sleeve(shoulder, p[&"belbow"])
+		return
 	var robe := Color(0.14, 0.13, 0.17)
 	var fknee: Vector2 = p[&"fknee"]
 	var bknee: Vector2 = p[&"bknee"]
@@ -612,7 +655,7 @@ func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
 
 ## Ichi's wide black sleeve hanging from the shoulder past the elbow.
 func _draw_sleeve(shoulder: Vector2, elbow: Vector2) -> void:
-	if data.style != &"reaper":
+	if data.style != &"reaper" or form == &"vasto":
 		return
 	var along := elbow - shoulder
 	var across := along.normalized().orthogonal()
@@ -675,4 +718,112 @@ func _draw_reaper_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	cap.append(Vector2(-r * 0.7, r * 0.2))
 	draw_colored_polygon(cap, color)
 	draw_colored_polygon(PackedVector2Array([Vector2(r * 0.1, -r * 0.9), Vector2(r * 1.05, -r * 0.15), Vector2(r * 0.55, -r * 0.35)]), color)
+	draw_set_transform(Vector2.ZERO)
+
+
+# --- Ichi's hollow powers ---
+
+## The weapon drawn in the hand: Ichi swaps his cleaver for the bankai sword.
+func _held_weapon() -> WeaponData:
+	if not _bankai():
+		return data.weapon
+	if _bankai_sword == null:
+		_bankai_sword = data.weapon.duplicate() as WeaponData
+		_bankai_sword.shape = &"katana"
+		_bankai_sword.size = 56.0
+	return _bankai_sword
+
+
+## Ichi with his special charged (or firing it): hollow mask and bankai coat.
+func _bankai() -> bool:
+	return data != null and data.style == &"reaper" and form != &"vasto" and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out()
+
+
+## Bankai: a long black coat to the ankles with a tattered hem and red lining.
+func _draw_bankai_coat(p: Dictionary, side: Vector2) -> void:
+	var hip: Vector2 = p[&"hip"]
+	var neck: Vector2 = p[&"neck"]
+	var feet: Vector2 = (p[&"bfoot"] as Vector2).lerp(p[&"ffoot"], 0.5)
+	var hem := feet + Vector2(0, -4)
+	var coat := PackedVector2Array([neck + side * 11.0, hip + side * 13.0, hem + Vector2(-30, 0) * float(facing), hem + Vector2(30, 0) * float(facing), hip - side * 13.0, neck - side * 11.0])
+	coat = Geometry2D.convex_hull(coat)
+	coat.remove_at(coat.size() - 1)
+	_poly(coat, Color(0.08, 0.07, 0.1), 2.5)
+	# Ragged hem.
+	var left := hem + Vector2(-30, 0)
+	for k in 6:
+		var a := left + Vector2(k * 10.0, 0)
+		draw_colored_polygon(PackedVector2Array([a, a + Vector2(10, 0), a + Vector2(5, 9 + (k % 2) * 6)]), Color(0.08, 0.07, 0.1))
+	# Red lining down the open front.
+	draw_line(hip.lerp(neck, 0.3) + side * 3.0, hem + Vector2(4.0 * facing, -2), Color(0.75, 0.12, 0.15), 3.0, true)
+
+
+## The hollow mask over the front of the face: bone white, red stripes, a yellow eye.
+func _draw_hollow_mask(head: Vector2, neck: Vector2) -> void:
+	_head_space(head, neck)
+	var r := HEAD_RADIUS
+	var mask := PackedVector2Array()
+	for i in 15:
+		var a := lerpf(-1.75, 1.6, i / 14.0)
+		mask.append(Vector2.from_angle(a) * (r + 1.5))
+	mask.append(Vector2(-r * 0.15, r * 0.9))
+	mask.append(Vector2(-r * 0.25, -r * 0.95))
+	draw_colored_polygon(mask, Color(0.97, 0.96, 0.92))
+	var rim := mask.duplicate()
+	rim.append(mask[0])
+	draw_polyline(rim, OUTLINE, 2.0, true)
+	for k in 2:
+		var x := r * (0.15 + k * 0.32)
+		draw_line(Vector2(x, -r * 0.95), Vector2(x + 2.0, -r * 0.2), Color(0.8, 0.1, 0.12), 3.0, true)
+	draw_circle(Vector2(r * 0.45, -r * 0.05), 4.5, OUTLINE, true, -1.0, true)
+	draw_circle(Vector2(r * 0.5, -r * 0.05), 2.0, Color(1.0, 0.85, 0.1), true, -1.0, true)
+	for k in 4:
+		var x := r * (0.2 + k * 0.18)
+		draw_line(Vector2(x, r * 0.45), Vector2(x, r * 0.75), OUTLINE, 1.5, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+## Vasto Lorde: a black outline drawn under the white limbs, so the body reads.
+func _draw_vasto_outline(p: Dictionary, shoulder: Vector2) -> void:
+	var w := LINE + 3.5
+	for pair: Array in [[shoulder, p[&"belbow"]], [p[&"belbow"], p[&"bhand"]], [p[&"hip"], p[&"bknee"]], [p[&"bknee"], p[&"bfoot"]], [p[&"hip"], p[&"fknee"]], [p[&"fknee"], p[&"ffoot"]], [p[&"hip"], p[&"neck"]], [shoulder, p[&"felbow"]], [p[&"felbow"], p[&"fhand"]]]:
+		draw_line(pair[0], pair[1], OUTLINE, w, true)
+	for joint: StringName in [&"bhand", &"fhand", &"bfoot", &"ffoot"]:
+		draw_circle(p[joint], 7.0, OUTLINE, true, -1.0, true)
+	draw_circle(p[&"head"], HEAD_RADIUS + 2.0, OUTLINE, true, -1.0, true)
+	# Long orange hair streaming down the back.
+	var head: Vector2 = p[&"head"]
+	var back := Vector2(-facing, 0)
+	var flow := sin(_time * 4.0) * 4.0
+	var hair := PackedVector2Array([head + Vector2(0, -HEAD_RADIUS), head + back * HEAD_RADIUS, head + back * 26.0 + Vector2(flow, 40), head + back * 18.0 + Vector2(flow * 1.5, 92), head + back * 4.0 + Vector2(0, 60), head + back * 4.0])
+	_poly(hair, data.hair_color, 2.5)
+
+
+## Vasto Lorde's details over the white body: fur, a hole in the chest, the skull
+## face with horns and red markings.
+func _draw_vasto_details(p: Dictionary) -> void:
+	var fur := Color(0.98, 0.97, 0.94)
+	for joint: StringName in [&"neck", &"bhand", &"fhand", &"bfoot", &"ffoot"]:
+		for k in 3:
+			var at: Vector2 = (p[joint] as Vector2) + Vector2.from_angle(k * TAU / 3.0 + _time) * 4.0
+			draw_circle(at, 5.5, OUTLINE, true, -1.0, true)
+			draw_circle(at, 4.0, fur, true, -1.0, true)
+	var chest: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.3)
+	draw_circle(chest, 8.0, OUTLINE, true, -1.0, true)
+	draw_circle(chest, 5.0, Color(0.02, 0.02, 0.03), true, -1.0, true)
+	var head: Vector2 = p[&"head"]
+	_head_space(head, p[&"neck"])
+	var r := HEAD_RADIUS
+	for horn: float in [-1.0, 1.0]:
+		var base := Vector2(r * 0.1, -r * 0.6 + horn * 4.0)
+		var horn_line := PackedVector2Array([base, base + Vector2(r * 0.9, -r * 0.9 + horn * 3.0), base + Vector2(r * 2.1, -r * 0.6 + horn * 4.0)])
+		draw_polyline(horn_line, OUTLINE, 6.5, true)
+		draw_polyline(horn_line, Color(0.98, 0.97, 0.94), 3.5, true)
+	for k in 2:
+		draw_line(Vector2(r * (0.2 + k * 0.3), -r * 0.95), Vector2(r * (0.25 + k * 0.3), r * 0.1), Color(0.85, 0.1, 0.12), 2.5, true)
+	draw_circle(Vector2(r * 0.45, -r * 0.1), 4.0, OUTLINE, true, -1.0, true)
+	draw_circle(Vector2(r * 0.5, -r * 0.1), 1.8, Color(1.0, 0.85, 0.1), true, -1.0, true)
+	for k in 4:
+		var x := r * (0.2 + k * 0.18)
+		draw_line(Vector2(x, r * 0.4), Vector2(x, r * 0.75), OUTLINE, 1.5, true)
 	draw_set_transform(Vector2.ZERO)
