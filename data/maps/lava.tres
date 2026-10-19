@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MapData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/map_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"lava"
+display_name = "Lava Forge"
+tagline = "Things get heated"
+accent = Color(0.95, 0.3, 0.2, 1)
+sky_top = Color(0.08, 0.02, 0.04, 1)
+sky_mid = Color(0.3, 0.06, 0.08, 1)
+sky_low = Color(0.7, 0.18, 0.1, 1)
+sky_horizon = Color(1, 0.45, 0.15, 1)
+star_amount = 0.3
+sun_color = Color(1, 0.55, 0.3, 1)
+sun_glow = Color(1, 0.3, 0.1, 1)
+cloud_color = Color(0.35, 0.22, 0.22, 1)
+cloud_shade = Color(0.18, 0.1, 0.12, 1)
+far_color = Color(0.2, 0.08, 0.1, 1)
+near_color = Color(0.28, 0.12, 0.12, 1)
+scenery = &"volcano"
+ground_top = Color(0.3, 0.24, 0.26, 1)
+ground_lip = Color(0.5, 0.38, 0.36, 1)
+wall_color = Color(0.22, 0.16, 0.18, 1)
+props = &"basalt"
+fire_color = Color(1, 0.45, 0.1, 1)
+weather = &"ash"
+obstacle_stone = Color(0.42, 0.36, 0.4, 1)
+obstacle_dark = Color(0.25, 0.2, 0.24, 1)
+rune_color = Color(1, 0.55, 0.15, 1)

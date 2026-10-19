@@ -1,7 +1,7 @@
 class_name UiIcon
 extends Control
 ## A small vector icon (white with an ink outline) for buttons.
-## Names: play, duo, gear, help, quit, pause, back, restart, home, sound, sword.
+## Names: play, duo, gear, help, quit, pause, back, restart, home, sound, sword, trophy.
 
 const INK := Color(0.12, 0.1, 0.14)
 
@@ -72,6 +72,18 @@ func _draw() -> void:
 			for r: float in [7.0, 12.0]:
 				draw_arc(c + Vector2(3, 0) * u, r * u, -0.8, 0.8, 8, INK, 5 * u, true)
 				draw_arc(c + Vector2(3, 0) * u, r * u, -0.8, 0.8, 8, color, 2.2 * u, true)
+		&"trophy":
+			var gold := Color(1.0, 0.8, 0.25)
+			var cup := PackedVector2Array([c + Vector2(-10, -12) * u, c + Vector2(10, -12) * u, c + Vector2(8, -1) * u, c + Vector2(3, 3) * u, c + Vector2(-3, 3) * u, c + Vector2(-8, -1) * u])
+			for side: float in [-1.0, 1.0]:
+				draw_arc(c + Vector2(side * 10, -6) * u, 5 * u, -PI / 2 if side > 0 else PI / 2, PI / 2 if side > 0 else PI * 1.5, 8, INK, 4.5 * u, true)
+				draw_arc(c + Vector2(side * 10, -6) * u, 5 * u, -PI / 2 if side > 0 else PI / 2, PI / 2 if side > 0 else PI * 1.5, 8, gold, 2.0 * u, true)
+			var saved := color
+			color = gold
+			_shape(cup)
+			_shape([c + Vector2(-2, 3) * u, c + Vector2(2, 3) * u, c + Vector2(2, 8) * u, c + Vector2(-2, 8) * u])
+			_shape([c + Vector2(-8, 8) * u, c + Vector2(8, 8) * u, c + Vector2(8, 12) * u, c + Vector2(-8, 12) * u])
+			color = saved
 		&"sword":
 			_shape([c + Vector2(-11, 11) * u, c + Vector2(-8, 8) * u, c + Vector2(9, -11) * u, c + Vector2(12, -12) * u, c + Vector2(11, -9) * u, c + Vector2(-8, 8) * u])
 			draw_line(c + Vector2(-12, 5) * u, c + Vector2(-5, 12) * u, INK, 6 * u, true)

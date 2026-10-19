@@ -99,6 +99,7 @@ func _test_ai_vs_ai_match() -> void:
 	_check(knocked_out == 1, "exactly one fighter is knocked out")
 	_check(turns["count"] >= 2, "turns alternated (%d turn changes)" % turns["count"])
 	print("AI vs AI: %s won after %d turn changes" % [winner.data.short_name, turns["count"]])
+	await _test_maps_and_tournament(game)
 	game.queue_free()
 
 
@@ -129,3 +130,26 @@ func _test_obstacles() -> void:
 			var to := Vector2(gap / 2 * facing, 0) + Fighter.BODY_CENTER
 			var clear_shot := AiAimer.solve(from, to, slowest.max_speed, facing, 45.0, boxes)
 			_check(clear_shot["clear"], "layout %d: the %s fighter has a clear throw" % [i, "left" if facing == 1 else "right"])
+
+
+func _test_maps_and_tournament(game: Node) -> void:
+	for map: MapData in game.maps():
+		game._set_map(map)
+		await process_frame
+		_check(game.current_map == map and game._arena.map == map, "the %s map builds" % map.display_name)
+
+	var pick: FighterData = game.roster()[2]
+	game.start_tournament(pick)
+	var rounds: Array = game.tournament["rounds"]
+	_check(rounds.size() == 4, "a tournament has 4 rounds")
+	var harder := true
+	for i in range(1, rounds.size()):
+		harder = harder and int(rounds[i]["difficulty"]) > int(rounds[i - 1]["difficulty"])
+	_check(harder, "each tournament round is harder than the last")
+	var opponents := {}
+	for i in 3:
+		opponents[rounds[i]["opponent"]] = true
+	_check(opponents.size() == 3 and not opponents.has(pick), "rounds 1-3 are the three other fighters")
+	var boss: FighterData = rounds[3]["opponent"]
+	_check(boss.weapon == pick.weapon and boss.display_name.begins_with("Shadow"), "the final boss is a shadow of your fighter")
+	_check(rounds[3]["map"].id == &"lava", "the final is in the Lava Forge")

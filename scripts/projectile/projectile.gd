@@ -140,6 +140,46 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.15), s * 0.18, w.color.lightened(0.35), true, -1.0, true)
 
 
+## Draws the weapon as held in the hand, in hand space (+x points where the throw goes).
+## Hammers and spears are the projectile itself, so they vanish once thrown (loaded is
+## false). The slingshot and bow stay in the hand; only the pebble or arrow leaves.
+## pull (0..1) draws the band or string back while aiming.
+static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded: bool, pull: float) -> void:
+	match w.shape:
+		&"pebble":
+			canvas.draw_set_transform_matrix(xf)
+			var wood := Color(0.55, 0.36, 0.2)
+			# Y-shaped frame: stem from the fist, two prongs ahead.
+			_stick(canvas, Vector2(-2, 0), Vector2(10, 0), 4.0, wood)
+			for side: float in [-1.0, 1.0]:
+				_stick(canvas, Vector2(9, 0), Vector2(18, side * 10), 3.5, wood)
+			var pouch := Vector2(4 - pull * 22, 0)
+			for side: float in [-1.0, 1.0]:
+				canvas.draw_line(Vector2(18, side * 10), pouch, INK, 3.0, true)
+				canvas.draw_line(Vector2(18, side * 10), pouch, Color(0.85, 0.3, 0.3), 1.5, true)
+			canvas.draw_circle(pouch, 4.5, Color(0.45, 0.28, 0.18), true, -1.0, true)
+			if loaded:
+				canvas.draw_circle(pouch, w.size * 0.42 + 2.0, INK, true, -1.0, true)
+				canvas.draw_circle(pouch, w.size * 0.42, w.color, true, -1.0, true)
+		&"arrow":
+			canvas.draw_set_transform_matrix(xf)
+			# A curved bow across the aim line with the string drawn back to the nock.
+			var limb := PackedVector2Array()
+			for i in 13:
+				var a := lerpf(-1.15, 1.15, i / 12.0)
+				limb.append(Vector2(4 + cos(a) * 9.0, sin(a) * 23.0))
+			canvas.draw_polyline(limb, INK, 7.0, true)
+			canvas.draw_polyline(limb, w.color, 4.0, true)
+			var nock := Vector2(2 - pull * 16, 0)
+			canvas.draw_line(limb[0], nock, Color(0.95, 0.92, 0.85), 1.5, true)
+			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.95, 0.92, 0.85), 1.5, true)
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, nock + Vector2(w.size * 0.5, 0)))
+		_:
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(-0.7, Vector2.ZERO))
+
+
 static func _stick(canvas: CanvasItem, from: Vector2, to: Vector2, width: float, color: Color) -> void:
 	canvas.draw_line(from, to, INK, width + 4.0, true)
 	canvas.draw_line(from, to, color, width, true)

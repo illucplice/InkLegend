@@ -5,9 +5,10 @@ extends StaticBody2D
 ## (hovering rune slab).
 
 const INK := Color(0.12, 0.1, 0.14)
-const STONE := Color(0.8, 0.82, 0.88)
-const STONE_DARK := Color(0.55, 0.57, 0.66)
-const RUNE := Color(0.45, 0.95, 1.0)
+## Colours come from the map (see setup); these are the defaults.
+var stone := Color(0.8, 0.82, 0.88)
+var stone_dark := Color(0.55, 0.57, 0.66)
+var rune := Color(0.45, 0.95, 1.0)
 ## Floating obstacles: marble slab thickness; the rest of the box is the rock below.
 const SLAB := 36.0
 
@@ -19,7 +20,11 @@ var _time := 0.0
 var _seed := 0
 
 
-func setup(obstacle_kind: StringName, box: Rect2, seed_value: int) -> void:
+func setup(obstacle_kind: StringName, box: Rect2, seed_value: int, map: MapData = null) -> void:
+	if map != null:
+		stone = map.obstacle_stone
+		stone_dark = map.obstacle_dark
+		rune = map.rune_color
 	kind = obstacle_kind
 	rect = box
 	_seed = seed_value
@@ -62,15 +67,15 @@ func _draw_tower(size: Vector2, rng: RandomNumberGenerator) -> void:
 	for i in steps + 1:
 		outline.append(Vector2(size.x * i / steps, rng.randf_range(-6.0, 12.0)))
 	outline.append(Vector2(size.x, size.y))
-	_shape(outline, STONE)
+	_shape(outline, stone)
 	# Stone courses with offset joints.
 	var row_h := 34.0
 	var rows := int(size.y / row_h)
 	for row in rows:
 		var y := size.y - (row + 1) * row_h
-		draw_line(Vector2(3, y), Vector2(size.x - 3, y), STONE_DARK, 3.0)
+		draw_line(Vector2(3, y), Vector2(size.x - 3, y), stone_dark, 3.0)
 		var joint := size.x * (0.35 if row % 2 else 0.65)
-		draw_line(Vector2(joint, y), Vector2(joint, y + row_h), STONE_DARK, 3.0)
+		draw_line(Vector2(joint, y), Vector2(joint, y + row_h), stone_dark, 3.0)
 	draw_rect(Rect2(size.x - 18, 10, 14, size.y - 12), Color(0.45, 0.25, 0.35, 0.22))
 	draw_rect(Rect2(4, 10, 8, size.y - 12), Color(1, 1, 1, 0.12))
 	# A crack and some moss.
@@ -78,7 +83,7 @@ func _draw_tower(size: Vector2, rng: RandomNumberGenerator) -> void:
 	draw_polyline(crack, INK, 2.5, true)
 	for i in 6:
 		draw_circle(Vector2(rng.randf_range(4, size.x - 4), rng.randf_range(0, 16)), rng.randf_range(4, 8), Color(0.42, 0.6, 0.32), true, -1.0, true)
-	draw_rect(Rect2(-6, size.y - 22, size.x + 12, 22), STONE_DARK)
+	draw_rect(Rect2(-6, size.y - 22, size.x + 12, 22), stone_dark)
 	draw_rect(Rect2(-6, size.y - 22, size.x + 12, 22), INK, false, 3.0)
 
 
@@ -94,15 +99,15 @@ func _draw_wall(size: Vector2, rng: RandomNumberGenerator) -> void:
 		outline.append(Vector2(x, y))
 		up = not up
 	outline.append(Vector2(size.x, size.y))
-	_shape(outline, STONE)
+	_shape(outline, stone)
 	var row_h := 26.0
 	for row in int((size.y - 22) / row_h):
 		var y := size.y - (row + 1) * row_h
-		draw_line(Vector2(3, y), Vector2(size.x - 3, y), STONE_DARK, 3.0)
+		draw_line(Vector2(3, y), Vector2(size.x - 3, y), stone_dark, 3.0)
 		var offset := 0.0 if row % 2 else 30.0
 		var jx := offset + 20.0
 		while jx < size.x - 10:
-			draw_line(Vector2(jx, y), Vector2(jx, y + row_h), STONE_DARK, 3.0)
+			draw_line(Vector2(jx, y), Vector2(jx, y + row_h), stone_dark, 3.0)
 			jx += 60.0
 	# A shield hanging on the wall.
 	var center := Vector2(size.x / 2, size.y * 0.58)
@@ -127,13 +132,13 @@ func _draw_floating(size: Vector2, rng: RandomNumberGenerator) -> void:
 	var pulse := 0.6 + 0.4 * sin(_time * 3.0)
 	for i in 3:
 		var at := Vector2(size.x * (0.3 + i * 0.2), SLAB + 10 + (i % 2) * 6)
-		draw_circle(at, 6.0, Color(RUNE, 0.25 * pulse), true, -1.0, true)
-		draw_line(at + Vector2(-4, -4), at + Vector2(4, 4), Color(RUNE, pulse), 2.5, true)
-		draw_line(at + Vector2(4, -4), at + Vector2(-4, 4), Color(RUNE, pulse), 2.5, true)
+		draw_circle(at, 6.0, Color(rune, 0.25 * pulse), true, -1.0, true)
+		draw_line(at + Vector2(-4, -4), at + Vector2(4, 4), Color(rune, pulse), 2.5, true)
+		draw_line(at + Vector2(4, -4), at + Vector2(-4, 4), Color(rune, pulse), 2.5, true)
 	# The marble slab itself.
 	var slab := Rect2(Vector2.ZERO, Vector2(size.x, SLAB))
 	var box := StyleBoxFlat.new()
-	box.bg_color = STONE
+	box.bg_color = stone
 	box.border_color = INK
 	box.set_border_width_all(3)
 	box.set_corner_radius_all(8)
@@ -142,7 +147,7 @@ func _draw_floating(size: Vector2, rng: RandomNumberGenerator) -> void:
 	draw_rect(Rect2(6, 4, size.x - 12, 7), Color(1, 1, 1, 0.25))
 	for i in int(size.x / 50):
 		var jx := 30.0 + i * 50.0
-		draw_line(Vector2(jx, 12), Vector2(jx, SLAB - 4), STONE_DARK, 3.0)
+		draw_line(Vector2(jx, 12), Vector2(jx, SLAB - 4), stone_dark, 3.0)
 	for i in 5:
 		draw_circle(Vector2(rng.randf_range(10, size.x - 10), 2), rng.randf_range(4, 7), Color(0.42, 0.6, 0.32), true, -1.0, true)
 	draw_set_transform(Vector2.ZERO)
@@ -157,8 +162,8 @@ func _shape(points: PackedVector2Array, fill: Color) -> void:
 
 func _add_rune_glow() -> void:
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(RUNE, 0.5))
-	gradient.set_color(1, Color(RUNE, 0.0))
+	gradient.set_color(0, Color(rune, 0.5))
+	gradient.set_color(1, Color(rune, 0.0))
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
 	texture.fill = GradientTexture2D.FILL_RADIAL

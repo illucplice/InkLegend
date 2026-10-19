@@ -3,7 +3,8 @@ extends RefCounted
 ## Computer aim: finds a throw that lands on target without hitting an obstacle,
 ## then adds mistakes that shrink every turn.
 
-enum Difficulty { EASY, NORMAL, HARD }
+## CHAMPION is only used for the tournament boss.
+enum Difficulty { EASY, NORMAL, HARD, CHAMPION }
 
 ## angle_error is in degrees and power_error a fraction of power (standard deviations on
 ## the first throw). Each turn they are multiplied by sharpen, down to min_scale.
@@ -11,6 +12,7 @@ const SETTINGS := {
 	Difficulty.EASY: {"angle_error": 6.0, "power_error": 0.16, "sharpen": 0.85, "min_scale": 0.45, "head_chance": 0.0},
 	Difficulty.NORMAL: {"angle_error": 4.0, "power_error": 0.1, "sharpen": 0.75, "min_scale": 0.3, "head_chance": 0.15},
 	Difficulty.HARD: {"angle_error": 2.5, "power_error": 0.06, "sharpen": 0.6, "min_scale": 0.15, "head_chance": 0.35},
+	Difficulty.CHAMPION: {"angle_error": 1.6, "power_error": 0.04, "sharpen": 0.5, "min_scale": 0.08, "head_chance": 0.5},
 }
 const MIN_SEARCH_ANGLE := 12.0
 const MAX_SEARCH_ANGLE := 80.0
