@@ -33,6 +33,14 @@ const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NO
 const AI_THINK_TIME := 1.0
 const SETTLE_TIME := 0.9
 const RESULT_DELAY := 0.6
+## 1v1 turns time out after this many seconds.
+const TURN_TIME := 12.0
+const LAST_STAND_HEALTH := 20
+## A miss passing this close (px) to the target gets a "SO CLOSE!".
+const CLOSE_CALL_DISTANCE := 45.0
+## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
+const DIFFICULTY_WIND := [0.0, 0.6, 1.0, 1.0]
+const LOCAL_WIND := 0.8
 ## Throw sound per projectile shape: [sound, pitch].
 const THROW_SOUNDS := {
 	&"hammer": ["whoosh", 0.75],
@@ -73,6 +81,16 @@ var _slow_token := 0
 var _time_base := 1.0
 ## So a multi-pebble throw only says "Blocked!" once.
 var _blocked_shown := false
+var _sky_shown := false
+## Wind for this turn (px/s²) and how strong winds get this match (0 = calm).
+var wind := 0.0
+var _wind_strength := 1.0
+var _special_used: Array[bool] = [false, false]
+var _special_armed := false
+var _combo: Array[int] = [0, 0]
+var _turn_hit := false
+var _throw_closest := INF
+var _turn_timer := -1.0
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -119,6 +137,7 @@ func _ready() -> void:
 	_hud.play_requested.connect(_on_play_requested)
 	_hud.rematch_requested.connect(func() -> void: start_match(_last_left, _last_right, mode, _last_difficulty, _last_map))
 	_hud.round_requested.connect(play_tournament_round)
+	_hud.special_toggled.connect(_on_special_toggled)
 	_hud.ladder_requested.connect(func() -> void: _hud.show_ladder(_ladder_info()))
 	_hud.menu_requested.connect(go_to_menu)
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
@@ -162,6 +181,10 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	fighters.append(_spawn_fighter(right, gap / 2, -1, vs_ai))
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
 
+	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
+	_special_used = [false, false]
+	_combo = [0, 0]
+	_turn_timer = -1.0
 	var names := _player_names()
 	_stats = [_empty_stats(), _empty_stats()]
 	_hud.bind_fighters(fighters, names)
@@ -299,22 +322,44 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 
 func _begin_turn() -> void:
 	var fighter := fighters[current]
+	# Pin: a pinned fighter loses this turn.
+	if fighter.pinned:
+		fighter.pinned = false
+		_hud.announce("%s IS PINNED!" % fighter.data.short_name.to_upper(), Color(0.75, 0.8, 0.95))
+		var pin_id := _match_id
+		await get_tree().create_timer(1.2, false).timeout
+		if pin_id != _match_id:
+			return
+		current = 1 - current
+		fighter = fighters[current]
 	for other in fighters:
 		other.is_turn = other == fighter
 	fighter.holding_weapon = true
+	wind = Rules.random_wind(rng, _wind_strength)
+	_aim.wind = wind
+	_hud.set_wind(wind)
+	_special_armed = false
+	_throw_closest = INF
+	_turn_hit = false
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
 		_hud.set_turn("PLAYER %d'S TURN" % (current + 1) if mode == Mode.LOCAL_2P else "YOUR TURN", SIDE_COLORS[current])
+		_hud.set_special(fighter.data, not _special_used[current], false)
+		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
 		return
 
 	state = State.AI_AIM
 	_aim.finish()
+	_hud.set_special(null, false, false)
+	_hud.set_timer(-1)
 	_hud.set_turn("%s IS AIMING…" % fighter.data.short_name.to_upper(), SIDE_COLORS[current])
 	var brain := _brains[current]
+	if not _special_used[current] and brain.wants_special(fighter.health):
+		_special_armed = true
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
-	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects)
+	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, wind)
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -329,17 +374,38 @@ func _begin_turn() -> void:
 	_throw(shot["angle"], shot["power"])
 
 
+func _process(delta: float) -> void:
+	# 1v1 turn timer: throw whatever is aimed when time runs out.
+	if state != State.PLAYER_AIM or _turn_timer < 0.0:
+		return
+	_turn_timer -= delta
+	_hud.set_timer(ceili(_turn_timer))
+	if _turn_timer <= 0.0:
+		_turn_timer = -1.0
+		_hud.announce("TIME!", Color(1.0, 0.6, 0.3))
+		_on_player_throw(_aim.angle, _aim.power)
+
+
+func _on_special_toggled(armed: bool) -> void:
+	if state == State.PLAYER_AIM and not _special_used[current]:
+		_special_armed = armed
+
+
 func _on_player_throw(angle: float, power: float) -> void:
 	if state != State.PLAYER_AIM:
 		return
 	_aim.finish()
+	_turn_timer = -1.0
+	_hud.set_timer(-1)
 	_throw(angle, power)
 
 
 func _throw(angle: float, power: float) -> void:
 	state = State.FLYING
 	_hud.set_turn("")
+	_hud.set_special(null, false, false)
 	_blocked_shown = false
+	_sky_shown = false
 	var fighter := fighters[current]
 	var weapon := fighter.data.weapon
 	fighter.play_throw()
@@ -347,42 +413,84 @@ func _throw(angle: float, power: float) -> void:
 	_stats[current]["throws"] += 1
 	var sound: Array = THROW_SOUNDS.get(weapon.shape, ["whoosh", 1.0])
 	Audio.play(sound[0], -2.0, sound[1] * lerpf(0.9, 1.1, power))
-	for i in weapon.count:
-		var offset := (i - (weapon.count - 1) / 2.0) * weapon.spread_deg
+
+	var count := weapon.count
+	var spread := weapon.spread_deg
+	var special := weapon.special if _special_armed else &""
+	if special != &"":
+		_special_used[current] = true
+		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
+		Audio.play("win", -8.0, 1.6, 0.0)
+	match special:
+		&"lucky":
+			count = 5
+		&"triple":
+			count = 3
+			spread = 3.0
+	for i in count:
+		var offset := (i - (count - 1) / 2.0) * spread
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 		_actors.add_child(projectile)
-		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing))
+		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), wind)
+		projectile.target = fighters[1 - current]
+		if special == &"shockwave":
+			projectile.bounces = 1
+		if special == &"pin":
+			projectile.set_meta("pin", true)
 		projectile.hit_fighter.connect(_on_projectile_hit)
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.finished.connect(_on_projectile_finished)
 		_in_flight.append(projectile)
 
 
-func _on_projectile_hit(projectile: Projectile, target: Fighter, is_head: bool) -> void:
-	var damage := Rules.damage_for(projectile.weapon, is_head)
-	target.take_hit(is_head, damage, projectile.current_velocity())
+func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName) -> void:
 	var side := fighters.find(projectile.thrower)
+	# Combo counts turns in a row with at least one hit.
+	if side >= 0 and not _turn_hit:
+		_turn_hit = true
+		_combo[side] += 1
+		if _combo[side] >= 2:
+			_hud.announce("COMBO x%d!" % _combo[side], Color(1.0, 0.55, 0.9))
+	var combo: int = _combo[side] if side >= 0 else 0
+	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
+	var was_healthy := target.health > LAST_STAND_HEALTH
+	target.take_hit(part, damage, projectile.current_velocity())
 	if side >= 0:
 		_stats[side]["hits"] += 1
-		_stats[side]["headshots"] += 1 if is_head else 0
+		_stats[side]["headshots"] += 1 if part == Rules.HEAD else 0
 		_stats[side]["damage"] += damage
 		var metres := absf(target.global_position.x - projectile.thrower.global_position.x) / Rules.PX_PER_M
 		_stats[side]["longest"] = maxf(_stats[side]["longest"], metres)
+	if projectile.flight_time >= Rules.SKY_SHOT_TIME and not _sky_shown:
+		_sky_shown = true
+		_hud.announce("SKY SHOT!", Color(0.5, 0.85, 1.0))
+	if projectile.get_meta("pin", false) and not target.is_knocked_out():
+		target.pinned = true
+		_hud.announce("PINNED!", Color(0.75, 0.8, 0.95))
+	if was_healthy and target.health > 0 and target.health <= LAST_STAND_HEALTH:
+		_hud.announce("LAST STAND!", Color(1.0, 0.35, 0.3))
+
 	var inv_zoom := 1.0 / _camera.zoom.x
 	var view := _camera.visible_rect()
 	var at := projectile.global_position
-	if is_head:
-		Audio.play("hit_head")
-		Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
-		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
-		_camera.shake(0.7)
-		_slow_time(0.14, 0.1)
-	else:
-		Audio.play("hit_body", 0.0 if projectile.weapon.count == 1 else -5.0, 1.0 if projectile.weapon.count == 1 else 1.4)
-		Effects.burst(_actors, at, Color(1, 1, 1, 0.9), 12, 380.0)
-		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
-		_camera.shake(0.45 if projectile.weapon.count == 1 else 0.25)
-		_slow_time(0.06, 0.15)
+	match part:
+		Rules.HEAD:
+			Audio.play("hit_head")
+			Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
+			_camera.shake(0.7)
+			_slow_time(0.14, 0.1)
+		Rules.LEGS:
+			Audio.play("hit_body", -3.0, 1.2)
+			Effects.burst(_actors, at, Color(1, 1, 1, 0.8), 8, 300.0)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "LEG  -%d" % damage, Color(0.85, 0.9, 1.0), 28, inv_zoom, view)
+			_camera.shake(0.3)
+		_:
+			Audio.play("hit_body", 0.0 if projectile.weapon.count == 1 else -5.0, 1.0 if projectile.weapon.count == 1 else 1.4)
+			Effects.burst(_actors, at, Color(1, 1, 1, 0.9), 12, 380.0)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
+			_camera.shake(0.45 if projectile.weapon.count == 1 else 0.25)
+			_slow_time(0.06, 0.15)
 	if target.is_knocked_out():
 		Audio.play("ko", 0.0, 1.0, 0.0)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -150), "K.O.!", Color(1.0, 0.4, 0.3), 80, inv_zoom, view)
@@ -393,10 +501,14 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, is_head: bool) 
 func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void:
 	var weapon := projectile.weapon
 	var at := projectile.global_position
+	if projectile.bounces > 0:
+		Effects.popup(_actors, at + Vector2(0, -40), "SHOCKWAVE!", Color(1.0, 0.8, 0.35), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, at, Color(1.0, 0.85, 0.4, 0.95), 18, 420.0, 70.0, 1.1)
+		_camera.shake(0.4)
 	if collider is Obstacle:
 		Audio.play("thunk", 0.0, 0.65 if weapon.sticks else 0.5)
 		Effects.burst(_actors, at, Color(0.85, 0.78, 0.72, 0.95), 14 if weapon.count == 1 else 5, 340.0, 180.0, 0.9)
-		if not _blocked_shown:
+		if not _blocked_shown and projectile.bounces == 0:
 			_blocked_shown = true
 			Effects.popup(_actors, at + Vector2(0, -40), "Blocked!", Color(0.85, 0.9, 1.0), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		_camera.shake(0.25)
@@ -412,10 +524,15 @@ func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void
 
 
 func _on_projectile_finished(projectile: Projectile) -> void:
+	_throw_closest = minf(_throw_closest, projectile.closest)
 	_in_flight.erase(projectile)
 	if not _in_flight.is_empty() or state != State.FLYING:
 		return
 	state = State.SETTLING
+	if not _turn_hit:
+		_combo[current] = 0
+		if _throw_closest < CLOSE_CALL_DISTANCE:
+			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
 	var match_id := _match_id
 	await get_tree().create_timer(SETTLE_TIME, false).timeout
 	if match_id != _match_id:

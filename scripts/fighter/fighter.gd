@@ -14,6 +14,8 @@ const LEATHER := Color(0.36, 0.22, 0.15)
 ## All offsets are from the feet, for a fighter facing right.
 const BODY_CENTER := Vector2(0, -52)
 const BODY_SIZE := Vector2(38, 60)
+## Feet to hips: hits below this are leg hits.
+const HIP_HEIGHT := 44.0
 const HEAD_CENTER := Vector2(0, -104)
 const HEAD_RADIUS := 19.0
 const SHOULDER := Vector2(2, -75)
@@ -40,6 +42,8 @@ var aim_angle := 45.0
 var aim_power := 0.0
 ## Shows a bouncing arrow above the head while it is this fighter's turn.
 var is_turn := false
+## Pin special: this fighter skips its next turn (drawn in chains).
+var pinned := false
 
 var _tilt := 0.0
 var _tilt_velocity := 0.0
@@ -64,12 +68,17 @@ func setup(fighter_data: FighterData, facing_dir: int, ai: bool, with_hitboxes: 
 	_next_blink = _time + randf_range(1.0, 3.0)
 	if not with_hitboxes:
 		return
+	# Legs from the feet to the hips, body from the hips to the neck, head on top.
+	var top := -HEAD_CENTER.y - HEAD_RADIUS
+	var legs_shape := RectangleShape2D.new()
+	legs_shape.size = Vector2(BODY_SIZE.x + 4, HIP_HEIGHT)
+	_add_hitbox(Rules.LEGS, legs_shape, Vector2(0, -HIP_HEIGHT / 2))
 	var body_shape := RectangleShape2D.new()
-	body_shape.size = Vector2(BODY_SIZE.x + 4, -HEAD_CENTER.y - HEAD_RADIUS)
-	_add_hitbox(false, body_shape, Vector2(0, -body_shape.size.y / 2))
+	body_shape.size = Vector2(BODY_SIZE.x + 4, top - HIP_HEIGHT)
+	_add_hitbox(Rules.BODY, body_shape, Vector2(0, -HIP_HEIGHT - body_shape.size.y / 2))
 	var head_shape := CircleShape2D.new()
 	head_shape.radius = HEAD_RADIUS + 2
-	_add_hitbox(true, head_shape, HEAD_CENTER)
+	_add_hitbox(Rules.HEAD, head_shape, HEAD_CENTER)
 
 
 func throw_origin() -> Vector2:
@@ -91,11 +100,11 @@ func get_hitbox_rids() -> Array[RID]:
 	return rids
 
 
-func take_hit(is_head: bool, damage: int, impact_velocity: Vector2) -> void:
+func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 	if is_knocked_out():
 		return
 	health = maxi(0, health - damage)
-	_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if is_head else 1.0)
+	_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if part == Rules.HEAD else 1.0)
 	_flash = 1.0
 	_squash = 1.0
 	_ouch = 1.0
@@ -118,10 +127,10 @@ func _is_ranged() -> bool:
 	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow")
 
 
-func _add_hitbox(is_head: bool, shape: Shape2D, at: Vector2) -> void:
+func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
 	var box := Hitbox.new()
 	box.fighter = self
-	box.is_head = is_head
+	box.part = part
 	box.collision_layer = 2
 	box.collision_mask = 0
 	var collision := CollisionShape2D.new()
@@ -203,6 +212,9 @@ func _draw() -> void:
 	draw_circle(hand, 6.5, ink, true, -1.0, true)
 	draw_circle(hand, 3.5, data.accent_color, true, -1.0, true)
 
+	if pinned and not knocked:
+		_draw_chains()
+
 	if is_turn and not knocked:
 		draw_set_transform(Vector2.ZERO)
 		var tip := Vector2(0, -158 - absf(sin(_time * 5.0)) * 12.0)
@@ -214,6 +226,20 @@ func _draw() -> void:
 		for i in 3:
 			var a := _time * 4.0 + i * TAU / 3.0
 			_draw_star(head + Vector2(cos(a) * 26.0, sin(a) * 8.0 - 36.0), 7.0)
+
+
+## Pin: a stake in the ground with a chain looped round the legs.
+func _draw_chains() -> void:
+	draw_set_transform(Vector2.ZERO)
+	var stake := Vector2(-30.0 * facing, 0)
+	draw_line(stake + Vector2(0, 4), stake + Vector2(-6.0 * facing, -34), OUTLINE, 9.0, true)
+	draw_line(stake + Vector2(0, 4), stake + Vector2(-6.0 * facing, -34), Color(0.6, 0.4, 0.22), 5.0, true)
+	for i in 7:
+		var at := stake.lerp(Vector2(0, -24), i / 6.0) + Vector2(0, -sin(i / 6.0 * PI) * 8.0)
+		draw_arc(at, 5.0, 0.0, TAU, 10, OUTLINE, 4.5, true)
+		draw_arc(at, 5.0, 0.0, TAU, 10, Color(0.75, 0.78, 0.85), 2.0, true)
+	draw_arc(Vector2(0, -22), 14.0, 0.0, TAU, 16, OUTLINE, 5.0, true)
+	draw_arc(Vector2(0, -22), 14.0, 0.0, TAU, 16, Color(0.75, 0.78, 0.85), 2.5, true)
 
 
 # --- stickman parts (local space, facing right) ---

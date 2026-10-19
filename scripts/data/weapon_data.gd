@@ -21,3 +21,6 @@ extends Resource
 ## Drawn length (or diameter for pebbles), in px.
 @export var size: float = 30.0
 @export var color: Color = Color.WHITE
+## Once-per-match special: shockwave (bounces once more), lucky (5 pebbles),
+## pin (target skips a turn) or triple (three arrows).
+@export var special: StringName = &""

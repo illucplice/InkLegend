@@ -36,7 +36,7 @@ func _init(level: int = Difficulty.NORMAL, seed_value: int = -1) -> void:
 ## The throw that lands exactly on target, as {"angle", "power", "clear"}. Angles are
 ## tried outward from first_angle; the first reachable one with a clear path wins.
 ## "clear" is false when every reachable throw hits an obstacle (or nothing reaches).
-static func solve(origin: Vector2, target: Vector2, max_speed: float, facing: int, first_angle: float = 45.0, obstacles: Array[Rect2] = []) -> Dictionary:
+static func solve(origin: Vector2, target: Vector2, max_speed: float, facing: int, first_angle: float = 45.0, obstacles: Array[Rect2] = [], wind: float = 0.0) -> Dictionary:
 	var dx := (target.x - origin.x) * facing
 	var dy := origin.y - target.y
 	var blocked := {}
@@ -45,12 +45,12 @@ static func solve(origin: Vector2, target: Vector2, max_speed: float, facing: in
 		var angle := first_angle + offset
 		if angle < MIN_SEARCH_ANGLE or angle > MAX_SEARCH_ANGLE:
 			continue
-		var speed := Rules.solve_speed(dx, dy, angle)
+		var speed := Rules.solve_speed(dx, dy, angle, wind * facing)
 		if speed <= 0.0 or speed > max_speed:
 			continue
 		var shot := {"angle": angle, "power": speed / max_speed, "clear": true}
 		var velocity := Rules.launch_velocity(angle, 1.0, speed, facing)
-		if path_is_clear(origin, velocity, target, obstacles):
+		if path_is_clear(origin, velocity, target, obstacles, wind):
 			return shot
 		if blocked.is_empty():
 			blocked = shot
@@ -61,13 +61,13 @@ static func solve(origin: Vector2, target: Vector2, max_speed: float, facing: in
 
 
 ## True if a throw reaches target's x without passing through any obstacle.
-static func path_is_clear(origin: Vector2, velocity: Vector2, target: Vector2, obstacles: Array[Rect2]) -> bool:
+static func path_is_clear(origin: Vector2, velocity: Vector2, target: Vector2, obstacles: Array[Rect2], wind: float = 0.0) -> bool:
 	if obstacles.is_empty():
 		return true
 	var direction := signf(velocity.x)
 	var t := 0.0
 	while t < 8.0:
-		var point := Rules.position_at(origin, velocity, t)
+		var point := Rules.position_at(origin, velocity, t, wind)
 		if (point.x - target.x) * direction >= 0.0:
 			return true
 		for box in obstacles:
@@ -77,13 +77,21 @@ static func path_is_clear(origin: Vector2, velocity: Vector2, target: Vector2, o
 	return false
 
 
+## Whether to use the once-per-match special this turn: more likely when hurt.
+func wants_special(own_health: int) -> bool:
+	if turns_taken < 1:
+		return false
+	var chance := 0.25 + (0.4 if own_health < 50 else 0.0)
+	return rng.randf() < chance
+
+
 func wants_headshot() -> bool:
 	return rng.randf() < float(SETTINGS[difficulty]["head_chance"])
 
 
-func aim(origin: Vector2, target: Vector2, max_speed: float, facing: int, obstacles: Array[Rect2] = []) -> Dictionary:
+func aim(origin: Vector2, target: Vector2, max_speed: float, facing: int, obstacles: Array[Rect2] = [], wind: float = 0.0) -> Dictionary:
 	var settings: Dictionary = SETTINGS[difficulty]
-	var perfect := solve(origin, target, max_speed, facing, rng.randf_range(35.0, 58.0), obstacles)
+	var perfect := solve(origin, target, max_speed, facing, rng.randf_range(35.0, 58.0), obstacles, wind)
 	var error_scale := maxf(pow(float(settings["sharpen"]), turns_taken), float(settings["min_scale"]))
 	turns_taken += 1
 	var angle: float = perfect["angle"] + rng.randfn(0.0, float(settings["angle_error"]) * error_scale)

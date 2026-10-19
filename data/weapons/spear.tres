@@ -16,3 +16,4 @@ sticks = true
 shape = &"spear"
 size = 80.0
 color = Color(0.6, 0.4, 0.22, 1)
+special = &"pin"

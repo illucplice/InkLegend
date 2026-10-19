@@ -17,6 +17,8 @@ const KEY_POWER_SPEED := 0.5
 var fighter: Fighter
 var angle := 45.0
 var power := 0.6
+## Current wind, so the aim guide bends with it.
+var wind := 0.0
 
 var _active := false
 var _dragging := false
@@ -100,7 +102,7 @@ func _draw() -> void:
 	for i in range(1, dots + 1):
 		var t := guide_time * i / dots
 		var fade := 1.0 - float(i) / (dots + 2)
-		draw_circle(Rules.position_at(origin, velocity, t), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
+		draw_circle(Rules.position_at(origin, velocity, t, wind), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
 
 	_draw_angle_arc(origin, inv_zoom, alpha)
 	_draw_power_gauge(inv_zoom, alpha)

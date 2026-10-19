@@ -13,6 +13,7 @@ func _initialize() -> void:
 	_test_solver_lands_on_target()
 	_test_ai_sharpens()
 	_test_obstacles()
+	_test_wind_solver()
 	await _test_ai_vs_ai_match()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
@@ -27,8 +28,11 @@ func _check(ok: bool, what: String) -> void:
 
 func _test_damage_table() -> void:
 	var hammer: WeaponData = load("res://data/weapons/hammer.tres")
-	_check(Rules.damage_for(hammer, false) == 30, "hammer body damage is 30")
-	_check(Rules.damage_for(hammer, true) == 52, "hammer head damage is 52")
+	_check(Rules.damage_for(hammer, Rules.BODY) == 30, "hammer body damage is 30")
+	_check(Rules.damage_for(hammer, Rules.HEAD) == 52, "hammer head damage is 52")
+	_check(Rules.damage_for(hammer, Rules.LEGS) == 21, "hammer leg damage is 70% of body")
+	_check(Rules.damage_with_bonuses(hammer, Rules.BODY, 3.0, 1) == 35, "a sky shot adds 15%")
+	_check(Rules.damage_with_bonuses(hammer, Rules.BODY, 1.0, 3) == 36, "a third hit in a row adds 20%")
 	for id: String in WEAPONS:
 		var weapon: WeaponData = load("res://data/weapons/%s.tres" % id)
 		var ratio := float(weapon.head_damage) / weapon.body_damage
@@ -153,3 +157,23 @@ func _test_maps_and_tournament(game: Node) -> void:
 	var boss: FighterData = rounds[3]["opponent"]
 	_check(boss.weapon == pick.weapon and boss.display_name.begins_with("Shadow"), "the final boss is a shadow of your fighter")
 	_check(rounds[3]["map"].id == &"lava", "the final is in the Lava Forge")
+
+
+func _test_wind_solver() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 21
+	for i in 40:
+		var wind := Rules.random_wind(rng)
+		var facing := 1 if i % 2 == 0 else -1
+		var gap := Rules.random_distance_px(rng)
+		var origin := Vector2(-gap / 2 * facing, -92)
+		var target := Vector2(gap / 2 * facing, -60)
+		var shot := AiAimer.solve(origin, target, 1400.0, facing, 45.0, [], wind)
+		var velocity := Rules.launch_velocity(shot["angle"], shot["power"], 1400.0, facing)
+		# Step along the path and find the closest approach to the target.
+		var best := INF
+		var t := 0.0
+		while t < 8.0:
+			best = minf(best, Rules.position_at(origin, velocity, t, wind).distance_to(target))
+			t += 1.0 / 600.0
+		_check(best < 4.0, "throw %d lands on target in %.0f wind (off by %.1f px)" % [i, wind, best])

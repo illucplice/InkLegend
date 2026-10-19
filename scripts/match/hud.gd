@@ -10,6 +10,8 @@ signal rematch_requested
 ## Tournament: play (or retry) the current round, or go back to the ladder.
 signal round_requested
 signal ladder_requested
+## The player armed (or disarmed) their once-per-match special.
+signal special_toggled(armed: bool)
 signal menu_requested
 signal pause_changed(paused: bool)
 
@@ -38,6 +40,10 @@ var _ghosts: Array[ProgressBar] = []
 var _hp_labels: Array[Label] = []
 var _turn_ribbon: PanelContainer
 var _turn_label: Label
+var _turn_text := ""
+var _wind_gauge: WindGauge
+var _special_button: Button
+var _announcer: VBoxContainer
 var _hint: Label
 var _pause_button: Button
 var _intro: VsIntro
@@ -116,6 +122,7 @@ func show_title() -> void:
 	_top_bar.hide()
 	_hint.hide()
 	_pause_button.hide()
+	_special_button.hide()
 	_set_showcase(_showcase_index)
 	_show_screen(_title_screen)
 	# Menu buttons fade in one after another.
@@ -170,11 +177,55 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 		fighter.health_changed.connect(_on_health_changed.bind(i))
 
 
+func set_wind(wind: float) -> void:
+	_wind_gauge.set_wind(wind)
+
+
+## Shows the special button for this fighter (null hides it). available is false once used.
+func set_special(data: FighterData, available: bool, armed: bool) -> void:
+	if data == null or not available:
+		_special_button.hide()
+		return
+	var label: Label = _special_button.get_meta("label")
+	label.text = data.special_name
+	UiStyle.paint_button(_special_button, data.body_color)
+	_special_button.set_pressed_no_signal(armed)
+	_special_button.show()
+	_special_button.tooltip_text = data.special_description
+
+
+## Seconds left in a 1v1 turn, shown in the banner (negative hides it).
+func set_timer(seconds: int) -> void:
+	if _turn_text.is_empty():
+		return
+	_turn_label.text = _turn_text if seconds < 0 else "%s  ·  %d" % [_turn_text, seconds]
+
+
+## A big callout in the middle of the screen (combos, specials, close calls).
+func announce(text: String, color: Color) -> void:
+	var label := UiStyle.game_label(text, 54, true)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_constant_override("outline_size", 16)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_announcer.add_child(label)
+	label.pivot_offset = Vector2(400, 35)
+	label.scale = Vector2(1.8, 1.8)
+	label.modulate.a = 0.0
+	var tween := label.create_tween()
+	tween.set_parallel()
+	tween.tween_property(label, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "modulate:a", 1.0, 0.12)
+	tween.chain().tween_interval(1.1)
+	tween.chain().tween_property(label, "modulate:a", 0.0, 0.35)
+	tween.chain().tween_callback(label.queue_free)
+
+
 ## Shows the turn banner in a colour (empty text hides it).
 func set_turn(text: String, color: Color = UiStyle.YELLOW) -> void:
 	if text.is_empty():
 		_turn_ribbon.hide()
 		return
+	_turn_text = text
 	_turn_label.text = text
 	_turn_ribbon.add_theme_stylebox_override("panel", UiStyle.candy(color))
 	_turn_ribbon.show()
@@ -202,6 +253,7 @@ func show_result(outcome: Dictionary) -> void:
 	_result_portrait_holder.add_child(Portrait.make(outcome["winner"], outcome["winner_facing"], 128.0))
 	_fill_stats(outcome["names"], outcome["stats"])
 	_fill_result_buttons(outcome.get("tournament", {}))
+	_special_button.hide()
 	_pause_button.hide()
 	_hint.hide()
 	_show_screen(_result_screen)
@@ -327,13 +379,19 @@ func _build_match_hud() -> void:
 		_hp_labels.append(hp)
 		row.add_child(plate)
 		if i == 0:
-			var middle := CenterContainer.new()
+			var middle := VBoxContainer.new()
 			middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			middle.alignment = BoxContainer.ALIGNMENT_BEGIN
+			middle.add_theme_constant_override("separation", 6)
 			_turn_ribbon = UiStyle.ribbon("", UiStyle.YELLOW, 30)
 			_turn_label = _turn_ribbon.get_meta("label")
 			_turn_ribbon.custom_minimum_size.x = 260
+			_turn_ribbon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			_turn_ribbon.hide()
 			middle.add_child(_turn_ribbon)
+			_wind_gauge = WindGauge.new()
+			_wind_gauge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			middle.add_child(_wind_gauge)
 			row.add_child(middle)
 	add_child(margin)
 	_ignore_mouse(margin)
@@ -357,6 +415,27 @@ func _build_match_hud() -> void:
 	_pause_button.offset_bottom = -16
 	_pause_button.pressed.connect(_set_paused.bind(true))
 	add_child(_pause_button)
+
+	_special_button = _icon_button(&"star", "Special", UiStyle.PURPLE, Vector2(230, 68), 22)
+	_special_button.theme = UiStyle.theme()
+	_special_button.toggle_mode = true
+	_special_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	_special_button.offset_left = 16
+	_special_button.offset_top = -132
+	_special_button.offset_right = 246
+	_special_button.offset_bottom = -64
+	_special_button.toggled.connect(func(on: bool) -> void: special_toggled.emit(on))
+	_special_button.hide()
+	add_child(_special_button)
+
+	_announcer = VBoxContainer.new()
+	_announcer.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_announcer.offset_top = 170
+	_announcer.offset_left = -400
+	_announcer.offset_right = 400
+	_announcer.alignment = BoxContainer.ALIGNMENT_BEGIN
+	_announcer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_announcer)
 
 
 func _bar(fill: StyleBox) -> ProgressBar:

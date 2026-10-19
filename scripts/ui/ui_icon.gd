@@ -1,7 +1,7 @@
 class_name UiIcon
 extends Control
 ## A small vector icon (white with an ink outline) for buttons.
-## Names: play, duo, gear, help, quit, pause, back, restart, home, sound, sword, trophy.
+## Names: play, duo, gear, help, quit, pause, back, restart, home, sound, sword, trophy, star.
 
 const INK := Color(0.12, 0.1, 0.14)
 
@@ -72,6 +72,15 @@ func _draw() -> void:
 			for r: float in [7.0, 12.0]:
 				draw_arc(c + Vector2(3, 0) * u, r * u, -0.8, 0.8, 8, INK, 5 * u, true)
 				draw_arc(c + Vector2(3, 0) * u, r * u, -0.8, 0.8, 8, color, 2.2 * u, true)
+		&"star":
+			var star := PackedVector2Array()
+			for i in 10:
+				var r := 14.0 if i % 2 == 0 else 6.0
+				star.append(c + Vector2.from_angle(-PI / 2 + i * PI / 5) * r * u)
+			var saved_star := color
+			color = Color(1.0, 0.85, 0.3)
+			_shape(star)
+			color = saved_star
 		&"trophy":
 			var gold := Color(1.0, 0.8, 0.25)
 			var cup := PackedVector2Array([c + Vector2(-10, -12) * u, c + Vector2(10, -12) * u, c + Vector2(8, -1) * u, c + Vector2(3, 3) * u, c + Vector2(-3, 3) * u, c + Vector2(-8, -1) * u])

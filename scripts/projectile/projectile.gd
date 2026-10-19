@@ -4,7 +4,8 @@ extends Node2D
 ## so fast throws can't pass through a limb between frames. Physics interpolation
 ## smooths its motion between physics ticks on high-refresh screens.
 
-signal hit_fighter(projectile: Projectile, fighter: Fighter, is_head: bool)
+## part is Rules.HEAD, BODY or LEGS.
+signal hit_fighter(projectile: Projectile, fighter: Fighter, part: StringName)
 ## collider is the ground, or the Obstacle that was hit.
 signal hit_ground(projectile: Projectile, collider: Object)
 signal finished(projectile: Projectile)
@@ -18,6 +19,16 @@ const TRAIL_POINTS := 16
 
 var weapon: WeaponData
 var thrower: Fighter
+## Sideways push in px/s² (see Rules.MAX_WIND).
+var wind := 0.0
+## Shockwave: how many more times this bounces off the ground or obstacles.
+var bounces := 0
+## The fighter being aimed at, to measure near misses.
+var target: Fighter
+## Closest this came to the target's head or body, in px.
+var closest := INF
+## Seconds in the air since launch, including bounces.
+var flight_time := 0.0
 
 var _origin := Vector2.ZERO
 var _velocity := Vector2.ZERO
@@ -27,7 +38,8 @@ var _exclude: Array[RID] = []
 var _trail: Line2D
 
 
-func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, velocity: Vector2) -> void:
+func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, velocity: Vector2, wind_accel: float = 0.0) -> void:
+	wind = wind_accel
 	weapon = from_weapon
 	thrower = from_fighter
 	_origin = from
@@ -57,18 +69,21 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 
 
 func current_velocity() -> Vector2:
-	return _velocity + Vector2(0.0, Rules.GRAVITY * _t)
+	return Rules.velocity_at(_velocity, _t, wind)
 
 
 func _physics_process(delta: float) -> void:
 	if _done:
 		return
 	_t += delta
+	flight_time += delta
+	if target != null:
+		closest = minf(closest, minf(global_position.distance_to(target.aim_point(true)), global_position.distance_to(target.aim_point(false))))
 	# The trail stops at the last tick's position; the interpolated sprite covers the gap.
 	_trail.add_point(global_position)
 	if _trail.get_point_count() > TRAIL_POINTS:
 		_trail.remove_point(0)
-	var next := Rules.position_at(_origin, _velocity, _t)
+	var next := Rules.position_at(_origin, _velocity, _t, wind)
 	var query := PhysicsRayQueryParameters2D.create(global_position, next, COLLISION_MASK, _exclude)
 	query.collide_with_areas = true
 	var hit := get_world_2d().direct_space_state.intersect_ray(query)
@@ -85,10 +100,23 @@ func _physics_process(delta: float) -> void:
 	global_position = hit["position"]
 	var box := hit["collider"] as Hitbox
 	if box != null:
-		hit_fighter.emit(self, box.fighter, box.is_head)
-	else:
-		hit_ground.emit(self, hit["collider"])
+		hit_fighter.emit(self, box.fighter, box.part)
+		_finish(weapon.sticks)
+		return
+	hit_ground.emit(self, hit["collider"])
+	if bounces > 0:
+		_bounce(hit["normal"])
+		return
 	_finish(weapon.sticks)
+
+
+## Shockwave: rebound off the surface with some energy lost, and keep flying.
+func _bounce(normal: Vector2) -> void:
+	bounces -= 1
+	var velocity := current_velocity().bounce(normal) * 0.62
+	_origin = global_position + normal * 3.0
+	_velocity = velocity
+	_t = 0.0
 
 
 func _finish(linger: bool) -> void:
