@@ -16,3 +16,5 @@ extends Resource
 @export var special_name: String = ""
 @export_multiline var special_description: String = ""
 @export var unlocked_by_default: bool = false
+## Coins to unlock this fighter in the Shop.
+@export var price: int = 250

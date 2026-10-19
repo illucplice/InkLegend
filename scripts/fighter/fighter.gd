@@ -63,6 +63,8 @@ var pinned := false
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
 var powered := false
+## Pen colour (a Shop cosmetic for the player's fighter).
+var ink_color := INK
 
 var _tilt := 0.0
 var _tilt_velocity := 0.0
@@ -332,7 +334,7 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO)
 
 	# Pen-and-ink: every line solid black (flashing white on a hit).
-	var ink := INK.lerp(Color.WHITE, _flash * 0.85)
+	var ink := ink_color.lerp(Color.WHITE, _flash * 0.85)
 	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
 
 	_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)

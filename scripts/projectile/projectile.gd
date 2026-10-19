@@ -88,6 +88,14 @@ func is_flying() -> bool:
 	return not _done
 
 
+## Recolours the trail (a Shop cosmetic for the player's throws).
+func set_trail_color(color: Color) -> void:
+	var fade := Gradient.new()
+	fade.set_color(0, Color(color, 0))
+	fade.set_color(1, Color(color, 0.7))
+	_trail.gradient = fade
+
+
 func current_velocity() -> Vector2:
 	return Rules.velocity_at(_velocity, _t, wind)
 

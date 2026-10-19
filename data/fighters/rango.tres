@@ -15,3 +15,4 @@ special_name = "Twin Rang"
 special_description = "Throws two boomerangs at once."
 unlocked_by_default = false
 cape_color = Color(0.2, 0.75, 0.72, 1)
+price = 400

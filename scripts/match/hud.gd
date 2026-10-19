@@ -10,6 +10,11 @@ signal rematch_requested
 ## Tournament: play (or retry) the current round, or go back to the ladder.
 signal round_requested
 signal ladder_requested
+## Title screen: play today's daily challenge, or continue a saved tournament.
+signal daily_requested
+signal resume_requested
+## Tournament lost and the player gave up: forget the saved run.
+signal give_up_requested
 ## The player armed (or disarmed) their once-per-match special.
 signal special_toggled(armed: bool)
 signal menu_requested
@@ -68,6 +73,14 @@ var _showcase_name: Label
 var _showcase_weapon: Label
 var _showcase_special: Label
 var _menu: VBoxContainer
+var _tournament_button: Button
+var _daily_button: Button
+var _coins_pill: PanelContainer
+var _shop_screen: Control
+var _shop_content: VBoxContainer
+var _stats_screen: Control
+var _stats_content: VBoxContainer
+var _toasts: VBoxContainer
 
 # Fighter select
 var _select_mode: int = MatchController.Mode.VS_AI
@@ -107,12 +120,24 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_select_screen = _build_select()
 	_map_screen = _build_map_screen()
 	_ladder_screen = _build_ladder()
+	_shop_screen = _build_list_screen("SHOP", UiStyle.YELLOW)
+	_shop_content = _shop_screen.get_meta("content")
+	_stats_screen = _build_list_screen("TROPHIES & STATS", UiStyle.ORANGE)
+	_stats_content = _stats_screen.get_meta("content")
 	_settings_screen = _build_settings()
 	_howto_screen = _build_howto()
 	_pause_screen = _build_pause()
 	_result_screen = _build_result()
 	_intro = VsIntro.new()
 	add_child(_intro)
+	_toasts = VBoxContainer.new()
+	_toasts.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_toasts.offset_left = -440
+	_toasts.offset_top = 80
+	_toasts.offset_right = -16
+	_toasts.add_theme_constant_override("separation", 8)
+	_toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_toasts)
 	_show_screen(null)
 
 
@@ -126,6 +151,7 @@ func show_title() -> void:
 	_special_button.hide()
 	_set_showcase(_showcase_index)
 	_show_screen(_title_screen)
+	_refresh_title()
 	# Menu buttons fade in one after another.
 	var delay := 0.1
 	for item in _menu.get_children():
@@ -318,6 +344,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		show_title()
 	elif _ladder_screen.visible:
 		menu_requested.emit()
+	elif _shop_screen.visible or _stats_screen.visible:
+		show_title()
 	elif _pause_screen.visible:
 		_set_paused(false)
 	elif _in_match and not _result_screen.visible:
@@ -573,31 +601,59 @@ func _build_title() -> Control:
 	var play_ai := _menu_button(&"play", "Play vs AI", "Duel the computer", UiStyle.GREEN)
 	play_ai.pressed.connect(_open_select.bind(MatchController.Mode.VS_AI))
 	_menu.add_child(play_ai)
-	var tournament := _menu_button(&"trophy", "Tournament", "4 rounds, each one harder", UiStyle.YELLOW)
-	tournament.pressed.connect(_open_select.bind(MatchController.Mode.TOURNAMENT))
-	_menu.add_child(tournament)
+	_tournament_button = _menu_button(&"trophy", "Tournament", "4 rounds, each one harder", UiStyle.YELLOW)
+	_tournament_button.pressed.connect(func() -> void:
+		if Save.tournament.is_empty():
+			_open_select(MatchController.Mode.TOURNAMENT)
+		else:
+			resume_requested.emit())
+	_menu.add_child(_tournament_button)
 	var duo_row := HBoxContainer.new()
 	duo_row.add_theme_constant_override("separation", 12)
-	var play_2p := _icon_button(&"duo", "1v1 friend", UiStyle.ORANGE, Vector2(184, 70), 22)
+	var play_2p := _icon_button(&"duo", "1v1 friend", UiStyle.ORANGE, Vector2(184, 64), 22)
 	play_2p.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
-	var practice := _icon_button(&"target", "Practice", UiStyle.BLUE, Vector2(184, 70), 22)
+	var practice := _icon_button(&"target", "Practice", UiStyle.BLUE, Vector2(184, 64), 22)
 	practice.pressed.connect(_open_select.bind(MatchController.Mode.PRACTICE))
 	duo_row.add_child(play_2p)
 	duo_row.add_child(practice)
 	_menu.add_child(duo_row)
+	var extra_row := HBoxContainer.new()
+	extra_row.add_theme_constant_override("separation", 12)
+	_daily_button = _icon_button(&"star", "Daily", UiStyle.PURPLE, Vector2(184, 64), 22)
+	_daily_button.pressed.connect(daily_requested.emit)
+	var shop := _icon_button(&"coin", "Shop", UiStyle.YELLOW.lightened(0.1), Vector2(184, 64), 22)
+	shop.pressed.connect(_open_shop)
+	extra_row.add_child(_daily_button)
+	extra_row.add_child(shop)
+	_menu.add_child(extra_row)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	var settings := _icon_button(&"gear", "Settings", UiStyle.BLUE.lightened(0.25), Vector2(184, 62), 22)
+	var settings := _icon_button(&"gear", "", UiStyle.BLUE.lightened(0.25), Vector2(118, 58), 0)
 	settings.pressed.connect(_open_settings.bind(screen))
-	var howto := _icon_button(&"help", "How to play", UiStyle.PURPLE.lightened(0.25), Vector2(184, 62), 22)
+	var stats := _icon_button(&"trophy", "", UiStyle.ORANGE.lightened(0.15), Vector2(118, 58), 0)
+	stats.pressed.connect(_open_stats.bind(true))
+	var howto := _icon_button(&"help", "", UiStyle.PURPLE.lightened(0.25), Vector2(118, 58), 0)
 	howto.pressed.connect(func() -> void: _show_screen(_howto_screen))
-	row.add_child(settings)
-	row.add_child(howto)
+	for button in [settings, stats, howto]:
+		row.add_child(button)
 	_menu.add_child(row)
 	if not OS.has_feature("web"):
-		var quit := _icon_button(&"quit", "Quit", UiStyle.GREY, Vector2(0, 52), 20)
+		var quit := _icon_button(&"quit", "", UiStyle.GREY, Vector2(56, 52), 0)
+		quit.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		quit.offset_left = 16
+		quit.offset_top = 16
+		quit.offset_right = 72
+		quit.offset_bottom = 68
 		quit.pressed.connect(func() -> void: get_tree().quit())
-		_menu.add_child(quit)
+		screen.add_child(quit)
+
+	_coins_pill = _coin_pill()
+	_coins_pill.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_coins_pill.offset_left = -190
+	_coins_pill.offset_top = 16
+	_coins_pill.offset_right = -16
+	_coins_pill.offset_bottom = 64
+	screen.add_child(_coins_pill)
 
 	var version := UiStyle.game_label(VERSION, 16)
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -627,6 +683,7 @@ func _menu_button(icon: StringName, title: String, subtitle: String, color: Colo
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var big := UiStyle.game_label(title, 30, true)
 	var small := UiStyle.ink_label(subtitle, 16)
+	button.set_meta("subtitle", small)
 	small.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	small.add_theme_color_override("font_color", INK.lightened(0.15))
 	text.add_child(big)
@@ -798,6 +855,21 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	stack.add_child(_stat_row("Speed", clampi(roundi((data.weapon.max_speed - 1150.0) / 55.0), 1, 5), data.body_color))
 	card.add_child(stack)
 	card.set_meta("fighter", fighter)
+	card.set_meta("data", data)
+	# Locked: dim the card and show the Shop price.
+	var lock := PanelContainer.new()
+	var lock_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.88), 14, 0)
+	lock.add_theme_stylebox_override("panel", lock_box)
+	lock.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lock.offset_bottom = -6
+	lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lock_label := UiStyle.game_label("LOCKED
+%d coins in the Shop" % data.price, 18, true)
+	lock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lock_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lock.add_child(lock_label)
+	card.add_child(lock)
+	card.set_meta("lock", lock)
 	return card
 
 
@@ -889,9 +961,18 @@ func _refresh_select() -> void:
 	var two_player := _select_mode == MatchController.Mode.LOCAL_2P
 	var picks_map := vs_ai or (two_player and _select_step == 1)
 	_go_label.text = "Next" if picks_map or (two_player and _select_step == 0) else "Start!"
+	# Only fighters you own can be picked; fall back to the first owned one.
+	if not Save.is_unlocked(_picks[_select_step]):
+		for fighter in _roster:
+			if Save.is_unlocked(fighter):
+				_picks[_select_step] = fighter
+				break
 	var picked := _roster.find(_picks[_select_step])
 	for i in _card_buttons.size():
 		_card_buttons[i].set_pressed_no_signal(i == picked)
+		var locked := not Save.is_unlocked(_card_buttons[i].get_meta("data"))
+		_card_buttons[i].disabled = locked
+		(_card_buttons[i].get_meta("lock") as Control).visible = locked
 		var fighter: Fighter = _card_buttons[i].get_meta("fighter")
 		fighter.aiming = i == picked
 
@@ -1140,8 +1221,9 @@ func _fill_result_buttons(ladder: Dictionary) -> void:
 		var retry := _icon_button(&"restart", "Retry round %d" % ladder["round"], UiStyle.YELLOW, Vector2(260, 66), 22)
 		retry.pressed.connect(round_requested.emit)
 		buttons = [retry]
-	var menu := _icon_button(&"home", "Give up" if not ladder.is_empty() and not ladder["won"] else "Menu", UiStyle.GREY, Vector2(170, 66), 22)
-	menu.pressed.connect(menu_requested.emit)
+	var giving_up: bool = not ladder.is_empty() and not ladder["won"]
+	var menu := _icon_button(&"home", "Give up" if giving_up else "Menu", UiStyle.GREY, Vector2(170, 66), 22)
+	menu.pressed.connect(give_up_requested.emit if giving_up else menu_requested.emit)
 	buttons.append(menu)
 	for button in buttons:
 		button.theme = UiStyle.theme()
@@ -1343,3 +1425,263 @@ func _ignore_mouse(node: Node) -> void:
 		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for child in node.get_children():
 		_ignore_mouse(child)
+
+
+# --- progression: coins, shop, trophies and stats, toasts ---
+
+## A little pop-up in the top-right corner (achievements, unlocks).
+func toast(text: String, color: Color) -> void:
+	var pill := PanelContainer.new()
+	var box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.9), 14, 3)
+	box.border_color = color
+	box.set_content_margin_all(12)
+	pill.add_theme_stylebox_override("panel", box)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.add_child(UiIcon.make(&"trophy", 30))
+	var label := UiStyle.game_label(text, 20, true)
+	label.add_theme_color_override("font_color", color)
+	row.add_child(label)
+	pill.add_child(row)
+	_ignore_mouse(pill)
+	_toasts.add_child(pill)
+	pill.modulate.a = 0.0
+	var tween := pill.create_tween()
+	tween.tween_property(pill, "modulate:a", 1.0, 0.2)
+	tween.tween_interval(2.8)
+	tween.tween_property(pill, "modulate:a", 0.0, 0.4)
+	tween.tween_callback(pill.queue_free)
+	Audio.play("win", -6.0, 1.4, 0.0)
+
+
+func _coin_pill() -> PanelContainer:
+	var pill := PanelContainer.new()
+	var box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.75), 20, 3)
+	box.content_margin_left = 12
+	box.content_margin_right = 16
+	pill.add_theme_stylebox_override("panel", box)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.add_child(UiIcon.make(&"coin", 32))
+	var label := UiStyle.game_label(str(Save.coins), 26, true)
+	label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	row.add_child(label)
+	pill.add_child(row)
+	pill.set_meta("label", label)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return pill
+
+
+func _set_coins(pill: PanelContainer) -> void:
+	(pill.get_meta("label") as Label).text = str(Save.coins)
+
+
+## Coins, the tournament button's "continue" text and whether the daily is done.
+func _refresh_title() -> void:
+	_set_coins(_coins_pill)
+	var subtitle: Label = _tournament_button.get_meta("subtitle")
+	if Save.tournament.is_empty():
+		subtitle.text = "4 rounds, each one harder"
+	else:
+		subtitle.text = "Continue: round %d of %d" % [int(Save.tournament["round"]) + 1, (Save.tournament["rounds"] as Array).size()]
+	var done := Save.daily_done == Rewards.today()
+	(_daily_button.get_meta("label") as Label).text = "Daily ✓" if done else "Daily"
+	_daily_button.tooltip_text = Rewards.daily(Rewards.today(), _roster, _maps)["text"]
+
+
+## A dimmed card screen whose content is rebuilt each time it opens.
+func _build_list_screen(title: String, color: Color) -> Control:
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	var screen := _card_screen(title, color, content)
+	screen.set_meta("content", content)
+	return screen
+
+
+func _clear(container: Node) -> void:
+	for child in container.get_children():
+		container.remove_child(child)
+		child.queue_free()
+
+
+func _back_button(target: Callable) -> Button:
+	var back := _icon_button(&"back", "Back", UiStyle.GREY, Vector2(180, 62), 24)
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back.pressed.connect(target)
+	return back
+
+
+func _open_shop() -> void:
+	_fill_shop()
+	_show_screen(_shop_screen)
+
+
+func _fill_shop() -> void:
+	_clear(_shop_content)
+	var header := HBoxContainer.new()
+	header.alignment = BoxContainer.ALIGNMENT_CENTER
+	header.add_theme_constant_override("separation", 16)
+	header.add_child(_coin_pill())
+	header.add_child(UiStyle.ink_label("Win matches to earn coins. Unlock fighters and pick your colours.", 18))
+	_shop_content.add_child(header)
+
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	for fighter in _roster:
+		grid.add_child(_shop_fighter_tile(fighter))
+	_shop_content.add_child(grid)
+	_shop_content.add_child(_cosmetic_row("Ink", "ink", Save.INKS, Save.ink))
+	_shop_content.add_child(_cosmetic_row("Trail", "trail", Save.TRAILS, Save.trail))
+	_shop_content.add_child(_back_button(show_title))
+
+
+func _shop_fighter_tile(fighter: FighterData) -> PanelContainer:
+	var tile := PanelContainer.new()
+	var owned := Save.is_unlocked(fighter)
+	var box := UiStyle.flat(fighter.body_color.lerp(PAPER, 0.65 if owned else 0.85), 14, 3)
+	box.set_content_margin_all(8)
+	tile.add_theme_stylebox_override("panel", box)
+	tile.custom_minimum_size = Vector2(250, 96)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var portrait := Portrait.make(fighter, 1, 72.0)
+	if not owned:
+		portrait.modulate = Color(0.45, 0.42, 0.5)
+	row.add_child(portrait)
+	var column := VBoxContainer.new()
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	var name_label := UiStyle.ink_label(fighter.short_name, 20, true)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	column.add_child(name_label)
+	if owned:
+		var tag := UiStyle.ink_label("✔ Owned", 16)
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tag.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.3))
+		column.add_child(tag)
+	else:
+		var buy := _icon_button(&"coin", str(fighter.price), UiStyle.YELLOW, Vector2(130, 46), 20)
+		buy.theme = UiStyle.theme()
+		buy.pressed.connect(_buy_fighter.bind(fighter))
+		column.add_child(buy)
+	row.add_child(column)
+	tile.add_child(row)
+	return tile
+
+
+func _buy_fighter(fighter: FighterData) -> void:
+	if Save.buy_fighter(fighter):
+		toast("Unlocked %s!" % fighter.short_name, Color(0.6, 1.0, 0.6))
+	else:
+		toast("Not enough coins", Color(1.0, 0.6, 0.5))
+	_fill_shop()
+
+
+## A row of colour swatches: equip owned ones, buy the rest.
+func _cosmetic_row(title: String, kind: String, table: Dictionary, equipped: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	var label := UiStyle.ink_label(title, 22, true)
+	label.custom_minimum_size.x = 70
+	row.add_child(label)
+	var owned: Array = Save.owned_inks if kind == "ink" else Save.owned_trails
+	for id: String in table:
+		var entry: Array = table[id]
+		var color: Color = entry[1]
+		var is_owned := owned.has(id)
+		var text := String(entry[0]) if is_owned else "%s  %d" % [entry[0], entry[2]]
+		var button := _button(text, 16)
+		button.custom_minimum_size = Vector2(176, 50)
+		button.toggle_mode = true
+		button.button_pressed = id == equipped
+		UiStyle.paint_button(button, color.lerp(PAPER, 0.35) if kind == "trail" else color.lerp(PAPER, 0.55))
+		button.pressed.connect(_choose_cosmetic.bind(kind, id))
+		row.add_child(button)
+	return row
+
+
+func _choose_cosmetic(kind: String, id: String) -> void:
+	if not Save.choose_cosmetic(kind, id):
+		toast("Not enough coins", Color(1.0, 0.6, 0.5))
+	_fill_shop()
+
+
+func _open_stats(achievements_tab: bool) -> void:
+	_fill_stats_screen(achievements_tab)
+	_show_screen(_stats_screen)
+
+
+func _fill_stats_screen(achievements_tab: bool) -> void:
+	_clear(_stats_content)
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 10)
+	for i in 2:
+		var tab_text := "Achievements %d/%d" % [Save.achievements.size(), Rewards.ACHIEVEMENTS.size()] if i == 0 else "Fighter stats"
+		var tab := _button(tab_text, 20)
+		tab.custom_minimum_size = Vector2(260, 52)
+		tab.toggle_mode = true
+		tab.button_pressed = (i == 0) == achievements_tab
+		tab.pressed.connect(_fill_stats_screen.bind(i == 0))
+		tabs.add_child(tab)
+	_stats_content.add_child(tabs)
+	if achievements_tab:
+		_stats_content.add_child(_achievement_grid())
+	else:
+		_stats_content.add_child(_fighter_stats_table())
+	_stats_content.add_child(_back_button(show_title))
+
+
+func _achievement_grid() -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	for entry: Dictionary in Rewards.ACHIEVEMENTS:
+		var got := Save.achievements.has(entry["id"])
+		var tile := PanelContainer.new()
+		var box := UiStyle.flat(Color(1.0, 0.85, 0.4) if got else Color(0, 0, 0, 0.08), 12, 3 if got else 0)
+		box.set_content_margin_all(8)
+		tile.add_theme_stylebox_override("panel", box)
+		tile.custom_minimum_size = Vector2(330, 70)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var icon := UiIcon.make(&"trophy", 38)
+		if not got:
+			icon.modulate = Color(0.4, 0.4, 0.45, 0.6)
+		row.add_child(icon)
+		var column := VBoxContainer.new()
+		var title_label := UiStyle.ink_label(entry["name"], 18, true)
+		title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var desc := UiStyle.ink_label(entry["desc"], 14)
+		desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		desc.add_theme_color_override("font_color", INK.lightened(0.25))
+		column.add_child(title_label)
+		column.add_child(desc)
+		row.add_child(column)
+		tile.add_child(row)
+		grid.add_child(tile)
+	return grid
+
+
+func _fighter_stats_table() -> CenterContainer:
+	var table := GridContainer.new()
+	table.columns = 6
+	table.add_theme_constant_override("h_separation", 34)
+	table.add_theme_constant_override("v_separation", 6)
+	for heading: String in ["Fighter", "Matches", "Wins", "Headshots", "Best hit", "Damage"]:
+		table.add_child(UiStyle.ink_label(heading, 18, true))
+	for fighter in _roster:
+		var stats := Save.stats_for(String(fighter.id))
+		var name_label := UiStyle.ink_label(fighter.display_name, 17, true)
+		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		if not Save.is_unlocked(fighter):
+			name_label.add_theme_color_override("font_color", INK.lightened(0.5))
+		table.add_child(name_label)
+		for value in [stats["matches"], stats["wins"], stats["headshots"], "%d m" % roundi(float(stats["longest"])), stats["damage"]]:
+			table.add_child(UiStyle.ink_label(str(value), 17))
+	var centre := CenterContainer.new()
+	centre.add_child(table)
+	return centre

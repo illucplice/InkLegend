@@ -15,3 +15,4 @@ special_name = "Big Boom"
 special_description = "The blast is half as big again."
 unlocked_by_default = false
 cape_color = Color(1, 0.55, 0.15, 1)
+price = 400

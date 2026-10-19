@@ -15,3 +15,4 @@ special_name = "Heavy Chop"
 special_description = "+50% damage and always knocks down."
 unlocked_by_default = false
 cape_color = Color(0.7, 0.35, 0.22, 1)
+price = 400

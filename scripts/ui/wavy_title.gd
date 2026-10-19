@@ -8,7 +8,7 @@ const TOP := Color(1.0, 0.86, 0.3)
 const BOTTOM := Color(1.0, 0.5, 0.18)
 
 var lines: PackedStringArray = ["WOBBLE", "WARS"]
-var font_size := 96
+var font_size := 84
 var _time := 0.0
 
 

@@ -122,6 +122,13 @@ var _extra_throw := false
 var _practice := {}
 var _practice_target: PracticeTarget
 var _practice_hit := false
+## Phase F: per-match tracking for rewards (your side only), and the daily
+## challenge being played (empty if none).
+var _max_combo := 0
+var _smashed := 0
+var _crates_collected := 0
+var _specials_used := 0
+var _daily := {}
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -175,6 +182,12 @@ func _ready() -> void:
 	_hud.special_toggled.connect(_on_special_toggled)
 	_hud.ladder_requested.connect(func() -> void: _hud.show_ladder(_ladder_info()))
 	_hud.menu_requested.connect(go_to_menu)
+	_hud.daily_requested.connect(start_daily)
+	_hud.resume_requested.connect(resume_tournament)
+	_hud.give_up_requested.connect(func() -> void:
+		Save.tournament = {}
+		Save.save_progress()
+		go_to_menu())
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
 	go_to_menu()
 
@@ -254,6 +267,10 @@ func _clear_match() -> void:
 		child.queue_free()
 	fighters.clear()
 	_in_flight.clear()
+	_max_combo = 0
+	_smashed = 0
+	_crates_collected = 0
+	_specials_used = 0
 	_practice_target = null
 	_practice_hit = false
 
@@ -278,6 +295,7 @@ func _set_map(map: MapData) -> void:
 
 
 func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, difficulty: int, map: MapData) -> void:
+	_daily = {}
 	if match_mode == Mode.TOURNAMENT:
 		start_tournament(left)
 	elif match_mode == Mode.PRACTICE:
@@ -303,7 +321,9 @@ func start_tournament(pick: FighterData) -> void:
 	for i in TOURNAMENT_DIFFICULTIES.size():
 		var map: MapData = MAPS[2] if i == last else map_order[i % map_order.size()]
 		rounds.append({"opponent": foes[i], "map": map, "difficulty": TOURNAMENT_DIFFICULTIES[i]})
+	_daily = {}
 	tournament = {"pick": pick, "round": 0, "rounds": rounds}
+	_save_tournament()
 	_hud.show_ladder(_ladder_info())
 
 
@@ -470,17 +490,68 @@ func _end_practice() -> void:
 	var stars: int = _practice["stars"]
 	var best := PRACTICE_TARGETS * PRACTICE_TRIES
 	var rating := "Sharpshooter!" if stars >= best * 0.8 else ("Nice aim!" if stars >= best * 0.5 else "Keep practising!")
+	var payout := _pay_out({"mode": mode, "won": false, "practice_stars": stars, "fighter_id": String(fighters[0].data.id), "map_id": String(current_map.id)})
 	Audio.play("win", -3.0, 1.0, 0.0)
 	_hud.show_result({
 		"title": "PRACTICE DONE",
 		"color": Color(0.3, 0.55, 0.95),
-		"detail": "★ %d / %d   ·   %s" % [stars, best, rating],
+		"detail": "★ %d / %d   ·   %s
++%d coins" % [stars, best, rating, payout["coins"]],
 		"winner": fighters[0].data,
 		"winner_facing": 1,
 		"names": ["You", ""],
 		"stats": _stats,
 		"practice": stars,
 	})
+	for id: String in payout["achievements"]:
+		_hud.toast("Achievement: %s  +%d" % [Rewards.achievement(id)["name"], Rewards.ACHIEVEMENT_COINS], Color(1.0, 0.8, 0.3))
+
+
+## Today's daily challenge: a set fighter, map and AI difficulty, plus a twist.
+func start_daily() -> void:
+	var challenge := Rewards.daily(Rewards.today(), roster(), maps())
+	start_match(challenge["fighter"], null, Mode.VS_AI, challenge["difficulty"], challenge["map"])
+	_daily = challenge
+
+
+## Stores the tournament in progress so it can be continued after closing the game.
+func _save_tournament() -> void:
+	var rounds := []
+	for round_info: Dictionary in tournament["rounds"]:
+		var opponent: FighterData = round_info["opponent"]
+		rounds.append({"opponent": String(opponent.id), "map": String(round_info["map"].id), "difficulty": round_info["difficulty"]})
+	Save.tournament = {"pick": String(tournament["pick"].id), "round": tournament["round"], "rounds": rounds}
+	Save.save_progress()
+
+
+## Picks up a saved tournament and shows its ladder.
+func resume_tournament() -> void:
+	var saved: Dictionary = Save.tournament
+	if saved.is_empty():
+		return
+	var pick := _fighter_by_id(saved["pick"])
+	if pick == null:
+		Save.tournament = {}
+		return
+	var rounds: Array[Dictionary] = []
+	for round_info: Dictionary in saved["rounds"]:
+		var id: String = round_info["opponent"]
+		var opponent := _shadow_of(pick) if id.begins_with("shadow_") else _fighter_by_id(id)
+		var map: MapData = MAPS[0]
+		for candidate: MapData in MAPS:
+			if String(candidate.id) == round_info["map"]:
+				map = candidate
+		rounds.append({"opponent": opponent, "map": map, "difficulty": round_info["difficulty"]})
+	_daily = {}
+	tournament = {"pick": pick, "round": saved["round"], "rounds": rounds}
+	_hud.show_ladder(_ladder_info())
+
+
+func _fighter_by_id(id: String) -> FighterData:
+	for fighter in roster():
+		if String(fighter.id) == id:
+			return fighter
+	return null
 
 
 ## Plays the current tournament round (also used to retry after a loss).
@@ -546,6 +617,7 @@ func _refresh_obstacle_rects() -> void:
 
 
 func _on_obstacle_destroyed(obstacle: Obstacle) -> void:
+	_smashed += 1
 	var centre := obstacle.rect.get_center()
 	Effects.burst(_actors, centre, obstacle.stone, 40, 620.0, 180.0, 1.6)
 	Effects.burst(_actors, centre + Vector2(0, obstacle.rect.size.y * 0.3), obstacle.stone_dark, 30, 420.0, 180.0, 1.3)
@@ -594,6 +666,8 @@ func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
 		return
 	var owner_fighter := fighters[side]
 	crate.collect()
+	if side == 0:
+		_crates_collected += 1
 	Effects.burst(_actors, crate.global_position, Crate.COLORS[crate.kind], 24, 480.0, 180.0, 1.2)
 	Audio.play("win", -6.0, 1.8, 0.0)
 	_hud.announce("%s: %s" % [owner_fighter.data.short_name.to_upper(), Crate.LABELS[crate.kind]], Crate.COLORS[crate.kind].lightened(0.2))
@@ -616,6 +690,8 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 	fighter.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	fighter.reset_physics_interpolation()
 	fighter.setup(data, facing, is_ai)
+	if not is_ai:
+		fighter.ink_color = Save.ink_color()
 	return fighter
 
 
@@ -758,6 +834,8 @@ func _throw(angle: float, power: float) -> void:
 	var special := weapon.special if _special_armed else &""
 	if special != &"":
 		_special_used[current] = true
+		if current == 0:
+			_specials_used += 1
 		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
 		Audio.play("win", -8.0, 1.6, 0.0)
 	match special:
@@ -775,6 +853,8 @@ func _throw(angle: float, power: float) -> void:
 		_actors.add_child(projectile)
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
+		if not fighter.is_ai:
+			projectile.set_trail_color(Save.trail_color())
 		if special == &"shockwave":
 			projectile.bounces = 1
 		if special == &"pin":
@@ -803,6 +883,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	if side >= 0 and not _turn_hit:
 		_turn_hit = true
 		_combo[side] += 1
+		if side == 0:
+			_max_combo = maxi(_max_combo, _combo[side])
 		if _combo[side] >= 2:
 			_hud.announce("COMBO x%d!" % _combo[side], Color(1.0, 0.55, 0.9))
 	var combo: int = _combo[side] if side >= 0 else 0
@@ -951,6 +1033,7 @@ func _all_settled() -> bool:
 func _end_match() -> void:
 	state = State.GAME_OVER
 	_aim.finish()
+	_hud.set_special(null, false, false)
 	_hud.show_hint(false)
 	_hud.set_turn("")
 	var winner := fighters[1] if fighters[0].is_knocked_out() else fighters[0]
@@ -980,22 +1063,90 @@ func _end_match() -> void:
 			if final:
 				title = "CHAMPION!"
 				color = Color(1.0, 0.75, 0.2)
+	if mode == Mode.TOURNAMENT and not tournament.is_empty():
+		if ladder["won"] and ladder["final"]:
+			Save.tournament = {}
+		else:
+			_save_tournament()
+	var summary := {
+		"mode": mode,
+		"won": winner_side == 0 and not autoplay,
+		"difficulty": _last_difficulty,
+		"round": ladder.get("round", 0),
+		"champion": ladder.get("won", false) and ladder.get("final", false),
+		"headshots": _stats[0]["headshots"],
+		"longest": _stats[0]["longest"],
+		"damage_taken": _stats[1]["damage"],
+		"max_combo": _max_combo,
+		"throws": _stats[0]["throws"],
+		"special_used": _special_used[0],
+		"health_left": fighters[0].health,
+		"fighter_id": String(fighters[0].data.id),
+		"map_id": String(current_map.id),
+	}
+	var payout := _pay_out(summary)
 	match_ended.emit(winner)
 	var match_id := _match_id
 	await get_tree().create_timer(RESULT_DELAY, false).timeout
 	if match_id != _match_id:
 		return
 	Audio.play("win" if player_won or autoplay else "lose", -3.0, 1.0, 0.0)
+	var detail := "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health]
+	if payout["coins"] > 0:
+		detail += "\n+%d coins" % payout["coins"]
+	if payout["daily"]:
+		detail += "  ·  Daily challenge complete!"
 	_hud.show_result({
 		"title": title,
 		"color": color,
-		"detail": "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health],
+		"detail": detail,
 		"winner": winner.data,
 		"winner_facing": 1,
 		"names": _player_names(),
 		"stats": _stats,
 		"tournament": ladder,
 	})
+	for id: String in payout["achievements"]:
+		var entry := Rewards.achievement(id)
+		_hud.toast("Achievement: %s  +%d" % [entry["name"], Rewards.ACHIEVEMENT_COINS], Color(1.0, 0.8, 0.3))
+
+
+## Banks a finished match (not 1v1, not test autoplay): coins, fighter stats,
+## running totals, achievements and the daily challenge. Returns what was earned:
+## {coins, achievements (ids), daily (bool)}.
+func _pay_out(summary: Dictionary) -> Dictionary:
+	var result := {"coins": 0, "achievements": [], "daily": false}
+	if autoplay or mode == Mode.LOCAL_2P:
+		return result
+	var coins := Rewards.coins_for(summary)
+	var stats := Save.stats_for(summary["fighter_id"])
+	if mode != Mode.PRACTICE:
+		stats["matches"] += 1
+		stats["wins"] += 1 if summary["won"] else 0
+	stats["headshots"] += int(summary.get("headshots", 0))
+	stats["longest"] = maxf(stats["longest"], float(summary.get("longest", 0.0)))
+	stats["damage"] += int(_stats[0]["damage"])
+	Save.counters["smashed"] = int(Save.counters.get("smashed", 0)) + _smashed
+	Save.counters["crates"] = int(Save.counters.get("crates", 0)) + _crates_collected
+	Save.counters["specials"] = int(Save.counters.get("specials", 0)) + _specials_used
+	if summary["won"]:
+		var maps_won: Array = Save.counters.get("maps_won", [])
+		if not maps_won.has(summary["map_id"]):
+			maps_won.append(summary["map_id"])
+		Save.counters["maps_won"] = maps_won
+	var earned := Rewards.new_achievements(summary, Save, ROSTER.size())
+	for id in earned:
+		Save.achievements.append(id)
+		coins += Rewards.ACHIEVEMENT_COINS
+	if not _daily.is_empty() and Save.daily_done != _daily["date"] and Rewards.daily_met(_daily, summary):
+		Save.daily_done = _daily["date"]
+		coins += Rewards.DAILY_COINS
+		result["daily"] = true
+	Save.coins += coins
+	Save.save_progress()
+	result["coins"] = coins
+	result["achievements"] = earned
+	return result
 
 
 ## Slows the game for `duration` real seconds. A newer call replaces an older one.

@@ -3,18 +3,24 @@ extends SceneTree
 ##   godot --headless --path . -s res://tests/run_tests.gd
 
 const WEAPONS := ["hammer", "slingshot", "spear", "bow"]
+const WEAPON_FIGHTERS := ["quotuk", "klakla", "pipmo", "fentuk", "bomba", "rango", "grak", "plopo"]
 
 var _checks := 0
 var _failures := 0
 
 
 func _initialize() -> void:
+	# Never touch the real save: point progress at a scratch file and start fresh.
+	var save: Node = root.get_node("Save")
+	save.progress_path = "user://test_progress.cfg"
+	save.reset_progress()
 	_test_damage_table()
 	_test_solver_lands_on_target()
 	_test_ai_sharpens()
 	_test_obstacles()
 	_test_wind_solver()
 	_test_destructible_obstacles()
+	_test_progression(root.get_node("Save"))
 	await _test_ai_vs_ai_match()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
@@ -204,3 +210,35 @@ func _test_practice(game: Node) -> void:
 	for i in 3:
 		game._practice_next()
 	_check(game._practice["index"] == 2, "three misses move practice on too")
+
+
+func _test_progression(save: Node) -> void:
+	var win := {"mode": 0, "won": true, "difficulty": 2, "headshots": 2}
+	_check(Rewards.coins_for(win) == 50 + 50 + 10, "a Hard win with 2 headshots pays 110 coins")
+	_check(Rewards.coins_for({"mode": 0, "won": false, "difficulty": 2}) == 10, "a loss still pays 10")
+	_check(Rewards.coins_for({"mode": 1, "won": true}) == 0, "1v1 pays nothing")
+	_check(Rewards.coins_for({"mode": 3, "practice_stars": 20}) == 60, "practice pays 3 coins a star")
+	var earned := Rewards.new_achievements({"won": true, "headshots": 3, "damage_taken": 0, "max_combo": 1}, save, 8)
+	_check(earned.has("first_win") and earned.has("headhunter") and earned.has("flawless") and not earned.has("combo"), "achievements match the match summary")
+	save.achievements.append("first_win")
+	_check(not Rewards.new_achievements({"won": true}, save, 8).has("first_win"), "an achievement is only earned once")
+
+	var roster: Array[FighterData] = []
+	for id: String in WEAPON_FIGHTERS:
+		roster.append(load("res://data/fighters/%s.tres" % id))
+	var maps: Array[MapData] = [load("res://data/maps/colosseum.tres"), load("res://data/maps/lava.tres")]
+	var a := Rewards.daily("2026-10-19", roster, maps)
+	var b := Rewards.daily("2026-10-19", roster, maps)
+	_check(a["fighter"] == b["fighter"] and a["map"] == b["map"] and a["twist"] == b["twist"], "the daily challenge is the same all day")
+	var summary := {"won": true, "fighter_id": String(a["fighter"].id), "headshots": 3, "special_used": false, "health_left": 90, "throws": 3}
+	_check(Rewards.daily_met(a, summary), "winning as the daily fighter with every twist met completes it")
+
+	var pipmo: FighterData = load("res://data/fighters/pipmo.tres")
+	save.coins = 100
+	_check(not save.is_unlocked(pipmo) and not save.buy_fighter(pipmo), "you can't buy a fighter you can't afford")
+	save.coins = 300
+	_check(save.buy_fighter(pipmo) and save.is_unlocked(pipmo) and save.coins == 50, "buying a fighter spends its price")
+	_check(save.choose_cosmetic("ink", "black") and not save.choose_cosmetic("ink", "navy"), "owned inks equip; unaffordable ones don't")
+	save.coins = 200
+	_check(save.choose_cosmetic("trail", "gold") and save.trail == "gold" and save.coins == 120, "buying a trail equips it")
+	save.reset_progress()
