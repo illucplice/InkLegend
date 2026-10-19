@@ -13,11 +13,13 @@ const BLOOD := Color(0.72, 0.04, 0.07)
 const INK_SPLAT := Color(0.1, 0.08, 0.14)
 ## Most blood drops alive at once, so a big finisher can't slow the game down.
 const MAX_DROPS := 420
+## Fatalities play a little slower than the match (everything, gore physics too).
+const PACE := 0.7
 ## The caption shown for each fighter's finisher.
 const NAMES := {
 	&"quotuk": "PANCAKED!", &"klakla": "PERFORATED!", &"pipmo": "SKEWERED!", &"fentuk": "PINCUSHION!",
 	&"bomba": "KABOOM!", &"rango": "SLICED & DICED!", &"grak": "SPLIT IN TWO!", &"plopo": "HEAD SUCKER!",
-	&"gok": "THROUGH AND THROUGH!", &"egita": "OBLITERATED!", &"lufi": "GEAR 4 BARRAGE!", &"ichi": "CERO!",
+	&"gok": "THROUGH AND THROUGH!", &"egita": "OBLITERATED!", &"lufi": "RED HAWK!", &"ichi": "MUGETSU!",
 }
 
 var winner: Fighter
@@ -30,6 +32,8 @@ var _done := false
 var _drops := 0
 ## Gear Fourth's bounce (a looping tween to stop if the finisher is skipped).
 var _bounce: Tween
+## The game speed before the fatality, put back when it ends.
+var _base_scale := 1.0
 ## What the camera frames while the finisher plays.
 var _frame := PackedVector2Array()
 
@@ -54,6 +58,8 @@ func is_done() -> bool:
 
 
 func _run(intro: bool) -> void:
+	_base_scale = Engine.time_scale
+	Engine.time_scale = _base_scale * PACE
 	_frame_around(loser.global_position, 260.0, 420.0)
 	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
 	if intro:
@@ -107,6 +113,7 @@ func _finish() -> void:
 	if _done:
 		return
 	_done = true
+	Engine.time_scale = _base_scale
 	camera.release_focus()
 	# Undo anything a skipped finisher left half-done on the winner.
 	if _bounce != null:
@@ -120,8 +127,10 @@ func _finish() -> void:
 
 
 func _exit_tree() -> void:
-	if not _done and is_instance_valid(camera):
-		camera.release_focus()
+	if not _done:
+		Engine.time_scale = _base_scale
+		if is_instance_valid(camera):
+			camera.release_focus()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -137,6 +146,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func _wait(seconds: float) -> bool:
 	await get_tree().create_timer(seconds, false).timeout
 	return not _done
+
+
+## A beat of extra slow motion for `real_seconds` (real time), then back to PACE.
+func _slowmo(factor: float, real_seconds: float) -> void:
+	Engine.time_scale = _base_scale * PACE * factor
+	await get_tree().create_timer(real_seconds, true, false, true).timeout
+	if not _done:
+		Engine.time_scale = _base_scale * PACE
 
 
 func _frame_around(centre: Vector2, half_width: float, height: float) -> void:
@@ -478,9 +495,9 @@ func _vaporize() -> void:
 	winner.power_up(5.0)
 	hud.announce("DRAGON FIST!", Color(1.0, 0.82, 0.25))
 	# Power-up: gold sparks rising off him, a flare of light.
-	for flare in 4:
+	for flare in 5:
 		Effects.burst(self, winner.aim_point(false), Color(1.0, 0.85, 0.3), 26, 420.0, 40.0, 1.3)
-		camera.shake(0.15)
+		camera.shake(0.12)
 		if not await _wait(0.12):
 			return
 	Audio.play("whoosh", 0.0, 0.45, 0.0)
@@ -490,7 +507,7 @@ func _vaporize() -> void:
 		canvas.draw_line(start + Vector2(0, -60), now, Color(1.0, 0.85, 0.3, 0.35), 40.0, true)
 		canvas.draw_line(start + Vector2(0, -60), now, Color(1.0, 0.95, 0.7, 0.7), 12.0, true))
 	get_tree().process_frame.connect(streak.queue_redraw)
-	await _move_winner(Vector2(loser.global_position.x - side * 44.0, 0.0), 0.16, 0.0)
+	await _move_winner(Vector2(loser.global_position.x - side * 44.0, 0.0), 0.28, 0.0)
 	if _done:
 		return
 	var streak_fade := streak.create_tween()
@@ -503,20 +520,33 @@ func _vaporize() -> void:
 	_impact(at, 1.0)
 	_flash_ring(at, Color(1.0, 0.9, 0.5), 520.0)
 	Effects.burst(self, at, Color(1.0, 0.92, 0.5), 60, 1000.0, 180.0, 2.4)
-	_hide_loser_and_explode(at - Vector2(side * 30.0, 30.0), 1100.0, -1.8)
+	_hide_loser_and_explode(at - Vector2(side * 10.0, -40.0), 1200.0, -2.6)
+	# Punch in close on the uppercut, in slow motion, as he rises through them.
+	var close := PackedVector2Array([at + Vector2(-110, -150), at + Vector2(110, 70)])
+	camera.focus_on(func() -> PackedVector2Array: return close, 30.0, 2.8)
+	_slowmo(0.3, 0.7)
+	winner.aiming = true
+	winner.aim_angle = 85.0
+	winner.aim_power = 1.0
+	await _move_winner(Vector2(at.x - side * 10.0, -110.0), 0.4, 0.0)
+	if _done:
+		return
+	_flash_ring(at, Color(1.0, 0.85, 0.35), 380.0)
+	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
 	# The dragon: a thick glowing serpent spiralling up out of the wound.
 	var state := {"t": 0.0}
 	var gold := Color(1.0, 0.76, 0.16)
 	var light := Color(1.0, 0.96, 0.7)
 	var dragon := _prop(func(canvas: Node2D) -> void:
 		var length := 60
-		var head_index := int(state["t"] * length)
+		var head_index := int(ceil(float(state["t"]) * length))
 		if head_index < 3:
 			return
 		var path := PackedVector2Array()
 		var widths := PackedFloat32Array()
 		for i in head_index + 1:
-			var u := i / float(length)
+			# The last point rides exactly at t, so the dragon grows smoothly.
+			var u := minf(i / float(length), float(state["t"]))
 			var turn := u * TAU * 1.6
 			path.append(at + Vector2(side * sin(turn) * (70.0 + u * 120.0), -u * 1050.0))
 			# Wider where the spiral swings toward the camera.
@@ -565,13 +595,22 @@ func _vaporize() -> void:
 		canvas.draw_circle(eye, 2.5, Color.WHITE, true, -1.0, true))
 	dragon.z_index = 9
 	var rise := create_tween()
+	var launch := winner.global_position
 	rise.tween_method(func(t: float) -> void:
 		state["t"] = t
-		dragon.queue_redraw(), 0.0, 1.0, 1.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	rise.tween_interval(1.1)
+		dragon.queue_redraw()
+		# He rides up with it, just behind the head, fist still raised.
+		var u := maxf(0.0, t - 0.1)
+		var on_path := at + Vector2(side * sin(u * TAU * 1.6) * (70.0 + u * 120.0), -u * 1050.0) + Vector2(0, 90)
+		winner.global_position = launch.lerp(on_path, minf(1.0, t * 4.0)),  0.0, 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	rise.tween_interval(1.0)
 	rise.tween_property(dragon, "modulate:a", 0.0, 0.5)
 	_frame_around(Vector2(at.x, 0.0), 440.0, 1100.0)
 	await rise.finished
+	if _done:
+		return
+	winner.aiming = false
+	await _move_winner(Vector2(at.x + side * 60.0, 0.0), 0.8, 0.0)
 
 
 ## A bright ring that expands and fades (shockwaves).
@@ -640,97 +679,99 @@ func _obliterate() -> void:
 	await _move_winner(Vector2(above.x, 0.0), 0.5, 0.0)
 
 
-## Lufi: bites his arm and blows up into Gear Fourth: huge, puffed up and bouncing.
-## Then a barrage of giant fists, and one last one that sends the pieces flying.
+## Lufi: Conqueror's Haki pins them in place, then he leaps above them and comes down
+## with a blazing Red Hawk.
 func _home_run() -> void:
 	var side := _toward_loser()
-	winner.power_up(6.0)
-	hud.announce("GEAR FOURTH!", Color(1.0, 0.5, 0.55))
-	Audio.play("whoosh", 0.0, 0.4, 0.0)
-	var grow := winner.create_tween()
-	grow.tween_property(winner, "scale", Vector2.ONE * 1.55, 0.5).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
-	for puff in 4:
-		Effects.burst(self, winner.aim_point(false), Color(1.0, 0.8, 0.84, 0.85), 24, 260.0, 180.0, 2.0)
-		if not await _wait(0.12):
-			return
-	await _move_winner(Vector2(loser.global_position.x - side * 130.0, 0.0), 0.35, 120.0)
+	winner.power_up(9.0)
+	hud.announce("CONQUEROR'S HAKI!", Color(0.95, 0.2, 0.25))
+	_wash(Color(0.85, 0.02, 0.06), 0.45, 0.12, 0.6, 0.45)
+	Audio.play("ko", 3.0, 0.35, 0.0)
+	# Waves of will roll out from him; they freeze, shaking.
+	for wave in 3:
+		_flash_ring(winner.aim_point(false), Color(0.08, 0.02, 0.05), 700.0)
+		_flash_ring(winner.aim_point(false), Color(0.9, 0.1, 0.15, 0.6), 760.0)
+		Effects.burst(self, winner.aim_point(false), Color(0.06, 0.02, 0.05), 24, 700.0, 180.0, 1.4)
+		camera.shake(0.5)
+		for jitter in 4:
+			loser._tilt_velocity += (3.0 if jitter % 2 == 0 else -3.0)
+			if not await _wait(0.06):
+				return
+	loser._flash = 1.0
+	Effects.popup(self, loser.aim_point(true) + Vector2(0, -70), "STUNNED!", Color(0.9, 0.85, 1.0), 32, 1.0 / camera.zoom.x, camera.visible_rect())
+	if not await _wait(0.5):
+		return
+	# Up and over.
+	var above := Vector2(loser.global_position.x - side * 30.0, -380.0)
+	_frame_around(loser.global_position + Vector2(0, -60), 300.0, 620.0)
+	Audio.play("whoosh", 0.0, 0.7, 0.0)
+	await _move_winner(above, 0.55, 160.0)
 	if _done:
 		return
-	# Boundman bounces on the spot while he punches.
-	_bounce = winner.create_tween().set_loops()
-	_bounce.tween_property(winner, "position:y", -40.0, 0.18).set_trans(Tween.TRANS_SINE)
-	_bounce.tween_property(winner, "position:y", 0.0, 0.18).set_trans(Tween.TRANS_SINE)
+	hud.announce("RED HAWK!", Color(1.0, 0.45, 0.15))
+	# The arm turns black with haki and the fist bursts into flame.
 	var fist_weapon := winner.data.weapon.duplicate() as WeaponData
 	fist_weapon.shape = &"fist"
 	fist_weapon.size = 30.0
-	fist_weapon.color = winner.data.body_color
-	var elapsed := 0.0
-	var hits := 0
-	while elapsed < 1.4:
-		var b := loser.body_points()
-		var hit: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"head"], randf()) + Vector2(randf_range(-12, 12), randf_range(-10, 10))
-		var from := winner.global_position + Vector2(side * 30.0, randf_range(-170, -80))
-		var fist := _weapon_prop(fist_weapon, randf_range(2.2, 2.8))
-		fist.position = from
-		fist.rotation = (hit - from).angle()
-		var jab := fist.create_tween()
-		jab.tween_property(fist, "position", hit, 0.06)
-		jab.tween_property(fist, "position", from, 0.06)
-		jab.tween_callback(fist.queue_free)
-		hits += 1
-		loser._tilt_velocity += side * 2.4
-		loser._flash = 0.7
-		camera.shake(0.12)
-		if hits % 2 == 0:
-			_spray(hit, Vector2(side, -0.5), 8, 460.0, 0.7)
-			Audio.play("hit_body", -4.0, randf_range(0.8, 1.1), 0.0)
-		if not await _wait(0.05):
+	fist_weapon.color = Color(0.9, 0.3, 0.1)
+	var hand := winner.throw_origin()
+	for flare in 5:
+		Effects.burst(self, hand, Color(1.0, 0.55, 0.15), 14, 240.0, 180.0, 1.3)
+		Effects.burst(self, hand, Color(1.0, 0.9, 0.4), 6, 160.0, 180.0, 1.0)
+		if not await _wait(0.08):
 			return
-		elapsed += 0.05
-	_bounce.kill()
-	_bounce = null
-	# The finishing blow: a gigantic fist.
 	var b := loser.body_points()
-	var finish: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.6)
-	var big := _weapon_prop(fist_weapon, 5.5)
-	big.position = winner.global_position + Vector2(-side * 60.0, -160.0)
-	big.rotation = (finish - big.position).angle()
-	var punch := create_tween()
-	punch.tween_property(big, "position", finish, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	await punch.finished
+	var target: Vector2 = (b[&"neck"] as Vector2).lerp(b[&"hip"], 0.3)
+	var fist := _weapon_prop(fist_weapon, 3.2)
+	fist.modulate = Color(0.55, 0.45, 0.45)
+	fist.position = hand
+	fist.rotation = (target - hand).angle()
+	winner.play_throw()
+	Audio.play("whoosh", 2.0, 0.6, 0.0)
+	var strike := create_tween()
+	strike.tween_method(func(t: float) -> void:
+		fist.position = hand.lerp(target, t)
+		Effects.burst(self, fist.position, Color(1.0, 0.5, 0.12), 3, 120.0, 180.0, 1.2), 0.0, 1.0, 0.14)
+	await strike.finished
 	if _done:
 		return
-	Audio.play("hit_head", 5.0, 0.5, 0.0)
-	_impact(finish, 1.0)
-	_flash_ring(finish, Color(1.0, 0.7, 0.75), 360.0)
-	_hide_loser_and_explode(finish - Vector2(side * 40.0, 0), 1500.0, -0.7)
-	var back := big.create_tween().set_parallel()
-	back.tween_property(big, "position", winner.throw_origin(), 0.25)
-	back.tween_property(big, "modulate:a", 0.0, 0.3)
-	# Deflate.
-	if not await _wait(0.6):
+	# Boom: fire everywhere.
+	_slowmo(0.3, 0.45)
+	Audio.play("hit_head", 5.0, 0.45, 0.0)
+	Audio.play("ground", 3.0, 0.5, 0.0)
+	_impact(target, 1.0)
+	_flash_ring(target, Color(1.0, 0.6, 0.15), 520.0)
+	Effects.burst(self, target, Color(1.0, 0.5, 0.12), 80, 1100.0, 180.0, 2.6)
+	Effects.burst(self, target, Color(1.0, 0.92, 0.5), 40, 700.0, 180.0, 2.0)
+	_hide_loser_and_explode(target + Vector2(0, -30), 1300.0, -0.4)
+	_scorch(loser.global_position.x, 200.0)
+	for ember in 6:
+		Effects.burst(self, Vector2(loser.global_position.x + randf_range(-150, 150), -6), Color(1.0, 0.55, 0.15), 8, 160.0, 30.0, 1.0)
+	var fade := fist.create_tween()
+	fade.tween_property(fist, "modulate:a", 0.0, 0.4)
+	if not await _wait(0.4):
 		return
-	var shrink := winner.create_tween().set_parallel()
-	shrink.tween_property(winner, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK)
-	shrink.tween_property(winner, "position:y", 0.0, 0.2)
+	await _move_winner(Vector2(above.x - side * 60.0, 0.0), 0.45, 0.0)
 
 
-## Ichi: the hollow takes over. He becomes his Vasto Lorde form, cuts them three times
-## too fast to see, then blasts what is left with a huge red Cero from between the horns.
+## Ichi: becomes the Final Getsuga Tensho, his hair grown long and black, his body
+## bound in bandages. Three cuts too fast to see, then Mugetsu: the light goes out and
+## a gigantic wave of black swallows them whole.
 func _moon_slash() -> void:
 	var side := _toward_loser()
-	winner.power_up(8.0)
-	winner.holding_weapon = false
-	winner.form = &"vasto"
-	hud.announce("VASTO LORDE!", Color(0.95, 0.15, 0.2))
-	Audio.play("ko", 2.0, 0.4, 0.0)
-	camera.shake(0.7)
-	for burst in 3:
-		Effects.burst(self, winner.aim_point(false), Color(0.85, 0.1, 0.15), 30, 520.0, 180.0, 1.8)
-		Effects.burst(self, winner.aim_point(false), Color(0.05, 0.03, 0.06), 20, 380.0, 180.0, 1.5)
-		if not await _wait(0.15):
+	winner.power_up(10.0)
+	winner.holding_weapon = true
+	winner.form = &"mugetsu"
+	hud.announce("FINAL GETSUGA TENSHO!", Color(0.85, 0.12, 0.15))
+	Audio.play("ko", 2.0, 0.35, 0.0)
+	camera.shake(0.6)
+	_wash(Color.BLACK, 0.3, 0.5, 2.6, 0.6, 2)
+	for burst in 4:
+		Effects.burst(self, winner.aim_point(false), Color(0.06, 0.02, 0.05), 30, 520.0, 180.0, 1.8)
+		Effects.burst(self, winner.aim_point(false), Color(0.75, 0.08, 0.12), 12, 360.0, 180.0, 1.2)
+		if not await _wait(0.16):
 			return
-	if not await _wait(0.3):
+	if not await _wait(0.4):
 		return
 	var b := loser.body_points()
 	var centre: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.4)
@@ -743,56 +784,131 @@ func _moon_slash() -> void:
 			for k in 13:
 				var t := k / 12.0
 				points.append(Vector2(lerpf(-130, 130, t), sin(t * PI) * -28.0))
-			canvas.draw_polyline(points, Color(0.9, 0.1, 0.15, 0.6), 16.0, true)
-			canvas.draw_polyline(points, Color.WHITE, 4.0, true))
+			canvas.draw_polyline(points, Color(0.05, 0.02, 0.05, 0.8), 16.0, true)
+			canvas.draw_polyline(points, Color(0.9, 0.15, 0.2), 3.0, true))
 		slash.position = centre + Vector2(0, (i - 1) * 24.0)
 		slash.rotation = angle
 		var fade := slash.create_tween()
-		fade.tween_property(slash, "modulate:a", 0.0, 0.35)
+		fade.tween_property(slash, "modulate:a", 0.0, 0.4)
 		fade.tween_callback(slash.queue_free)
 		Audio.play("whoosh", -2.0, 1.4 + i * 0.1, 0.0)
 		loser._flash = 1.0
 		_spray(centre + Vector2(0, (i - 1) * 24.0), Vector2(randf_range(-1, 1), -1.0).normalized(), 14, 380.0, 0.6)
-		if not await _wait(0.14):
+		if not await _wait(0.16):
 			return
-	# Behind them in a blink, then point blank: Cero.
-	winner.global_position.x = loser.global_position.x + side * 120.0
-	winner.facing = -winner.facing
+	# Back off and raise the arm: Mugetsu.
+	winner.global_position.x = loser.global_position.x - side * 260.0
 	winner.reset_physics_interpolation()
-	if not await _wait(0.4):
+	winner.aiming = true
+	winner.aim_angle = 88.0
+	if not await _wait(0.35):
 		return
-	hud.announce("CERO!", Color(1.0, 0.15, 0.2))
-	var dir := float(winner.facing)
-	var horns: Vector2 = winner.body_points()[&"head"] + Vector2(dir * 26.0, -10.0)
-	var cero := Beam.new()
-	cero.width_scale = 2.6
-	cero.setup(horns, horns + Vector2(dir * 2200.0, 60.0), Color(1.0, 0.1, 0.15))
-	add_child(cero)
-	Audio.play("whoosh", 2.0, 0.3, 0.0)
-	_frame_around(loser.global_position + Vector2(dir * 300.0, 0), 560.0, 520.0)
-	await cero.fired
+	hud.announce("MUGETSU", Color(0.75, 0.75, 0.8))
+	_wash(Color.BLACK, 0.7, 0.6, 1.8, 0.9, 3)
+	Audio.play("whoosh", 4.0, 0.22, 0.0)
+	# A colossal pillar of pure black rises out of his arm, chunks of dark drifting off it.
+	var height := 1300.0
+	var pillar := {"h": 0.0}
+	var hand := winner.throw_origin()
+	var column := _prop(func(canvas: Node2D) -> void:
+		var h: float = pillar["h"]
+		if h < 4.0:
+			return
+		var shape := PackedVector2Array([Vector2(-22, 0)])
+		for k in 13:
+			var t := k / 12.0
+			shape.append(Vector2(-lerpf(26.0, 150.0, t) + sin(t * 17.0 + _frame_time() * 3.0) * 14.0, -h * t))
+		for k in range(12, -1, -1):
+			var t := k / 12.0
+			shape.append(Vector2(lerpf(26.0, 150.0, t) + cos(t * 13.0 + _frame_time() * 3.0) * 14.0, -h * t))
+		canvas.draw_colored_polygon(shape, Color.BLACK)
+		for k in 12:
+			var drift := fmod(_frame_time() * 0.6 + k * 0.083, 1.0)
+			var chunk := Vector2(sin(k * 2.7) * 190.0, -h * (0.5 + 0.55 * drift))
+			var size := 14.0 + (k % 3) * 8.0
+			var rock := PackedVector2Array([chunk + Vector2(-size, 0), chunk + Vector2(-size * 0.3, -size * 1.2), chunk + Vector2(size, -size * 0.5), chunk + Vector2(size * 0.6, size * 0.7)])
+			canvas.draw_colored_polygon(rock, Color(0, 0, 0, 1.0 - drift)))
+	column.position = hand
+	column.z_index = 14
+	var rise := create_tween()
+	rise.tween_method(func(h: float) -> void:
+		pillar["h"] = h
+		column.queue_redraw(), 0.0, height, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_frame_around(winner.global_position + Vector2(side * 360.0, 0), 720.0, 1450.0)
+	await rise.finished
 	if _done:
 		return
-	Audio.play("hit_head", 5.0, 0.3, 0.0)
-	Audio.play("ground", 3.0, 0.4, 0.0)
-	_impact(centre, 1.0)
-	_flash_ring(centre, Color(1.0, 0.2, 0.25), 560.0)
-	Effects.burst(self, centre, Color(1.0, 0.25, 0.3), 70, 1100.0, 180.0, 2.6)
+	if not await _wait(0.45):
+		return
+	# Down it comes, right on top of them.
+	Audio.play("whoosh", 4.0, 0.18, 0.0)
+	var flat := acos(clampf(-(-hand.y) / height, -1.0, 1.0))
+	var slam := create_tween()
+	slam.tween_property(column, "rotation", side * flat, 0.38).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await slam.finished
+	if _done:
+		return
+	var at := loser.global_position
+	Audio.play("ground", 6.0, 0.25, 0.0)
+	Audio.play("hit_head", 4.0, 0.3, 0.0)
+	camera.shake(1.0)
+	_mugetsu_hit(b, centre, side)
+	_flash_ring(at + Vector2(0, -40), Color.BLACK, 620.0)
+	for k in 6:
+		# Black debris bursting up all along where the pillar landed.
+		Effects.burst(self, Vector2(hand.x + side * (k + 1) * 200.0, -8.0), Color.BLACK, 24, 800.0, 70.0, 2.2)
+	_scorch(at.x, 260.0)
+	if not await _wait(0.6):
+		return
+	var fade_column := column.create_tween()
+	fade_column.tween_property(column, "modulate:a", 0.0, 0.8)
+	await fade_column.finished
+	winner.aiming = false
+
+
+## Mugetsu reaching them: torn into scraps and swept away in the dark.
+func _mugetsu_hit(b: Dictionary, centre: Vector2, side: float) -> void:
+	if _done:
+		return
 	_hide_loser()
-	# Every piece cut in two and blown away down the beam.
+	Audio.play("hit_body", 4.0, 0.4, 0.0)
+	Audio.play("ground", 3.0, 0.35, 0.0)
+	_slowmo(0.35, 0.5)
 	for part: Array in _parts(b):
 		var points: PackedVector2Array = part[0]
 		if part[1] > 0.0:
 			for half: int in [-1, 1]:
-				var piece := _gib(points, Vector2(dir * randf_range(900, 1300), -300.0 + half * 120.0), half * 8.0, 0.9, part[1])
+				var piece := _gib(points, Vector2(side * randf_range(700, 1000), -400.0 + half * 140.0), half * 9.0, 1.0, part[1])
 				piece.half = half
 			continue
-		var cut := points[0].lerp(points[points.size() - 1], 0.5)
-		for piece_points: PackedVector2Array in [PackedVector2Array([points[0], cut]), PackedVector2Array([cut, points[points.size() - 1]])]:
-			_gib(piece_points, Vector2(dir * randf_range(700, 1300), randf_range(-420, -80)), randf_range(-10, 10), 1.0)
-	for k in 3:
-		_spray(centre + Vector2(0, (k - 1) * 24.0), Vector2(dir, -0.15), 40, 1100.0, 0.35)
-	await cero.finished
+		# Every limb in three.
+		var a := points[0]
+		var z := points[points.size() - 1]
+		for k in 3:
+			var piece_points := PackedVector2Array([a.lerp(z, k / 3.0), a.lerp(z, (k + 1) / 3.0)])
+			_gib(piece_points, Vector2(side * randf_range(600, 1200), randf_range(-700, -120)), randf_range(-12, 12), 1.0)
+	for k in 4:
+		_spray(centre + Vector2(0, (k - 1.5) * 22.0), Vector2(side, -0.35).normalized(), 40, 1100.0, 0.45)
+
+
+func _frame_time() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+## A colour washed over the whole view (over the arena, under the HUD and anything
+## with a higher z): fades up to `peak` alpha, holds, then fades away.
+func _wash(color: Color, peak: float, fade_in: float, hold: float, fade_out: float, z: int = 10) -> Node2D:
+	var tint := {"a": 0.0}
+	var node := _prop(func(canvas: Node2D) -> void:
+		canvas.draw_rect(camera.visible_rect().grow(600.0), Color(color, tint["a"])))
+	node.z_index = z
+	get_tree().process_frame.connect(node.queue_redraw)
+	var tween := node.create_tween()
+	tween.tween_method(func(a: float) -> void: tint["a"] = a, 0.0, peak, fade_in)
+	tween.tween_interval(hold)
+	tween.tween_method(func(a: float) -> void: tint["a"] = a, peak, 0.0, fade_out)
+	tween.tween_callback(node.queue_free)
+	return node
 
 
 ## Moves the winner to `to` over `seconds`, hopping `arc` px high on the way.

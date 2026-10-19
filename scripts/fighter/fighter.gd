@@ -41,6 +41,10 @@ const ARM_FOLLOW_SPEED := 14.0
 const MAX_STUCK := 6
 ## Body colour of a powered-up anime fighter.
 const POWER_GOLD := Color(0.98, 0.74, 0.16)
+## Ichi's Final Getsuga Tensho hair: near black, with grey sheen strands.
+const MUGETSU_HAIR := Color(0.13, 0.11, 0.15)
+const MUGETSU_SHEEN := Color(0.42, 0.4, 0.48)
+const MUGETSU_BANDAGE := Color(0.4, 0.47, 0.56)
 ## Hits doing at least this much damage knock the fighter over.
 const KNOCKDOWN_DAMAGE := 24
 ## Share of the projectile's velocity passed to the body on a knockdown.
@@ -90,7 +94,7 @@ var _ragdoll_time := 0.0
 var _getup := 0.0
 ## Fatality: a knocked-out fighter staggers back up, dazed, to take the finisher.
 var _dazed := false
-## A transformation drawn instead of the usual look: "vasto" (Ichi's Vasto Lorde).
+## A transformation drawn instead of the usual look: "mugetsu" (Ichi's Final Getsuga Tensho form).
 var form: StringName = &""
 var _bankai_sword: WeaponData
 ## The skeleton drawn last frame, in node space.
@@ -368,40 +372,52 @@ func _draw() -> void:
 
 	if _has_aura() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		_draw_aura(p)
+	if _gear2():
+		_draw_haki(p)
 
 	# Pen-and-ink: every line solid black (flashing white on a hit).
 	var ink := ink_color.lerp(Color.WHITE, _flash * 0.85)
 	# Powered-up anime fighters glow gold from head to toe, with a shimmer.
 	if _is_anime() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		ink = POWER_GOLD.lerp(Color(1.0, 0.95, 0.6), 0.25 + 0.25 * sin(_time * 9.0)).lerp(Color.WHITE, _flash * 0.85)
-	if form == &"vasto":
-		ink = Color(0.96, 0.95, 0.92).lerp(Color(1.0, 0.6, 0.6), _flash * 0.6)
+	if form == &"mugetsu":
+		ink = Color(0.03, 0.02, 0.04).lerp(Color(1.0, 0.3, 0.3), _flash * 0.6)
+	elif _gear2():
+		ink = Color(0.62, 0.14, 0.2).lerp(Color.WHITE, _flash * 0.85)
 	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
 
-	if form == &"vasto":
-		_draw_vasto_outline(p, shoulder)
+	if form == &"mugetsu":
+		_draw_mugetsu_hair(p)
 	_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)
 	_taper(p[&"belbow"], p[&"bhand"], LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(p[&"bhand"], 4.5, ink, true, -1.0, true)
+	if _skin_head():
+		draw_circle(p[&"bhand"], 3.0, data.skin_color, true, -1.0, true)
 	_taper(p[&"hip"], p[&"bknee"], LINE * 1.15, LINE, ink)
 	_taper(p[&"bknee"], p[&"bfoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"bfoot"], p[&"bknee"], ink)
 	_taper(p[&"hip"], p[&"fknee"], LINE * 1.15, LINE, ink)
 	_taper(p[&"fknee"], p[&"ffoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"ffoot"], p[&"fknee"], ink)
+	if _skin_head():
+		for foot: StringName in [&"bfoot", &"ffoot"]:
+			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
+			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, Color(0.96, 0.95, 0.92), true, -1.0, true)
 	_taper(p[&"hip"], p[&"neck"], LINE * 1.2, LINE, ink)
 	_draw_outfit(p, shoulder, ink)
 
 	var head: Vector2 = p[&"head"]
 	draw_circle(head, HEAD_RADIUS, ink, true, -1.0, true)
+	if _skin_head():
+		draw_circle(head, HEAD_RADIUS - 2.2, data.skin_color, true, -1.0, true)
 	if _is_anime():
 		_draw_hair(head, p[&"neck"], ink)
 	elif data.style == &"straw":
 		_draw_straw_hat(head, p[&"neck"], ink)
-	elif data.style == &"reaper" and form != &"vasto":
+	elif data.style == &"reaper" and form != &"mugetsu":
 		_draw_reaper_hair(head, p[&"neck"], ink)
-	if form == &"vasto":
-		_draw_vasto_details(p)
+	if form == &"mugetsu":
+		_draw_mugetsu_details(p)
 	elif _bankai():
 		_draw_hollow_mask(head, p[&"neck"])
 	if knocked:
@@ -422,7 +438,7 @@ func _draw() -> void:
 	if data.weapon.shape == &"hammer" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.08 if facing == 1 else PI - 0.08
 	# The cleaver is carried low in front, the blade slanting up across the back.
-	if data.weapon.shape == &"cleaver" and not _bankai() and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
+	if data.weapon.shape == &"cleaver" and form == &"" and not _bankai() and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.9 if facing == 1 else PI - 0.9
 	var pull := aim_power if aiming else 0.0
 	Projectile.draw_held(self, _held_weapon(), Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
@@ -430,7 +446,11 @@ func _draw() -> void:
 	_taper(shoulder, p[&"felbow"], LINE, LINE * 0.85, ink)
 	_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(hand, 4.5, ink, true, -1.0, true)
+	if _skin_head():
+		draw_circle(hand, 3.0, data.skin_color, true, -1.0, true)
 	_draw_sleeve(shoulder, p[&"felbow"])
+	if form == &"mugetsu":
+		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
 
 	if pinned and not knocked:
 		_draw_chains()
@@ -581,6 +601,8 @@ func _draw_aura(p: Dictionary) -> void:
 		glow = Color(1.0, 0.72, 0.72)
 	elif data.style == &"reaper":
 		glow = Color(0.85, 0.1, 0.18)
+		if form == &"mugetsu":
+			glow = Color(0.12, 0.02, 0.06)
 	for layer in 3:
 		var points := PackedVector2Array()
 		var count := 18
@@ -628,7 +650,9 @@ func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
 		_taper(neck, hip, LINE * 1.6, LINE * 1.6, ink)
 		_taper(hip + side * 9.0 + spine * 2.0, hip - side * 9.0 + spine * 2.0, 5.0, 5.0, Color(0.98, 0.82, 0.35))
 		return
-	if form == &"vasto":
+	if form == &"mugetsu":
+		# Final Getsuga Tensho: bare, bandaged chest; only the trousers stay.
+		_draw_hakama(p, side, Color(0.1, 0.09, 0.12))
 		return
 	if _bankai():
 		_draw_bankai_coat(p, side)
@@ -638,24 +662,28 @@ func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
 		_draw_sleeve(shoulder, p[&"belbow"])
 		return
 	var robe := Color(0.14, 0.13, 0.17)
-	var fknee: Vector2 = p[&"fknee"]
-	var bknee: Vector2 = p[&"bknee"]
-	var hem_f := hip.lerp(fknee, 1.15)
-	var hem_b := hip.lerp(bknee, 1.15)
-	# Flared trousers: the hull of the hips and both hems, so the shape never twists.
-	var hakama := Geometry2D.convex_hull(PackedVector2Array([hip + side * 10.0, hip - side * 10.0, hem_b + Vector2(-11, 0), hem_b + Vector2(11, 0), hem_f + Vector2(-11, 0), hem_f + Vector2(11, 0)]))
-	hakama.remove_at(hakama.size() - 1)
-	_poly(hakama, robe, 2.5)
+	_draw_hakama(p, side, robe)
 	_poly([neck + side * 10.0, hip + side * 11.0, hip - side * 11.0, neck - side * 10.0], robe, 2.5)
 	draw_colored_polygon(PackedVector2Array([neck + side * 6.0, neck.lerp(hip, 0.35), neck - side * 6.0]), Color(0.95, 0.94, 0.9))
 	_taper(neck + side * 9.0, hip - side * 10.0, 4.0, 4.0, Color(0.55, 0.15, 0.15))
-	_taper(hip + side * 11.0, hip - side * 11.0, 4.0, 4.0, Color(0.95, 0.94, 0.9))
+	_taper(hip + side * 12.0, hip - side * 12.0, 7.0, 7.0, Color(0.95, 0.94, 0.9))
 	_draw_sleeve(shoulder, p[&"belbow"])
+
+
+## Flared trousers: the hull of the hips and both hems, so the shape never twists.
+func _draw_hakama(p: Dictionary, side: Vector2, color: Color) -> void:
+	var hip: Vector2 = p[&"hip"]
+	# Wide trousers down to the ankles.
+	var hem_f: Vector2 = (p[&"ffoot"] as Vector2) + Vector2(0, -7)
+	var hem_b: Vector2 = (p[&"bfoot"] as Vector2) + Vector2(0, -7)
+	var hakama := Geometry2D.convex_hull(PackedVector2Array([hip + side * 11.0, hip - side * 11.0, hem_b + Vector2(-12, 0), hem_b + Vector2(12, 0), hem_f + Vector2(-12, 0), hem_f + Vector2(12, 0)]))
+	hakama.remove_at(hakama.size() - 1)
+	_poly(hakama, color, 2.5)
 
 
 ## Ichi's wide black sleeve hanging from the shoulder past the elbow.
 func _draw_sleeve(shoulder: Vector2, elbow: Vector2) -> void:
-	if data.style != &"reaper" or form == &"vasto":
+	if data.style != &"reaper" or form == &"mugetsu":
 		return
 	var along := elbow - shoulder
 	var across := along.normalized().orthogonal()
@@ -725,7 +753,7 @@ func _draw_reaper_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 
 ## The weapon drawn in the hand: Ichi swaps his cleaver for the bankai sword.
 func _held_weapon() -> WeaponData:
-	if not _bankai():
+	if not _bankai() and form != &"mugetsu":
 		return data.weapon
 	if _bankai_sword == null:
 		_bankai_sword = data.weapon.duplicate() as WeaponData
@@ -736,7 +764,7 @@ func _held_weapon() -> WeaponData:
 
 ## Ichi with his special charged (or firing it): hollow mask and bankai coat.
 func _bankai() -> bool:
-	return data != null and data.style == &"reaper" and form != &"vasto" and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out()
+	return data != null and data.style == &"reaper" and form == &"" and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out()
 
 
 ## Bankai: a long black coat to the ankles with a tattered hem and red lining.
@@ -783,47 +811,131 @@ func _draw_hollow_mask(head: Vector2, neck: Vector2) -> void:
 	draw_set_transform(Vector2.ZERO)
 
 
-## Vasto Lorde: a black outline drawn under the white limbs, so the body reads.
-func _draw_vasto_outline(p: Dictionary, shoulder: Vector2) -> void:
-	var w := LINE + 3.5
-	for pair: Array in [[shoulder, p[&"belbow"]], [p[&"belbow"], p[&"bhand"]], [p[&"hip"], p[&"bknee"]], [p[&"bknee"], p[&"bfoot"]], [p[&"hip"], p[&"fknee"]], [p[&"fknee"], p[&"ffoot"]], [p[&"hip"], p[&"neck"]], [shoulder, p[&"felbow"]], [p[&"felbow"], p[&"fhand"]]]:
-		draw_line(pair[0], pair[1], OUTLINE, w, true)
-	for joint: StringName in [&"bhand", &"fhand", &"bfoot", &"ffoot"]:
-		draw_circle(p[joint], 7.0, OUTLINE, true, -1.0, true)
-	draw_circle(p[&"head"], HEAD_RADIUS + 2.0, OUTLINE, true, -1.0, true)
-	# Long orange hair streaming down the back.
+## Final Getsuga Tensho: a great mane of long, spiky black hair falling down his back
+## to the waist, with grey sheen strands so it reads against the black body.
+func _draw_mugetsu_hair(p: Dictionary) -> void:
 	var head: Vector2 = p[&"head"]
 	var back := Vector2(-facing, 0)
-	var flow := sin(_time * 4.0) * 4.0
-	var hair := PackedVector2Array([head + Vector2(0, -HEAD_RADIUS), head + back * HEAD_RADIUS, head + back * 26.0 + Vector2(flow, 40), head + back * 18.0 + Vector2(flow * 1.5, 92), head + back * 4.0 + Vector2(0, 60), head + back * 4.0])
-	_poly(hair, data.hair_color, 2.5)
+	var flow := sin(_time * 3.0) * 4.0
+	var outer := PackedVector2Array()
+	var inner := PackedVector2Array()
+	outer.append(head + Vector2(facing * 8.0, -HEAD_RADIUS - 6.0))
+	for k in 9:
+		var t := k / 8.0
+		var sway := flow * t
+		var spine_point := head + back * lerpf(HEAD_RADIUS, 18.0, t) + Vector2(sway, lerpf(-6.0, 104.0, t))
+		# Jagged spikes sticking out behind.
+		outer.append(spine_point + back * (14.0 if k % 2 == 0 else 4.0) + Vector2(0, 4.0 if k % 2 == 0 else 0.0))
+		inner.append(head + back * lerpf(2.0, 6.0, t) + Vector2(sway * 0.5, lerpf(4.0, 96.0, t)))
+	outer.append(head + back * 10.0 + Vector2(flow, 118.0))
+	var hair := outer.duplicate()
+	for k in range(inner.size() - 1, -1, -1):
+		hair.append(inner[k])
+	if Geometry2D.triangulate_polygon(hair).is_empty():
+		# A ragdoll can fold the hair over itself; fall back to its outline.
+		hair = Geometry2D.convex_hull(hair)
+		hair.remove_at(hair.size() - 1)
+	_poly(hair, MUGETSU_HAIR, 2.5)
+	for k in 5:
+		var t := (k + 1) / 6.0
+		var top := head + back * lerpf(8.0, 16.0, t)
+		var bottom := head + back * lerpf(16.0, 22.0, t) + Vector2(flow * t, lerpf(70.0, 108.0, t))
+		draw_line(top, bottom, MUGETSU_SHEEN, 1.4, true)
 
 
-## Vasto Lorde's details over the white body: fur, a hole in the chest, the skull
-## face with horns and red markings.
-func _draw_vasto_details(p: Dictionary) -> void:
-	var fur := Color(0.98, 0.97, 0.94)
-	for joint: StringName in [&"neck", &"bhand", &"fhand", &"bfoot", &"ffoot"]:
-		for k in 3:
-			var at: Vector2 = (p[joint] as Vector2) + Vector2.from_angle(k * TAU / 3.0 + _time) * 4.0
-			draw_circle(at, 5.5, OUTLINE, true, -1.0, true)
-			draw_circle(at, 4.0, fur, true, -1.0, true)
-	var chest: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.3)
-	draw_circle(chest, 8.0, OUTLINE, true, -1.0, true)
-	draw_circle(chest, 5.0, Color(0.02, 0.02, 0.03), true, -1.0, true)
+## Grey bandages wound round the chest and down the sword arm (tails fluttering at the
+## waist), the hair falling over the head and shoulders, glowing red eyes.
+func _draw_mugetsu_details(p: Dictionary) -> void:
+	var neck: Vector2 = p[&"neck"]
+	var hip: Vector2 = p[&"hip"]
+	var spine := (neck - hip).normalized()
+	var side := spine.orthogonal()
+	var bandage := MUGETSU_BANDAGE
+	var crease := MUGETSU_BANDAGE.darkened(0.35)
+	# A broad black upper body behind the bandages, as in the reference.
+	_poly([neck + side * 15.0 - spine * 2.0, hip + side * 11.0, hip - side * 11.0, neck - side * 15.0 - spine * 2.0], Color(0.03, 0.02, 0.04), 2.0)
+	_poly([neck + side * 9.0, hip + side * 8.0, hip - side * 8.0, neck - side * 9.0], bandage, 2.0)
+	# Wrapped feet below the black trousers.
+	for foot: StringName in [&"bfoot", &"ffoot"]:
+		var at: Vector2 = (p[foot] as Vector2) + Vector2(facing * 3.0, -2.0)
+		draw_circle(at, 6.0, OUTLINE, true, -1.0, true)
+		draw_circle(at, 4.5, bandage, true, -1.0, true)
+		draw_line(at + Vector2(-3, -3), at + Vector2(3, 3), crease, 1.2, true)
+	for k in 7:
+		var t := (k + 0.5) / 7.0
+		var at := neck.lerp(hip, t)
+		draw_line(at + side * 8.5 + spine * 3.0, at - side * 8.5 - spine * 3.0, crease, 1.6, true)
+	var wave := sin(_time * 5.0) * 4.0
+	for tail in 2:
+		var root := hip + side * (4.0 - tail * 8.0)
+		draw_polyline(PackedVector2Array([root, root + Vector2(-facing * 10.0, 10 + wave), root + Vector2(-facing * 22.0, 16 - wave)]), bandage, 3.0, true)
 	var head: Vector2 = p[&"head"]
-	_head_space(head, p[&"neck"])
+	_head_space(head, neck)
 	var r := HEAD_RADIUS
-	for horn: float in [-1.0, 1.0]:
-		var base := Vector2(r * 0.1, -r * 0.6 + horn * 4.0)
-		var horn_line := PackedVector2Array([base, base + Vector2(r * 0.9, -r * 0.9 + horn * 3.0), base + Vector2(r * 2.1, -r * 0.6 + horn * 4.0)])
-		draw_polyline(horn_line, OUTLINE, 6.5, true)
-		draw_polyline(horn_line, Color(0.98, 0.97, 0.94), 3.5, true)
-	for k in 2:
-		draw_line(Vector2(r * (0.2 + k * 0.3), -r * 0.95), Vector2(r * (0.25 + k * 0.3), r * 0.1), Color(0.85, 0.1, 0.12), 2.5, true)
-	draw_circle(Vector2(r * 0.45, -r * 0.1), 4.0, OUTLINE, true, -1.0, true)
-	draw_circle(Vector2(r * 0.5, -r * 0.1), 1.8, Color(1.0, 0.85, 0.1), true, -1.0, true)
-	for k in 4:
-		var x := r * (0.2 + k * 0.18)
-		draw_line(Vector2(x, r * 0.4), Vector2(x, r * 0.75), OUTLINE, 1.5, true)
+	# Hair over the top of the head and a fringe hanging over the brow.
+	var cap := PackedVector2Array()
+	for i in 13:
+		cap.append(Vector2.from_angle(lerpf(PI * 0.95, TAU * 1.02, i / 12.0)) * (r + 3.0))
+	cap.append(Vector2(r * 0.9, r * 0.1))
+	cap.append(Vector2(r * 0.5, -r * 0.35))
+	cap.append(Vector2(r * 0.15, -r * 0.1))
+	cap.append(Vector2(-r * 0.3, -r * 0.4))
+	cap.append(Vector2(-r * 0.8, r * 0.4))
+	_poly(cap, MUGETSU_HAIR, 2.0)
+	for k in 3:
+		var x := r * (-0.5 + k * 0.45)
+		draw_line(Vector2(x, -r * 0.95), Vector2(x + r * 0.2, -r * 0.3), MUGETSU_SHEEN, 1.3, true)
+	var glow := 0.7 + 0.3 * sin(_time * 6.0)
+	for eye: Vector2 in [Vector2(r * 0.55, r * 0.05), Vector2(r * 0.22, r * 0.02)]:
+		draw_circle(eye, 5.0, Color(1.0, 0.1, 0.1, 0.35 * glow), true, -1.0, true)
+		draw_circle(eye, 2.0, Color(1.0, 0.2, 0.15), true, -1.0, true)
 	draw_set_transform(Vector2.ZERO)
+
+
+# --- Lufi's Gear Second and Conqueror's Haki ---
+
+## Lufi with his special charged (or firing it): Gear Second and Conqueror's Haki.
+func _gear2() -> bool:
+	return data != null and data.style == &"straw" and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out()
+
+
+## Steam rising off the body and black lightning crackling round it with a red glow.
+func _draw_haki(p: Dictionary) -> void:
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.45)
+	for k in 7:
+		var rise := fmod(_time * 0.9 + k * 0.143, 1.0)
+		var at := centre + Vector2(sin(k * 2.3 + _time) * 18.0, 30.0 - rise * 110.0)
+		draw_circle(at, 6.0 + rise * 10.0, Color(1.0, 0.92, 0.94, 0.35 * (1.0 - rise)), true, -1.0, true)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(_time * 14.0) + get_instance_id()
+	for bolt in 3:
+		var a := rng.randf() * TAU
+		var point := centre + Vector2.from_angle(a) * 24.0
+		var line := PackedVector2Array([point])
+		for step in 4:
+			a += rng.randf_range(-0.9, 0.9)
+			point += Vector2.from_angle(a) * rng.randf_range(10.0, 18.0)
+			line.append(point)
+		draw_polyline(line, Color(0.9, 0.1, 0.12, 0.55), 6.0, true)
+		draw_polyline(line, Color(0.05, 0.02, 0.04), 2.5, true)
+
+
+## Grey bandages wound down the sword arm (drawn over the arm).
+func _draw_mugetsu_arm(shoulder: Vector2, elbow: Vector2, hand: Vector2) -> void:
+	var bandage := MUGETSU_BANDAGE
+	var crease := MUGETSU_BANDAGE.darkened(0.35)
+	for pair: Array in [[shoulder, elbow], [elbow, hand]]:
+		var a: Vector2 = pair[0]
+		var b: Vector2 = pair[1]
+		var along := (b - a).normalized()
+		var across := along.orthogonal()
+		draw_line(a, b, OUTLINE, 8.0, true)
+		draw_line(a, b, bandage, 5.5, true)
+		for k in 3:
+			var at := a.lerp(b, (k + 0.5) / 3.0)
+			draw_line(at - across * 3.0 + along * 2.0, at + across * 3.0 - along * 2.0, crease, 1.2, true)
+
+
+## Ichi (as a shinigami, bankai or not) shows a face, hands and white socks.
+func _skin_head() -> bool:
+	return data != null and data.style == &"reaper" and form == &""

@@ -20,6 +20,7 @@ var points_provider: Callable
 ## Cinematic: while active, frame these points tightly instead (see focus_on).
 var _focus: Callable
 var _focus_until := 0
+var _focus_zoom := CINEMATIC_ZOOM
 var _trauma := 0.0
 var _time := 0.0
 
@@ -43,8 +44,9 @@ func shake(amount: float) -> void:
 
 
 ## Swoop in on the points from `points` (a Callable) for `seconds` of real time.
-func focus_on(points: Callable, seconds: float) -> void:
+func focus_on(points: Callable, seconds: float, max_zoom: float = CINEMATIC_ZOOM) -> void:
 	_focus = points
+	_focus_zoom = max_zoom
 	_focus_until = Time.get_ticks_msec() + int(seconds * 1000.0)
 
 
@@ -82,7 +84,7 @@ func _follow(move_weight: float, zoom_weight: float) -> void:
 	var margin := 0.45 if cinematic else 1.0
 	rect = rect.grow_individual(MARGIN_SIDE * margin, MARGIN_TOP * margin, MARGIN_SIDE * margin, MARGIN_BOTTOM * margin)
 	var view := get_viewport_rect().size
-	var z := clampf(minf(view.x / rect.size.x, view.y / rect.size.y), MIN_ZOOM, CINEMATIC_ZOOM if cinematic else MAX_ZOOM)
+	var z := clampf(minf(view.x / rect.size.x, view.y / rect.size.y), MIN_ZOOM, _focus_zoom if cinematic else MAX_ZOOM)
 	if cinematic:
 		move_weight = minf(1.0, move_weight * 3.0)
 		zoom_weight = minf(1.0, zoom_weight * 3.0)

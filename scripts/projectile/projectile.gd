@@ -331,19 +331,23 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 				canvas.draw_line(Vector2(s * 0.18, y), Vector2(s * 0.36, y), Color(1, 1, 1, 0.45), 2.0, true)
 			canvas.draw_circle(Vector2(-s * 0.05, -s * 0.24), s * 0.13, ink, true, -1.0, true)
 		&"cleaver":
-			# A huge black cleaver of a sword: no guard, a wrapped hilt and a cloth tail.
+			# Zangetsu: a huge silver cleaver of a sword with a dark spine, no guard, a
+			# red-and-white wrapped hilt and a cloth tail.
 			var hilt := Rect2(-s * 0.62, -s * 0.06, s * 0.3, s * 0.12)
 			canvas.draw_rect(hilt, Color(0.92, 0.9, 0.85))
 			for k in 4:
 				var x := hilt.position.x + hilt.size.x * (k + 0.5) / 4.0
-				canvas.draw_line(Vector2(x - 4, hilt.position.y), Vector2(x + 4, hilt.end.y), ink, 2.0, true)
+				canvas.draw_line(Vector2(x - 4, hilt.position.y), Vector2(x + 4, hilt.end.y), Color(0.8, 0.12, 0.15), 2.5, true)
 			canvas.draw_rect(hilt, ink, false, 2.0)
 			var wave := sin(Time.get_ticks_msec() * 0.008) * 5.0
 			canvas.draw_polyline(PackedVector2Array([Vector2(-s * 0.62, 0), Vector2(-s * 0.8, 6 + wave), Vector2(-s * 1.0, 2 - wave), Vector2(-s * 1.15, 8 + wave)]), Color(0.92, 0.9, 0.85), 3.0, true)
 			var blade := PackedVector2Array([Vector2(-s * 0.32, -s * 0.13), Vector2(s * 0.5, -s * 0.13), Vector2(s * 0.66, -s * 0.02), Vector2(s * 0.62, s * 0.15), Vector2(-s * 0.32, s * 0.15)])
-			canvas.draw_colored_polygon(blade, ink)
-			canvas.draw_polyline(PackedVector2Array([Vector2(-s * 0.3, -s * 0.11), Vector2(s * 0.5, -s * 0.11), Vector2(s * 0.64, -s * 0.02)]), steel, 2.5, true)
-			canvas.draw_line(Vector2(-s * 0.32, -s * 0.13), Vector2(-s * 0.32, s * 0.15), steel.darkened(0.3), 3.0, true)
+			canvas.draw_colored_polygon(blade, Color(0.84, 0.86, 0.9))
+			canvas.draw_rect(Rect2(-s * 0.32, s * 0.08, s * 0.94, s * 0.07), Color(0.3, 0.31, 0.36))
+			canvas.draw_line(Vector2(-s * 0.28, -s * 0.08), Vector2(s * 0.48, -s * 0.08), Color(1, 1, 1, 0.6), 2.0, true)
+			var edge := blade.duplicate()
+			edge.append(blade[0])
+			canvas.draw_polyline(edge, ink, 2.5, true)
 		&"katana":
 			# Bankai sword: a slim all-black blade, a manji-shaped guard and a broken
 			# chain hanging from the pommel.
