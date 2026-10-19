@@ -14,6 +14,6 @@ spread_deg = 0.0
 spin = 14.0
 sticks = false
 shape = &"hammer"
-size = 46.0
+size = 58.0
 color = Color(0.62, 0.64, 0.7, 1)
 special = &"shockwave"

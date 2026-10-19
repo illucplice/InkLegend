@@ -14,6 +14,7 @@ func _initialize() -> void:
 	_test_ai_sharpens()
 	_test_obstacles()
 	_test_wind_solver()
+	_test_destructible_obstacles()
 	await _test_ai_vs_ai_match()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
@@ -177,3 +178,14 @@ func _test_wind_solver() -> void:
 			best = minf(best, Rules.position_at(origin, velocity, t, wind).distance_to(target))
 			t += 1.0 / 600.0
 		_check(best < 4.0, "throw %d lands on target in %.0f wind (off by %.1f px)" % [i, wind, best])
+
+
+func _test_destructible_obstacles() -> void:
+	var tower := Obstacle.new()
+	tower.setup(&"tower", Rect2(-40, -300, 80, 300), 1)
+	root.add_child(tower)
+	var broke := {"count": 0}
+	tower.destroyed.connect(func(_o: Obstacle) -> void: broke["count"] += 1)
+	_check(not tower.damage(1) and not tower.damage(2), "a tower survives 3 damage")
+	_check(tower.damage(1) and tower.is_destroyed and tower.collision_layer == 0, "the 4th point of damage breaks it and removes its collision")
+	_check(broke["count"] == 1 and not tower.damage(5), "it breaks only once")

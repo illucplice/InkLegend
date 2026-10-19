@@ -38,6 +38,10 @@ const TURN_TIME := 12.0
 const LAST_STAND_HEALTH := 20
 ## Longest a turn waits for ragdolls to settle, in seconds.
 const MAX_SETTLE_WAIT := 3.0
+## Chance a crate appears at the start of a turn (when none is waiting).
+const CRATE_CHANCE := 0.4
+## Seconds a floating slab takes to drift to its new spot.
+const DRIFT_TIME := 0.8
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
 ## The headshot cam can trigger once a throw is this close (px) to a head.
@@ -97,6 +101,12 @@ var _throw_closest := INF
 var _turn_timer := -1.0
 ## One slow-mo headshot cam per throw at most.
 var _cinematic_used := false
+## Phase D: distance between the fighters, the current supply crate, turns played,
+## and whether the thrower collected an extra throw.
+var _gap := 1500.0
+var _crate: Crate
+var _turn_count := 0
+var _extra_throw := false
 ## Per side: throws, hits, headshots, damage, longest (metres).
 var _stats: Array[Dictionary] = []
 ## Turn banner colours for the left and right side.
@@ -183,6 +193,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_last_difficulty = difficulty
 
 	var gap := Rules.random_distance_px(rng)
+	_gap = gap
 	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
 	var vs_ai := mode != Mode.LOCAL_2P
 	fighters.append(_spawn_fighter(left, -gap / 2, 1, vs_ai and autoplay))
@@ -192,6 +203,10 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
 	_special_used = [false, false]
 	_combo = [0, 0]
+	_turn_count = 0
+	_extra_throw = false
+	_crate = null
+	_maybe_spawn_crate(0.5)
 	_turn_timer = -1.0
 	var names := _player_names()
 	_stats = [_empty_stats(), _empty_stats()]
@@ -315,8 +330,81 @@ func _build_obstacles(gap: float, slowest_speed: float) -> void:
 	for item in layout:
 		var obstacle := Obstacle.new()
 		obstacle.setup(item["kind"], item["rect"], rng.randi(), current_map)
+		obstacle.destroyed.connect(_on_obstacle_destroyed)
 		_obstacle_layer.add_child(obstacle)
 		obstacle.reset_physics_interpolation()
+
+
+## The rects the AI plans around: obstacles still standing, where they are now.
+func _refresh_obstacle_rects() -> void:
+	_obstacle_rects.clear()
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle != null and not obstacle.is_destroyed:
+			_obstacle_rects.append(obstacle.rect)
+
+
+func _on_obstacle_destroyed(obstacle: Obstacle) -> void:
+	var centre := obstacle.rect.get_center()
+	Effects.burst(_actors, centre, obstacle.stone, 40, 620.0, 180.0, 1.6)
+	Effects.burst(_actors, centre + Vector2(0, obstacle.rect.size.y * 0.3), obstacle.stone_dark, 30, 420.0, 180.0, 1.3)
+	Effects.popup(_actors, centre + Vector2(0, -obstacle.rect.size.y * 0.5 - 30), "SMASHED!", Color(1.0, 0.75, 0.35), 36, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Audio.play("ground", 0.0, 0.55, 0.0)
+	_camera.shake(0.6)
+	_refresh_obstacle_rects()
+
+
+## Each turn the floating slabs drift to a new spot in the middle of the arena.
+func _drift_obstacles() -> void:
+	var limit := _gap * 0.5 - 420.0
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle == null or obstacle.is_destroyed or obstacle.kind != &"floating":
+			continue
+		var centre := clampf(obstacle.rect.get_center().x + rng.randf_range(-160.0, 160.0), -limit, limit)
+		obstacle.drift_to(centre - obstacle.rect.size.x * 0.5, DRIFT_TIME)
+	_refresh_obstacle_rects()
+
+
+## Sometimes a supply crate floats down into the middle, clear of the obstacles.
+func _maybe_spawn_crate(chance: float) -> void:
+	if _crate != null and is_instance_valid(_crate) and not _crate.collected:
+		return
+	if rng.randf() > chance:
+		return
+	for attempt in 12:
+		var at := Vector2(rng.randf_range(-_gap * 0.28, _gap * 0.28), rng.randf_range(-430.0, -250.0))
+		var space := Rect2(at - Vector2(40, 110), Vector2(80, 140))
+		var clear := true
+		for box in _obstacle_rects:
+			clear = clear and not box.grow(30).intersects(space)
+		if clear:
+			_crate = Crate.new()
+			_crate.setup(Crate.KINDS[rng.randi_range(0, Crate.KINDS.size() - 1)], at)
+			_actors.add_child(_crate)
+			return
+
+
+func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
+	if crate.collected:
+		return
+	var side := fighters.find(projectile.thrower)
+	if side < 0:
+		return
+	var owner_fighter := fighters[side]
+	crate.collect()
+	Effects.burst(_actors, crate.global_position, Crate.COLORS[crate.kind], 24, 480.0, 180.0, 1.2)
+	Audio.play("win", -6.0, 1.8, 0.0)
+	_hud.announce("%s: %s" % [owner_fighter.data.short_name.to_upper(), Crate.LABELS[crate.kind]], Crate.COLORS[crate.kind].lightened(0.2))
+	match crate.kind:
+		&"shield":
+			owner_fighter.shielded = true
+		&"double":
+			owner_fighter.powered = true
+		&"heal":
+			owner_fighter.heal(25)
+		&"extra":
+			_extra_throw = true
 
 
 func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fighter:
@@ -348,6 +436,10 @@ func _begin_turn() -> void:
 	_hud.set_wind(wind)
 	_special_armed = false
 	_throw_closest = INF
+	if _turn_count > 0:
+		_drift_obstacles()
+		_maybe_spawn_crate(CRATE_CHANCE)
+	_turn_count += 1
 	_turn_hit = false
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
@@ -480,8 +572,12 @@ func _throw(angle: float, power: float) -> void:
 			projectile.set_meta("pin", true)
 		projectile.hit_fighter.connect(_on_projectile_hit)
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
+		projectile.hit_crate.connect(_on_projectile_hit_crate)
+		if fighter.powered:
+			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
 		_in_flight.append(projectile)
+	fighter.powered = false
 
 
 func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName) -> void:
@@ -494,6 +590,15 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			_hud.announce("COMBO x%d!" % _combo[side], Color(1.0, 0.55, 0.9))
 	var combo: int = _combo[side] if side >= 0 else 0
 	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
+	if projectile.get_meta("double", false):
+		damage *= 2
+	if target.shielded:
+		target.shielded = false
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "SHIELD BLOCK!", Color(0.6, 0.85, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, projectile.global_position, Color(0.6, 0.85, 1.0), 26, 460.0, 180.0, 1.2)
+		Audio.play("tick", 0.0, 0.6, 0.0)
+		_camera.shake(0.3)
+		return
 	var was_healthy := target.health > LAST_STAND_HEALTH
 	target.take_hit(part, damage, projectile.current_velocity())
 	if projectile.weapon.sticks:
@@ -550,6 +655,8 @@ func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void
 		Effects.burst(_actors, at, Color(1.0, 0.85, 0.4, 0.95), 18, 420.0, 70.0, 1.1)
 		_camera.shake(0.4)
 	if collider is Obstacle:
+		var heavy := weapon.body_damage >= Fighter.KNOCKDOWN_DAMAGE
+		(collider as Obstacle).damage(2 if heavy else 1)
 		Audio.play("thunk", 0.0, 0.65 if weapon.sticks else 0.5)
 		Effects.burst(_actors, at, Color(0.85, 0.78, 0.72, 0.95), 14 if weapon.count == 1 else 5, 340.0, 180.0, 0.9)
 		if not _blocked_shown and projectile.bounces == 0:
@@ -592,7 +699,11 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 		if fighter.is_knocked_out():
 			_end_match()
 			return
-	current = 1 - current
+	if _extra_throw:
+		_extra_throw = false
+		_hud.announce("EXTRA THROW!", Color(1.0, 0.8, 0.25))
+	else:
+		current = 1 - current
 	_begin_turn()
 
 

@@ -9,9 +9,12 @@ signal hit_fighter(projectile: Projectile, fighter: Fighter, part: StringName)
 ## collider is the ground, or the Obstacle that was hit.
 signal hit_ground(projectile: Projectile, collider: Object)
 signal finished(projectile: Projectile)
+## A crate was touched; the projectile keeps flying.
+signal hit_crate(projectile: Projectile, crate: Crate)
 
 const INK := Color(0.12, 0.1, 0.14)
-const COLLISION_MASK := 0b11
+## Ground and obstacles (1), hitboxes (2), crates (4).
+const COLLISION_MASK := 0b111
 const MAX_LIFETIME := 8.0
 const KILL_DEPTH := 300.0
 const KILL_RANGE := 4000.0
@@ -106,6 +109,11 @@ func _physics_process(delta: float) -> void:
 			_finish(false)
 		return
 
+	var crate := hit["collider"] as Crate
+	if crate != null:
+		_exclude.append(crate.get_rid())
+		hit_crate.emit(self, crate)
+		return
 	global_position = hit["position"]
 	var box := hit["collider"] as Hitbox
 	if box != null:
@@ -232,7 +240,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 		&"hammer":
 			# Held low across the body by the middle of the shaft, head out front.
 			if loaded:
-				draw_weapon(canvas, w, xf * Transform2D(-0.35, Vector2(w.size * 0.25, 0)))
+				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(-w.size * 0.08, 0)))
 		_:
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(-0.7, Vector2.ZERO))

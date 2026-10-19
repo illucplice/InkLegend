@@ -1,8 +1,9 @@
 class_name Obstacle
 extends StaticBody2D
 ## A solid block between the fighters. Throws that touch it stop (spears and arrows
-## stick). Kinds: tower (broken stone column), wall (low battlement), floating
-## (hovering rune slab).
+## stick) and chip it: it cracks as it takes damage, then crumbles away. Kinds: tower
+## (broken stone column), wall (low battlement), floating (hovering rune slab, which
+## drifts to a new spot each turn).
 
 const INK := Color(0.12, 0.1, 0.14)
 ## Colours come from the map (see setup); these are the defaults.
@@ -11,13 +12,22 @@ var stone_dark := Color(0.55, 0.57, 0.66)
 var rune := Color(0.45, 0.95, 1.0)
 ## Floating obstacles: marble slab thickness; the rest of the box is the rock below.
 const SLAB := 36.0
+## Hit points per kind.
+const HIT_POINTS := {&"tower": 4, &"wall": 3, &"floating": 3}
+
+signal destroyed(obstacle: Obstacle)
 
 var kind: StringName = &"tower"
 ## World-space box this obstacle fills (also its collision).
 var rect := Rect2()
 
+var hp := 3
+var max_hp := 3
+var is_destroyed := false
+
 var _time := 0.0
 var _seed := 0
+var _shake := 0.0
 
 
 func setup(obstacle_kind: StringName, box: Rect2, seed_value: int, map: MapData = null) -> void:
@@ -27,6 +37,8 @@ func setup(obstacle_kind: StringName, box: Rect2, seed_value: int, map: MapData 
 		rune = map.rune_color
 	kind = obstacle_kind
 	rect = box
+	max_hp = HIT_POINTS.get(kind, 3)
+	hp = max_hp
 	_seed = seed_value
 	collision_layer = 1
 	collision_mask = 0
@@ -42,12 +54,45 @@ func setup(obstacle_kind: StringName, box: Rect2, seed_value: int, map: MapData 
 
 
 func _process(delta: float) -> void:
-	if kind == &"floating":
+	if kind == &"floating" or _shake > 0.0:
 		_time += delta
+		_shake = maxf(0.0, _shake - delta * 4.0)
 		queue_redraw()
 
 
+## Chips the obstacle. Returns true if that broke it.
+func damage(amount: int) -> bool:
+	if is_destroyed:
+		return false
+	hp -= amount
+	_shake = 1.0
+	queue_redraw()
+	if hp > 0:
+		return false
+	_crumble()
+	return true
+
+
+## Floating slabs only: slide to a new left edge over `seconds`. The logical rect
+## (used by the AI) jumps to the destination straight away.
+func drift_to(x: float, seconds: float) -> void:
+	rect.position.x = x
+	create_tween().tween_property(self, "position:x", x, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _crumble() -> void:
+	is_destroyed = true
+	collision_layer = 0
+	destroyed.emit(self)
+	var tween := create_tween().set_parallel()
+	tween.tween_property(self, "modulate:a", 0.0, 0.5)
+	tween.tween_property(self, "position:y", position.y + 40.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(queue_free)
+
+
 func _draw() -> void:
+	if _shake > 0.0:
+		draw_set_transform(Vector2(sin(_time * 70.0) * 4.0 * _shake, 0))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed
 	var size := rect.size
@@ -58,6 +103,23 @@ func _draw() -> void:
 			_draw_wall(size, rng)
 		&"floating":
 			_draw_floating(size, rng)
+	_draw_cracks(size)
+
+
+## More cracks the more damage it has taken.
+func _draw_cracks(size: Vector2) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed + 99
+	var height := minf(size.y, SLAB) if kind == &"floating" else size.y
+	for k in max_hp - hp:
+		var point := Vector2(rng.randf_range(size.x * 0.2, size.x * 0.8), rng.randf_range(height * 0.1, height * 0.5))
+		var crack := PackedVector2Array([point])
+		for step in 4:
+			point += Vector2(rng.randf_range(-10, 10), rng.randf_range(8, height * 0.18))
+			crack.append(point)
+		draw_polyline(crack, INK, 3.0, true)
+		draw_polyline(crack, Color(1, 1, 1, 0.25), 1.0, true)
+	draw_set_transform(Vector2.ZERO)
 
 
 func _draw_tower(size: Vector2, rng: RandomNumberGenerator) -> void:
