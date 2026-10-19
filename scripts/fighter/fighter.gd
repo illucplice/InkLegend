@@ -1,9 +1,11 @@
 class_name Fighter
 extends Node2D
-## Ink-silhouette stickman: tapered brush limbs, a solid head, headgear per FighterData.style
-## and a coloured scarf,
-## drawn in code and wobbling on a spring. Phase 2 can swap the drawing for ragdoll parts; the
-## hitboxes and this API stay the same.
+## Ink-silhouette stickman: tapered brush limbs, a solid head, headgear per
+## FighterData.style and a coloured scarf, drawn in code from a skeleton of points.
+## Standing, the points come from an animated pose that wobbles on a spring. A big
+## hit hands them to a StickRagdoll so the fighter flies and tumbles, then blends
+## back to the pose as they get up; a knockout leaves them limp. Hitboxes stay in
+## the standing pose.
 
 signal health_changed(fighter: Fighter, health: int)
 signal knocked_out(fighter: Fighter)
@@ -21,18 +23,25 @@ const BODY_SIZE := Vector2(38, 60)
 const HIP_HEIGHT := 44.0
 const HEAD_CENTER := Vector2(0, -104)
 const HEAD_RADIUS := 19.0
-const SHOULDER := Vector2(5, -77)
-const BACK_SHOULDER := Vector2(3, -77)
+const HIP_REST := Vector2(-1, -46)
+const NECK_REST := Vector2(5, -83)
 const ARM_LENGTH := 26.0
 ## Slingshot and bow users hold their weapon out at arm's length, lowered when idle.
 const RANGED_ARM_LENGTH := 33.0
 const RANGED_REST_ANGLE := 0.45
 const ARM_REST_ANGLE := -0.9
 const HAND_REST := Vector2(20, -92)
-const KO_TILT := 1.5
 const SPRING := 60.0
 const DAMPING := 7.0
 const ARM_FOLLOW_SPEED := 14.0
+const MAX_STUCK := 6
+## Hits doing at least this much damage knock the fighter over.
+const KNOCKDOWN_DAMAGE := 24
+## Share of the projectile's velocity passed to the body on a knockdown.
+const RAGDOLL_PUSH := 0.55
+## Time on the floor before getting up, and how long getting up takes.
+const DOWN_TIME := 1.1
+const GETUP_TIME := 0.55
 
 var data: FighterData
 var facing := 1
@@ -50,20 +59,22 @@ var pinned := false
 
 var _tilt := 0.0
 var _tilt_velocity := 0.0
-var _rest_tilt := 0.0
 var _arm := ARM_REST_ANGLE
 var _swing := 0.0
 var _flash := 0.0
 var _squash := 0.0
 var _ouch := 0.0
 var _time := 0.0
-var _next_blink := 2.0
 var _hitboxes: Array[Hitbox] = []
-## Spears and arrows that hit stay stuck in the body: [{weapon, xf}] in body space.
+## Spears and arrows that hit stay stuck in the body: [{weapon, xf}] in torso space.
 var _stuck: Array[Dictionary] = []
-var _body_xf := Transform2D.IDENTITY
+var _torso_xf := Transform2D.IDENTITY
 var _celebrating := false
-const MAX_STUCK := 6
+var _ragdoll: StickRagdoll
+var _ragdoll_time := 0.0
+var _getup := 0.0
+## The skeleton drawn last frame, in node space.
+var _points := {}
 
 
 ## with_hitboxes is false for menu previews, which must never be hit.
@@ -73,7 +84,7 @@ func setup(fighter_data: FighterData, facing_dir: int, ai: bool, with_hitboxes: 
 	is_ai = ai
 	health = Rules.MAX_HEALTH
 	_time = randf() * TAU
-	_next_blink = _time + randf_range(1.0, 3.0)
+	_points = _posed_points()
 	if not with_hitboxes:
 		return
 	# Legs from the feet to the hips, body from the hips to the neck, head on top.
@@ -101,6 +112,20 @@ func is_knocked_out() -> bool:
 	return health <= 0
 
 
+## True once the fighter is standing still (or a knocked-out body has stopped moving).
+func is_settled() -> bool:
+	if _ragdoll == null:
+		return true
+	if is_knocked_out():
+		return _ragdoll_time > 0.6 and _ragdoll.speed() < 25.0
+	return false
+
+
+## Where the head is right now (it moves when knocked over).
+func head_position() -> Vector2:
+	return global_position + _points.get(&"head", HEAD_CENTER)
+
+
 func get_hitbox_rids() -> Array[RID]:
 	var rids: Array[RID] = []
 	for box in _hitboxes:
@@ -112,22 +137,23 @@ func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 	if is_knocked_out():
 		return
 	health = maxi(0, health - damage)
-	_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if part == Rules.HEAD else 1.0)
 	_flash = 1.0
 	_squash = 1.0
 	_ouch = 1.0
 	health_changed.emit(self, health)
+	if health == 0 or damage >= KNOCKDOWN_DAMAGE:
+		_knock_down(part, impact_velocity)
+	else:
+		_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if part == Rules.HEAD else 1.0)
 	if health == 0:
-		var fall_dir := signf(impact_velocity.x) if impact_velocity.x != 0.0 else float(-facing)
-		_rest_tilt = fall_dir * KO_TILT
 		knocked_out.emit(self)
 
 
 ## Leaves a copy of a sticking weapon in the body where it hit, angled along its flight.
 func stick(weapon: WeaponData, global_point: Vector2, velocity: Vector2) -> void:
-	var to_body := Transform2D(0.0, global_position) * _body_xf
-	var local_point := to_body.affine_inverse() * global_point
-	var local_dir := to_body.affine_inverse().basis_xform(velocity.normalized())
+	var to_torso := Transform2D(0.0, global_position) * _torso_xf
+	var local_point := to_torso.affine_inverse() * global_point
+	var local_dir := to_torso.affine_inverse().basis_xform(velocity.normalized())
 	# Sink the tip a little way in.
 	var xf := Transform2D(local_dir.angle(), local_point) * Transform2D(0.0, Vector2(-weapon.size * 0.32, 0))
 	_stuck.append({"weapon": weapon, "xf": xf})
@@ -168,9 +194,28 @@ func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
 	_hitboxes.append(box)
 
 
+## Hands the current pose to the ragdoll and kicks the part that was hit.
+func _knock_down(part: StringName, impact_velocity: Vector2) -> void:
+	if _ragdoll == null:
+		_ragdoll = StickRagdoll.new()
+		_ragdoll.start(_points, HEAD_RADIUS)
+	_ragdoll_time = 0.0
+	_getup = 0.0
+	var kick := impact_velocity * RAGDOLL_PUSH + Vector2(0, -260)
+	var struck: Array = [&"neck", &"hip"]
+	match part:
+		Rules.HEAD:
+			struck = [&"head", &"neck"]
+		Rules.LEGS:
+			struck = [&"bknee", &"fknee", &"bfoot", &"ffoot"]
+	_ragdoll.push_all(kick, 0.45)
+	for point: StringName in struck:
+		_ragdoll.push(point, kick * 1.3)
+
+
 func _process(delta: float) -> void:
 	_time += delta
-	var accel := -SPRING * (_tilt - _rest_tilt) - DAMPING * _tilt_velocity
+	var accel := -SPRING * _tilt - DAMPING * _tilt_velocity
 	_tilt_velocity += accel * delta
 	_tilt += _tilt_velocity * delta
 	var ranged := _is_ranged()
@@ -184,98 +229,144 @@ func _process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 5.0)
 	_squash = maxf(0.0, _squash - delta * 4.0)
 	_ouch = maxf(0.0, _ouch - delta * 1.5)
-	if _time > _next_blink + 0.12:
-		_next_blink = _time + randf_range(2.0, 4.5)
+
+	var posed := _posed_points()
+	if _ragdoll == null:
+		_points = posed
+	else:
+		_ragdoll_time += delta
+		if is_knocked_out() or _ragdoll_time < DOWN_TIME:
+			_ragdoll.step(delta)
+			_points = _ragdoll.pos.duplicate()
+		else:
+			# Get up: blend from where the body lies back into the standing pose.
+			_getup = minf(1.0, _getup + delta / GETUP_TIME)
+			var t := ease(_getup, -2.0)
+			_points = {}
+			for point: StringName in StickRagdoll.POINTS:
+				_points[point] = (_ragdoll.pos[point] as Vector2).lerp(posed[point], t)
+			if _getup >= 1.0:
+				_ragdoll = null
+	_torso_xf = _torso_transform(_points)
 	queue_redraw()
 
 
-func _draw() -> void:
-	if data == null:
-		return
-	var knocked := is_knocked_out()
-
-	draw_set_transform(Vector2(0, 1), 0.0, Vector2(1.0, 0.22))
-	draw_circle(Vector2.ZERO, 32.0 - absf(_tilt) * 6.0, Color(0, 0, 0, 0.3), true, -1.0, true)
-
-	var breathe := 0.0 if knocked else sin(_time * 3.0)
+## The standing (animated) skeleton in node space: lunge stance, breathing, the
+## throwing arm following the aim, wobble and squash from small hits.
+func _posed_points() -> Dictionary:
+	var breathe := sin(_time * 3.0)
 	var wobble := sin(_time * 18.0) * 0.12 * _squash
 	var stretch := Vector2(1.0 + 0.12 * _squash, 1.0 - 0.12 * _squash)
-	var sway := 0.0 if knocked else sin(_time * 2.2) * 0.03
+	var sway := sin(_time * 2.2) * 0.03
 	var hop := -absf(sin(_time * 7.0)) * 16.0 if _celebrating else 0.0
-	var body_xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2(0, hop))
-	_body_xf = body_xf
-	draw_set_transform_matrix(body_xf)
+	var xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2(0, hop))
+	var bob := breathe * 1.5
+	var hip := HIP_REST + Vector2(0, bob * 0.6)
+	var neck := NECK_REST + Vector2(0, bob)
+	var shoulder := neck.lerp(hip, 0.15)
+	var knee_bend := breathe * 1.2 + _squash * 6.0
+	var back_hand := shoulder + Vector2(14, -6 + sin(_time * 2.2) * 2.0)
+	var back_elbow := shoulder + Vector2(9, 9)
+	if _celebrating:
+		back_hand = shoulder + Vector2(-12 + sin(_time * 10.0 + 1.0) * 5.0, -28)
+		back_elbow = shoulder + Vector2(-12, -10)
+	var arm_angle := _arm + _swing * (0.4 if _is_ranged() else 1.6)
+	var hand := shoulder + Vector2.from_angle(arm_angle) * (RANGED_ARM_LENGTH if _is_ranged() else ARM_LENGTH)
+	var elbow := shoulder.lerp(hand, 0.5) + Vector2.from_angle(arm_angle + PI / 2) * 6.0
+	var body := {
+		&"head": HEAD_CENTER + Vector2(0, bob),
+		&"neck": neck,
+		&"hip": hip,
+		&"bknee": Vector2(-11 - knee_bend * 0.5, -25),
+		&"bfoot": Vector2(-24, -2),
+		&"fknee": Vector2(15 + knee_bend, -27),
+		&"ffoot": Vector2(11, -2),
+		&"belbow": back_elbow,
+		&"bhand": back_hand,
+		&"felbow": elbow,
+		&"fhand": hand,
+	}
+	var points := {}
+	for point: StringName in body:
+		points[point] = xf * (body[point] as Vector2)
+	return points
+
+
+## Maps torso space (standing, facing right) onto the torso as it is now, so things
+## worn on the body (stuck weapons, tabard, quiver) follow it when it tumbles.
+func _torso_transform(points: Dictionary) -> Transform2D:
+	var rest_dir := Vector2((NECK_REST - HIP_REST).x * facing, (NECK_REST - HIP_REST).y)
+	var now_dir: Vector2 = points[&"neck"] - points[&"hip"]
+	var mirror := Transform2D(0.0, Vector2(facing, 1), 0.0, Vector2.ZERO)
+	var turn := Transform2D(now_dir.angle() - rest_dir.angle(), Vector2.ZERO)
+	return Transform2D(0.0, points[&"hip"]) * turn * mirror * Transform2D(0.0, -HIP_REST)
+
+
+func _draw() -> void:
+	if data == null or _points.is_empty():
+		return
+	var p := _points
+	var knocked := is_knocked_out()
+	var f := float(facing)
+
+	var ground_x: float = (p[&"hip"] as Vector2).x
+	draw_set_transform(Vector2(ground_x, 1), 0.0, Vector2(1.0, 0.22))
+	draw_circle(Vector2.ZERO, 32.0, Color(0, 0, 0, 0.3), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
 
 	# Solid ink silhouette (flashes white on a hit); back limbs a shade lighter for depth.
 	var ink := INK.lerp(Color.WHITE, _flash * 0.85)
 	var back_ink := ink.lerp(Color(0.32, 0.3, 0.36), 0.45)
 	var scarf := data.cape_color.lerp(Color.WHITE, _flash * 0.6)
 	var flutter := sin(_time * 3.4) * 5.0 + sin(_time * 7.1) * 2.0 - _tilt_velocity * 4.0
-	var bob := breathe * 1.5
-	# A lunging stance: hips low, torso leaning into the throw.
-	var hip := Vector2(-1, -46 + bob * 0.6)
-	var neck := Vector2(5, -83 + bob)
+	var shoulder: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.15)
 
-	_draw_scarf(neck, scarf, flutter)
+	_draw_scarf(p[&"neck"], scarf, flutter, f)
 	if data.style == &"ranger":
-		_draw_quiver(neck)
+		draw_set_transform_matrix(_torso_xf)
+		_draw_quiver(NECK_REST)
+		draw_set_transform(Vector2.ZERO)
 
-	# Back arm: a fist held up in front of the chest (or waving when celebrating).
-	var back_hand := BACK_SHOULDER + Vector2(15, -6 + sin(_time * 2.2) * 2.0)
-	var back_elbow := BACK_SHOULDER + Vector2(10, 9)
-	if _celebrating:
-		back_hand = BACK_SHOULDER + Vector2(-12 + sin(_time * 10.0 + 1.0) * 5.0, -28)
-		back_elbow = BACK_SHOULDER + Vector2(-12, -10)
-	_taper(BACK_SHOULDER, back_elbow, 6.5, 5.0, back_ink)
-	_taper(back_elbow, back_hand, 5.0, 4.0, back_ink)
-	draw_circle(back_hand, 5.5, back_ink, true, -1.0, true)
-
-	# Legs: the back one stretched out behind, the front one bent forward.
-	var knee_bend := breathe * 1.2 + _squash * 6.0
-	var back_knee := Vector2(-11 - knee_bend * 0.5, -25)
-	var back_foot := Vector2(-24, -2)
-	var front_knee := Vector2(15 + knee_bend, -27)
-	var front_foot := Vector2(11, -2)
-	_taper(hip, back_knee, 9.0, 6.5, back_ink)
-	_taper(back_knee, back_foot, 6.5, 4.0, back_ink)
-	_foot(back_foot, back_ink)
-	_taper(hip, front_knee, 9.5, 7.0, ink)
-	_taper(front_knee, front_foot, 7.0, 4.5, ink)
-	_foot(front_foot, ink)
-
-	_taper(hip, neck, 9.0, 6.0, ink)
+	_taper(shoulder, p[&"belbow"], 6.5, 5.0, back_ink)
+	_taper(p[&"belbow"], p[&"bhand"], 5.0, 4.0, back_ink)
+	draw_circle(p[&"bhand"], 5.5, back_ink, true, -1.0, true)
+	_taper(p[&"hip"], p[&"bknee"], 9.0, 6.5, back_ink)
+	_taper(p[&"bknee"], p[&"bfoot"], 6.5, 4.0, back_ink)
+	_foot(p[&"bfoot"], p[&"bknee"], back_ink)
+	_taper(p[&"hip"], p[&"fknee"], 9.5, 7.0, ink)
+	_taper(p[&"fknee"], p[&"ffoot"], 7.0, 4.5, ink)
+	_foot(p[&"ffoot"], p[&"fknee"], ink)
+	_taper(p[&"hip"], p[&"neck"], 9.0, 6.0, ink)
 	if data.style == &"knight":
-		_draw_tabard(hip, neck)
+		draw_set_transform_matrix(_torso_xf)
+		_draw_tabard(HIP_REST, NECK_REST)
+		draw_set_transform(Vector2.ZERO)
 
-	_draw_head(knocked, ink)
+	_draw_head(p[&"head"], p[&"neck"], knocked, ink, f)
 	for stuck in _stuck:
-		Projectile.draw_weapon(self, stuck["weapon"], body_xf * stuck["xf"])
-	draw_set_transform_matrix(body_xf)
+		Projectile.draw_weapon(self, stuck["weapon"], _torso_xf * stuck["xf"])
+	draw_set_transform(Vector2.ZERO)
 
-	var arm_angle := _arm + _swing * (0.4 if _is_ranged() else 1.6)
-	var hand := SHOULDER + Vector2.from_angle(arm_angle) * (RANGED_ARM_LENGTH if _is_ranged() else ARM_LENGTH)
+	var hand: Vector2 = p[&"fhand"]
+	var arm := (hand - shoulder).angle()
 	var pull := aim_power if aiming else 0.0
-	Projectile.draw_held(self, data.weapon, body_xf * Transform2D(arm_angle, hand), holding_weapon, pull)
-	draw_set_transform_matrix(body_xf)
-	var elbow := SHOULDER.lerp(hand, 0.5) + Vector2.from_angle(arm_angle + PI / 2) * 6.0
-	_taper(SHOULDER, elbow, 7.0, 5.5, ink)
-	_taper(elbow, hand, 5.5, 4.5, ink)
+	Projectile.draw_held(self, data.weapon, Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
+	draw_set_transform(Vector2.ZERO)
+	_taper(shoulder, p[&"felbow"], 7.0, 5.5, ink)
+	_taper(p[&"felbow"], hand, 5.5, 4.5, ink)
 	draw_circle(hand, 6.0, ink, true, -1.0, true)
 
 	if pinned and not knocked:
 		_draw_chains()
 
+	var head: Vector2 = p[&"head"]
 	if is_turn and not knocked:
-		draw_set_transform(Vector2.ZERO)
-		var tip := Vector2(0, -158 - absf(sin(_time * 5.0)) * 12.0)
+		var tip := head + Vector2(0, -54 - absf(sin(_time * 5.0)) * 12.0)
 		_poly([tip, tip + Vector2(-15, -20), tip + Vector2(-6, -20), tip + Vector2(-6, -34), tip + Vector2(6, -34), tip + Vector2(6, -20), tip + Vector2(15, -20)], data.body_color.lightened(0.25), 3.5)
-
 	if knocked:
-		var head := body_xf * HEAD_CENTER
-		draw_set_transform(Vector2.ZERO)
 		for i in 3:
 			var a := _time * 4.0 + i * TAU / 3.0
-			_draw_star(head + Vector2(cos(a) * 26.0, sin(a) * 8.0 - 36.0), 7.0)
+			_draw_star(head + Vector2(cos(a) * 26.0, sin(a) * 8.0 - 32.0), 7.0)
 
 
 ## Pin: a stake in the ground with a chain looped round the legs.
@@ -292,10 +383,10 @@ func _draw_chains() -> void:
 	draw_arc(Vector2(0, -22), 14.0, 0.0, TAU, 16, Color(0.75, 0.78, 0.85), 2.5, true)
 
 
-# --- ink silhouette parts (local space, facing right) ---
+# --- ink silhouette parts ---
 
-## A brush-like stroke: width `from_width` at one end narrowing to `to_width`, with
-## round ends, like an ink pen pressed harder at the joints.
+## A brush-like stroke: `from_width` at one end narrowing to `to_width`, with round
+## ends, like an ink pen pressed harder at the joints.
 func _taper(from: Vector2, to: Vector2, from_width: float, to_width: float, color: Color) -> void:
 	var along := to - from
 	if along.length() < 0.5:
@@ -309,19 +400,21 @@ func _taper(from: Vector2, to: Vector2, from_width: float, to_width: float, colo
 	draw_circle(to, to_width * 0.5, color, true, -1.0, true)
 
 
-## A pointed foot, heel to toe.
-func _foot(at: Vector2, color: Color) -> void:
-	draw_colored_polygon(PackedVector2Array([at + Vector2(-4, -4), at + Vector2(13, 1), at + Vector2(-3, 2)]), color)
+## A pointed foot at the end of the shin, toes pointing the way the fighter faces.
+func _foot(at: Vector2, knee: Vector2, color: Color) -> void:
+	var down := (at - knee).normalized()
+	var toe := down.orthogonal() * float(facing) if down.length() > 0.0 else Vector2(facing, 0)
+	draw_colored_polygon(PackedVector2Array([at - down * 4.0 - toe * 4.0, at + toe * 13.0 + down * 1.0, at + down * 2.0 - toe * 3.0]), color)
 
 
 ## A scarf in the fighter's colour streaming back from the neck.
-func _draw_scarf(neck: Vector2, color: Color, flutter: float) -> void:
+func _draw_scarf(neck: Vector2, color: Color, flutter: float, f: float) -> void:
 	var tail := PackedVector2Array()
 	var steps := 7
 	for i in steps + 1:
 		var t := float(i) / steps
 		var wave := sin(_time * 6.0 - t * 4.0) * 6.0 * t
-		tail.append(neck + Vector2(-4 - t * (50 + flutter), 2 + t * 8 + wave))
+		tail.append(neck + Vector2(-f * (4 + t * (50 + flutter)), 2 + t * 8 + wave))
 	var thick := PackedVector2Array()
 	for i in tail.size():
 		thick.append(tail[i] + Vector2(0, -5.0 * (1.0 - float(i) / tail.size()) - 1.5))
@@ -353,8 +446,12 @@ func _draw_tabard(hip: Vector2, neck: Vector2) -> void:
 
 ## A solid ink head with the fighter's headgear in silhouette (plus one colour
 ## accent so you can tell them apart). Faceless, except white X eyes when knocked out.
-func _draw_head(knocked: bool, ink: Color) -> void:
-	var c := HEAD_CENTER
+## Drawn in head space: centred on the head, tilted with the neck, facing right.
+func _draw_head(at: Vector2, neck: Vector2, knocked: bool, ink: Color, f: float) -> void:
+	var rest := Vector2((HEAD_CENTER - NECK_REST).x * f, (HEAD_CENTER - NECK_REST).y)
+	var tilt := (at - neck).angle() - rest.angle()
+	draw_set_transform_matrix(Transform2D(tilt, Vector2(f, 1), 0.0, at))
+	var c := Vector2.ZERO
 	var r := HEAD_RADIUS
 	match data.style:
 		&"viking":
@@ -391,6 +488,7 @@ func _draw_head(knocked: bool, ink: Color) -> void:
 		for e: Vector2 in [eye, eye + Vector2(-10, 0)]:
 			draw_line(e + Vector2(-3, -3), e + Vector2(3, 3), Color.WHITE, 2.5, true)
 			draw_line(e + Vector2(-3, 3), e + Vector2(3, -3), Color.WHITE, 2.5, true)
+	draw_set_transform(Vector2.ZERO)
 
 
 # --- drawing helpers ---
@@ -409,21 +507,6 @@ func _rounded(rect: Rect2, color: Color, radius: int) -> void:
 	box.set_corner_radius_all(radius)
 	box.anti_aliasing = true
 	draw_style_box(box, rect)
-
-
-func _arc(center: Vector2, radius: float, from: float, to: float, steps: int) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for i in steps + 1:
-		points.append(center + Vector2.from_angle(lerpf(from, to, float(i) / steps)) * radius)
-	return points
-
-
-func _ellipse(center: Vector2, radii: Vector2, steps: int) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for i in steps:
-		var a := TAU * i / steps
-		points.append(center + Vector2(cos(a) * radii.x, sin(a) * radii.y))
-	return points
 
 
 func _draw_star(at: Vector2, radius: float) -> void:

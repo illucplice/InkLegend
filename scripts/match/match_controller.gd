@@ -36,6 +36,8 @@ const RESULT_DELAY := 0.6
 ## 1v1 turns time out after this many seconds.
 const TURN_TIME := 12.0
 const LAST_STAND_HEALTH := 20
+## Longest a turn waits for ragdolls to settle, in seconds.
+const MAX_SETTLE_WAIT := 3.0
 ## A miss passing this close (px) to the target gets a "SO CLOSE!".
 const CLOSE_CALL_DISTANCE := 45.0
 ## The headshot cam can trigger once a throw is this close (px) to a head.
@@ -579,12 +581,26 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 	await get_tree().create_timer(SETTLE_TIME, false).timeout
 	if match_id != _match_id:
 		return
+	# Wait for knocked-down fighters to land and get back up (or lie still).
+	var waited := 0.0
+	while waited < MAX_SETTLE_WAIT and not _all_settled():
+		await get_tree().process_frame
+		if match_id != _match_id:
+			return
+		waited += get_process_delta_time()
 	for fighter in fighters:
 		if fighter.is_knocked_out():
 			_end_match()
 			return
 	current = 1 - current
 	_begin_turn()
+
+
+func _all_settled() -> bool:
+	for fighter in fighters:
+		if not fighter.is_settled():
+			return false
+	return true
 
 
 func _end_match() -> void:
