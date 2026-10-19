@@ -24,8 +24,8 @@ const INK := UiStyle.INK
 const PAPER := UiStyle.PAPER
 const GHOST := Color(1.0, 0.95, 0.75)
 const VERSION := "v0.1"
-const HINT_TEXT := "Drag back to aim, release to throw  â¢  Drag back to the start to cancel  â¢  ââ angle  ââ power  Space throws  â¢  Esc pauses"
-const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  â¢  Drag back to where you started to cancel"
+const HINT_TEXT := "Drag back to aim, release to throw  •  Drag back to the start to cancel  •  ↑↓ angle  ←→ power  Space throws  •  Esc pauses"
+const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  •  Drag back to where you started to cancel"
 const DIFFICULTY_NAMES := ["Easy", "Normal", "Hard"]
 const DIFFICULTY_COLORS := [UiStyle.GREEN, UiStyle.YELLOW, UiStyle.RED]
 const SHOWCASE_SCALE := 2.4
@@ -51,6 +51,7 @@ var _wind_gauge: WindGauge
 var _special_button: Button
 var _special_meter: ProgressBar
 var _special_ready := false
+var _special_data: FighterData
 var _announcer: VBoxContainer
 var _hint: Label
 var _pause_button: Button
@@ -222,7 +223,7 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 		var portrait := Portrait.make(fighter.data, fighter.facing, 76.0)
 		plate.add_child(portrait)
 		plate.move_child(portrait, 0 if i == 0 else plate.get_child_count() - 1)
-		_names[i].text = "%s  Â·  %s" % [player_names[i], fighter.data.short_name] if i == 0 else "%s  Â·  %s" % [fighter.data.short_name, player_names[i]]
+		_names[i].text = "%s  ·  %s" % [player_names[i], fighter.data.short_name] if i == 0 else "%s  ·  %s" % [fighter.data.short_name, player_names[i]]
 		_bars[i].add_theme_stylebox_override("fill", _bar_fill(fighter.data.body_color))
 		_bars[i].value = fighter.health
 		_ghosts[i].value = fighter.health
@@ -257,13 +258,28 @@ func set_special(data: FighterData, charge: float, armed: bool) -> void:
 	_special_button.tooltip_text = data.special_description
 	_special_button.pivot_offset = _special_button.size / 2
 	_special_ready = ready
+	_special_data = data
+	_show_armed(armed)
+
+
+## While armed the button says so plainly; tapping it again cancels.
+func _show_armed(on: bool) -> void:
+	if _special_data == null:
+		return
+	var label: Label = _special_button.get_meta("label")
+	if on:
+		label.text = "ARMED! Throw now"
+		UiStyle.paint_button(_special_button, Color(1.0, 0.82, 0.25))
+	elif _special_ready:
+		label.text = _special_data.special_name
+		UiStyle.paint_button(_special_button, _special_data.body_color)
 
 
 ## Seconds left in a 1v1 turn, shown in the banner (negative hides it).
 func set_timer(seconds: int) -> void:
 	if _turn_text.is_empty():
 		return
-	_turn_label.text = _turn_text if seconds < 0 else "%s  Â·  %d" % [_turn_text, seconds]
+	_turn_label.text = _turn_text if seconds < 0 else "%s  ·  %d" % [_turn_text, seconds]
 
 
 ## A big callout in the middle of the screen (combos, specials, close calls).
@@ -502,7 +518,11 @@ func _build_match_hud() -> void:
 	_special_button.offset_top = -132
 	_special_button.offset_right = 246
 	_special_button.offset_bottom = -64
-	_special_button.toggled.connect(func(on: bool) -> void: special_toggled.emit(on))
+	# No keyboard focus, so Space always throws instead of un-arming the special.
+	_special_button.focus_mode = Control.FOCUS_NONE
+	_special_button.toggled.connect(func(on: bool) -> void:
+		_show_armed(on)
+		special_toggled.emit(on))
 	_special_meter = ProgressBar.new()
 	_special_meter.max_value = 1.0
 	_special_meter.show_percentage = false
@@ -753,7 +773,7 @@ func _build_title() -> Control:
 	chests.add_theme_stylebox_override("panel", chest_box)
 	var chest_stack := VBoxContainer.new()
 	chest_stack.add_theme_constant_override("separation", 6)
-	var chest_title := UiStyle.game_label("CHESTS  Â·  win new fighters", 20, true)
+	var chest_title := UiStyle.game_label("CHESTS  ·  win new fighters", 20, true)
 	chest_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chest_stack.add_child(chest_title)
 	chest_stack.add_child(_chest_row())
@@ -905,8 +925,8 @@ func _set_showcase(index: int) -> void:
 	tween.tween_property(_showcase, "position:y", 0.0, 0.45).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
 	var rarity_name: String = Chests.RARITY_NAMES.get(data.rarity, "Common")
 	_showcase_name.text = data.display_name
-	_showcase_weapon.text = "%s  Â·  %s  Â·  %d / %d" % [rarity_name, data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
-	_showcase_special.text = "â %s â %s" % [data.special_name, data.special_description]
+	_showcase_weapon.text = "%s  ·  %s  ·  %d / %d" % [rarity_name, data.weapon.display_name, data.weapon.body_damage, data.weapon.head_damage]
+	_showcase_special.text = "★ %s — %s" % [data.special_name, data.special_description]
 	_showcase_root.queue_redraw()
 
 
@@ -1339,7 +1359,7 @@ func _build_howto() -> Control:
 	var lines := [
 		[&"play", "Drag back anywhere and let go to throw. Drag further to throw harder."],
 		[&"back", "Drag back to where you started to cancel."],
-		[&"gear", "Keyboard: ââ angle, ââ power, Space throws."],
+		[&"gear", "Keyboard: ↑↓ angle, ←→ power, Space throws."],
 		[&"sword", "Hit the head for big damage. Knock your rival to 0 health to win."],
 		[&"home", "Towers, walls and floating slabs block throws. Lob over or sneak under."],
 		[&"pause", "Esc or the pause button stops the match."],
@@ -1521,7 +1541,7 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	pill.add_child(UiStyle.game_label(level_name, 16, true))
 	stack.add_child(pill)
 	if state == "won":
-		stack.add_child(UiStyle.game_label("â WON", 20, true))
+		stack.add_child(UiStyle.game_label("✔ WON", 20, true))
 	card.add_child(stack)
 	if state == "next":
 		card.pivot_offset = card.custom_minimum_size / 2
@@ -1698,7 +1718,7 @@ func _refresh_title() -> void:
 	else:
 		subtitle.text = "Continue: round %d of %d" % [int(Save.tournament["round"]) + 1, (Save.tournament["rounds"] as Array).size()]
 	var done := Save.daily_done == Rewards.today()
-	(_daily_button.get_meta("label") as Label).text = "Daily â" if done else "Daily"
+	(_daily_button.get_meta("label") as Label).text = "Daily ✓" if done else "Daily"
 	(_daily_button.get_meta("subtitle") as Label).text = "Done for today" if done else "New every day"
 	_daily_button.tooltip_text = Rewards.daily(Rewards.today(), _roster, _maps)["text"]
 	var info := Save.level_info()
@@ -1729,7 +1749,7 @@ func _open_fighters() -> void:
 func _fill_fighters() -> void:
 	_clear(_fighters_content)
 	var owned_count := _owned_fighters().size()
-	var header := UiStyle.ink_label("%d of %d collected  Â·  Tap one you own to make it your fighter" % [owned_count, _roster.size()], 18)
+	var header := UiStyle.ink_label("%d of %d collected  ·  Tap one you own to make it your fighter" % [owned_count, _roster.size()], 18)
 	_fighters_content.add_child(header)
 	var grid := GridContainer.new()
 	grid.columns = 5
@@ -1767,7 +1787,7 @@ func _fighter_tile(fighter: FighterData) -> Button:
 	portrait_box.add_child(portrait)
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(fighter.short_name if owned else "???", 20, true))
-	var status := UiStyle.ink_label("â Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
+	var status := UiStyle.ink_label("✔ Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
 	status.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.35) if selected else INK.lightened(0.2))
 	stack.add_child(status)
 	tile.add_child(stack)
@@ -1974,7 +1994,7 @@ func _notification(what: int) -> void:
 
 ## Held upright the game still works, but sideways shows much more of the arena.
 func _build_portrait_tip() -> void:
-	_portrait_tip = _button("â»  Turn your phone sideways for the best view   â", 22)
+	_portrait_tip = _button("↻  Turn your phone sideways for the best view   ✕", 22)
 	_portrait_tip.theme = UiStyle.theme()
 	UiStyle.paint_button(_portrait_tip, UiStyle.BLUE.lightened(0.2))
 	_portrait_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)

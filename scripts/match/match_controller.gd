@@ -29,6 +29,8 @@ const ROSTER := [
 	preload("res://data/fighters/plopo.tres"),
 	preload("res://data/fighters/gok.tres"),
 	preload("res://data/fighters/egita.tres"),
+	preload("res://data/fighters/lufi.tres"),
+	preload("res://data/fighters/ichi.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -66,10 +68,23 @@ const CHARGE_HEADSHOT := 0.6
 const CHARGE_WHEN_HIT := 0.2
 ## Anime specials: the beam's reach and damage, and the Spirit Orb's blast.
 const BEAM_RANGE := 3600.0
-const BEAM_MULTIPLIER := 2.5
+const BEAM_MULTIPLIER := 1.5
 const ORB_RADIUS := 240.0
 const ORB_MULTIPLIER := 2.4
 const ORB_RAISE_TIME := 0.9
+## Gum Barrage: fists thrown, seconds between them, random aim wobble (degrees), the
+## damage each does compared with a thrown weapon, and how close (px) a fist must get
+## before it homes in and how fast it can turn (rad/s).
+const BARRAGE_FISTS := 5
+const BARRAGE_GAP := 0.09
+const BARRAGE_SPREAD := 3.0
+const BARRAGE_MULTIPLIER := 0.4
+const BARRAGE_HOMING_RANGE := 320.0
+const BARRAGE_HOMING_TURN := 5.0
+## Moon Fang: speed, size and damage multiplier of the crescent.
+const FANG_SPEED := 1500.0
+const FANG_SIZE := 70.0
+const FANG_MULTIPLIER := 1.7
 ## The headshot cam can trigger once a throw is this close (px) to a head.
 const CINEMATIC_RANGE := 260.0
 ## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
@@ -98,6 +113,9 @@ var tournament := {}
 var _match_id := 0
 var _brains: Array[AiAimer] = []
 var _in_flight: Array[Projectile] = []
+## True while a special is still launching projectiles (Gum Gatling), so the turn
+## does not end when the first punch lands.
+var _launching := false
 var _last_left: FighterData
 var _last_right: FighterData
 var _last_difficulty: int = AiAimer.Difficulty.NORMAL
@@ -288,6 +306,7 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_launching = false
 	_end_slow_time()
 	_aim.finish()
 	for child in _actors.get_children():
@@ -781,8 +800,8 @@ func _begin_turn() -> void:
 		_special_armed = true
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
 	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter), Rules.GRAVITY * fighter.data.weapon.gravity_scale)
-	if _special_armed and fighter.data.weapon.special == &"beam":
-		shot = {"angle": beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(true), fighter.facing) + brain.rng.randfn(0.0, 1.2), "power": 1.0}
+	if _special_armed and is_straight_special(fighter.data.weapon.special):
+		shot = {"angle": beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(brain.wants_headshot()), fighter.facing) + brain.rng.randfn(0.0, 2.0), "power": 1.0}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -844,8 +863,13 @@ func _start_cinematic(projectile: Projectile) -> void:
 func _on_special_toggled(armed: bool) -> void:
 	if state == State.PLAYER_AIM and _charge[current] >= 1.0:
 		_special_armed = armed
+		var data := fighters[current].data
 		# The beam fires in a straight line, so the aim guide straightens and can point down.
-		_aim.set_beam(armed and fighters[current].data.weapon.special == &"beam")
+		_aim.set_beam(armed and is_straight_special(data.weapon.special))
+		_aim.set_special(data.special_name if armed else "", data.body_color)
+		if armed:
+			Audio.play("win", -10.0, 1.8, 0.0)
+			_hud.announce("%s ARMED!" % data.special_name.to_upper(), data.body_color.lightened(0.35))
 
 
 func _on_player_throw(angle: float, power: float) -> void:
@@ -890,6 +914,14 @@ func _throw(angle: float, power: float) -> void:
 	if special == &"orb":
 		fighter.powered = false
 		_throw_orb(fighter, angle, power)
+		return
+	if special == &"barrage":
+		fighter.powered = false
+		_barrage(fighter, angle, power)
+		return
+	if special == &"fang":
+		fighter.powered = false
+		_moon_fang(fighter, angle)
 		return
 	match special:
 		&"lucky":
@@ -947,6 +979,10 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * BEAM_MULTIPLIER)
 	if projectile.get_meta("orb", false):
 		damage = roundi(damage * ORB_MULTIPLIER)
+	if projectile.get_meta("barrage", false):
+		damage = maxi(1, roundi(damage * BARRAGE_MULTIPLIER))
+	if projectile.get_meta("fang", false):
+		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
 	if target.shielded:
@@ -957,7 +993,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE:
+	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false):
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -1051,7 +1087,7 @@ func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void
 func _on_projectile_finished(projectile: Projectile) -> void:
 	_throw_closest = minf(_throw_closest, projectile.closest)
 	_in_flight.erase(projectile)
-	if not _in_flight.is_empty() or state != State.FLYING:
+	if not _in_flight.is_empty() or _launching or state != State.FLYING:
 		return
 	_after_throw()
 
@@ -1378,3 +1414,86 @@ func _camera_points() -> PackedVector2Array:
 	for projectile in _in_flight:
 		points.append(projectile.global_position)
 	return points
+
+
+## Specials that fly dead straight, so the aim guide is a straight line.
+static func is_straight_special(special: StringName) -> bool:
+	return special == &"beam" or special == &"fang"
+
+
+## Hooks a projectile up to the usual hit handlers and counts it as in flight.
+func _track(projectile: Projectile) -> void:
+	projectile.hit_fighter.connect(_on_projectile_hit)
+	projectile.hit_ground.connect(_on_projectile_hit_ground)
+	projectile.hit_crate.connect(_on_projectile_hit_crate)
+	projectile.hit_target.connect(_on_practice_target_hit)
+	projectile.exploded.connect(_on_projectile_exploded)
+	projectile.pierced.connect(_on_projectile_pierced)
+	projectile.finished.connect(_on_projectile_finished)
+	_in_flight.append(projectile)
+
+
+## Gum Barrage: a rapid flurry of stretchy punches, each a little off the aim. A fist
+## that gets close to the target bends toward it, so a decent aim lands most of them.
+func _barrage(fighter: Fighter, angle: float, power: float) -> void:
+	var fist := fighter.data.weapon.duplicate() as WeaponData
+	fist.shape = &"fist"
+	fist.size = 30.0
+	fist.spin = 0.0
+	fist.sticks = false
+	fist.gravity_scale = 0.8
+	var match_id := _match_id
+	_launching = true
+	for i in BARRAGE_FISTS:
+		if i > 0:
+			await get_tree().create_timer(BARRAGE_GAP, false).timeout
+			if match_id != _match_id:
+				return
+		fighter.play_throw()
+		Audio.play("whoosh", -6.0, randf_range(1.2, 1.5), 0.0)
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		var spread := rng.randf_range(-BARRAGE_SPREAD, BARRAGE_SPREAD)
+		projectile.launch(fist, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + spread, power * rng.randf_range(0.97, 1.03), fist.max_speed, fighter.facing), _wind_for(fighter))
+		projectile.target = fighters[1 - current]
+		projectile.homing_target = fighters[1 - current]
+		projectile.homing_range = BARRAGE_HOMING_RANGE
+		projectile.homing_turn = BARRAGE_HOMING_TURN
+		projectile.set_meta("barrage", true)
+		_track(projectile)
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
+
+
+## Moon Fang: a giant crescent slash that flies dead straight, ignores the wind and
+## cuts through every obstacle in its way.
+func _moon_fang(fighter: Fighter, angle: float) -> void:
+	fighter.power_up(1.2)
+	fighter.play_throw()
+	var fang := fighter.data.weapon.duplicate() as WeaponData
+	fang.shape = &"crescent"
+	fang.size = FANG_SIZE
+	fang.spin = 0.0
+	fang.sticks = false
+	fang.gravity_scale = 0.0
+	Audio.play("whoosh", 0.0, 0.5, 0.0)
+	_camera.shake(0.4)
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(fang, fighter, fighter.throw_origin(), Rules.launch_velocity(angle, 1.0, FANG_SPEED, fighter.facing), 0.0)
+	projectile.target = fighters[1 - current]
+	projectile.pierce = true
+	projectile.set_meta("fang", true)
+	projectile.set_trail_color(fang.color)
+	_track(projectile)
+
+
+## Moon Fang slicing through an obstacle on its way.
+func _on_projectile_pierced(projectile: Projectile, obstacle: Obstacle) -> void:
+	obstacle.damage(2)
+	var at := projectile.global_position
+	Effects.burst(_actors, at, projectile.weapon.color.lightened(0.3), 24, 520.0, 180.0, 1.2)
+	Effects.popup(_actors, at + Vector2(0, -50), "SLICED!", Color(1.0, 0.45, 0.45), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Audio.play("thunk", 0.0, 0.5, 0.0)
+	_camera.shake(0.35)

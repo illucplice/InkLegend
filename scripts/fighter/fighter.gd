@@ -197,7 +197,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow" or data.weapon.shape == &"ki")
+	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow" or data.weapon.shape == &"ki" or data.weapon.shape == &"fist")
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -340,7 +340,7 @@ func _draw() -> void:
 	draw_arc(Vector2.ZERO, 34.0, 0.0, TAU, 32, Color(data.body_color, 0.55), 6.0, true)
 	draw_set_transform(Vector2.ZERO)
 
-	if _is_anime() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
+	if _has_aura() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		_draw_aura(p)
 
 	# Pen-and-ink: every line solid black (flashing white on a hit).
@@ -360,11 +360,16 @@ func _draw() -> void:
 	_taper(p[&"fknee"], p[&"ffoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"ffoot"], p[&"fknee"], ink)
 	_taper(p[&"hip"], p[&"neck"], LINE * 1.2, LINE, ink)
+	_draw_outfit(p, shoulder, ink)
 
 	var head: Vector2 = p[&"head"]
 	draw_circle(head, HEAD_RADIUS, ink, true, -1.0, true)
 	if _is_anime():
 		_draw_hair(head, p[&"neck"], ink)
+	elif data.style == &"straw":
+		_draw_straw_hat(head, p[&"neck"], ink)
+	elif data.style == &"reaper":
+		_draw_reaper_hair(head, p[&"neck"], ink)
 	if knocked:
 		var tilt := (head - (p[&"neck"] as Vector2)).angle() + PI / 2
 		draw_set_transform_matrix(Transform2D(tilt, Vector2(f, 1), 0.0, head))
@@ -382,12 +387,16 @@ func _draw() -> void:
 	# The hammer is carried level, like the sketch, until the wind-up swings it.
 	if data.weapon.shape == &"hammer" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.08 if facing == 1 else PI - 0.08
+	# The cleaver is carried low in front, the blade slanting up across the back.
+	if data.weapon.shape == &"cleaver" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
+		arm = 0.9 if facing == 1 else PI - 0.9
 	var pull := aim_power if aiming else 0.0
 	Projectile.draw_held(self, data.weapon, Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
 	draw_set_transform(Vector2.ZERO)
 	_taper(shoulder, p[&"felbow"], LINE, LINE * 0.85, ink)
 	_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(hand, 4.5, ink, true, -1.0, true)
+	_draw_sleeve(shoulder, p[&"felbow"])
 
 	if pinned and not knocked:
 		_draw_chains()
@@ -534,6 +543,10 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 func _draw_aura(p: Dictionary) -> void:
 	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.4)
 	var glow := data.body_color.lightened(0.3)
+	if data.style == &"straw":
+		glow = Color(1.0, 0.72, 0.72)
+	elif data.style == &"reaper":
+		glow = Color(0.85, 0.1, 0.18)
 	for layer in 3:
 		var points := PackedVector2Array()
 		var count := 18
@@ -546,3 +559,120 @@ func _draw_aura(p: Dictionary) -> void:
 	for i in 5:
 		var rise := fmod(_time * 1.6 + i * 0.2, 1.0)
 		draw_circle(centre + Vector2(sin(i * 2.1) * 30.0, 40.0 - rise * 110.0), 3.0 * (1.0 - rise), Color(glow, 0.8), true, -1.0, true)
+
+
+# --- straw hat and reaper ---
+
+## Fighters with a power-up aura when their meter is full (only the anime pair turn gold).
+func _has_aura() -> bool:
+	return _is_anime() or (data != null and (data.style == &"straw" or data.style == &"reaper"))
+
+
+## Sets the canvas to head space: origin at the head, x pointing the way they face,
+## tilted with the head.
+func _head_space(head: Vector2, neck: Vector2) -> void:
+	var rest := Vector2((HEAD_CENTER - NECK_REST).x * facing, (HEAD_CENTER - NECK_REST).y)
+	var tilt := (head - neck).angle() - rest.angle()
+	draw_set_transform_matrix(Transform2D(tilt, Vector2(facing, 1), 0.0, head))
+
+
+## Clothes drawn over the stick body, before the head: Lufi's open red vest, sash and
+## blue shorts; Ichi's black robe, sword strap, wide sleeve and flared trousers.
+func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
+	if data.style != &"straw" and data.style != &"reaper":
+		return
+	var hip: Vector2 = p[&"hip"]
+	var neck: Vector2 = p[&"neck"]
+	var spine := (neck - hip).normalized()
+	var side := Vector2(-spine.y, spine.x)
+	if data.style == &"straw":
+		for knee: StringName in [&"bknee", &"fknee"]:
+			_taper(hip, hip.lerp(p[knee], 0.7), 11.0, 10.0, Color(0.25, 0.4, 0.8))
+		var chest := neck.lerp(hip, 0.1)
+		var waist := neck.lerp(hip, 0.8)
+		_poly([chest + side * 9.0, waist + side * 10.0, waist - side * 10.0, chest - side * 9.0], data.body_color, 2.5)
+		_taper(neck, hip, LINE * 1.6, LINE * 1.6, ink)
+		_taper(hip + side * 9.0 + spine * 2.0, hip - side * 9.0 + spine * 2.0, 5.0, 5.0, Color(0.98, 0.82, 0.35))
+		return
+	var robe := Color(0.14, 0.13, 0.17)
+	var fknee: Vector2 = p[&"fknee"]
+	var bknee: Vector2 = p[&"bknee"]
+	var hem_f := hip.lerp(fknee, 1.15)
+	var hem_b := hip.lerp(bknee, 1.15)
+	# Flared trousers: the hull of the hips and both hems, so the shape never twists.
+	var hakama := Geometry2D.convex_hull(PackedVector2Array([hip + side * 10.0, hip - side * 10.0, hem_b + Vector2(-11, 0), hem_b + Vector2(11, 0), hem_f + Vector2(-11, 0), hem_f + Vector2(11, 0)]))
+	hakama.remove_at(hakama.size() - 1)
+	_poly(hakama, robe, 2.5)
+	_poly([neck + side * 10.0, hip + side * 11.0, hip - side * 11.0, neck - side * 10.0], robe, 2.5)
+	draw_colored_polygon(PackedVector2Array([neck + side * 6.0, neck.lerp(hip, 0.35), neck - side * 6.0]), Color(0.95, 0.94, 0.9))
+	_taper(neck + side * 9.0, hip - side * 10.0, 4.0, 4.0, Color(0.55, 0.15, 0.15))
+	_taper(hip + side * 11.0, hip - side * 11.0, 4.0, 4.0, Color(0.95, 0.94, 0.9))
+	_draw_sleeve(shoulder, p[&"belbow"])
+
+
+## Ichi's wide black sleeve hanging from the shoulder past the elbow.
+func _draw_sleeve(shoulder: Vector2, elbow: Vector2) -> void:
+	if data.style != &"reaper":
+		return
+	var along := elbow - shoulder
+	var across := along.normalized().orthogonal()
+	var cuff := shoulder + along * 1.2
+	_poly([shoulder + across * 6.0, cuff + across * 13.0 + Vector2(0, 8), cuff - across * 13.0 + Vector2(0, 8), shoulder - across * 6.0], Color(0.14, 0.13, 0.17), 2.5)
+
+
+## Lufi's straw hat with its red band, over a mop of black hair.
+func _draw_straw_hat(head: Vector2, neck: Vector2, ink: Color) -> void:
+	_head_space(head, neck)
+	var r := HEAD_RADIUS
+	for spike in 5:
+		var a := deg_to_rad(lerpf(150.0, 215.0, spike / 4.0))
+		var base := Vector2.from_angle(a) * (r - 3.0)
+		var tip := Vector2.from_angle(a) * (r + 7.0) + Vector2(0, 3)
+		var across := Vector2.from_angle(a + PI / 2) * 4.0
+		draw_colored_polygon(PackedVector2Array([base - across, tip, base + across]), ink)
+	var straw := data.hair_color
+	var brim_y := -r * 0.45
+	var brim := PackedVector2Array()
+	for i in 25:
+		var a := TAU * i / 24.0
+		brim.append(Vector2(cos(a) * r * 1.55, brim_y + sin(a) * r * 0.32))
+	draw_colored_polygon(brim, straw)
+	var brim_line := brim.duplicate()
+	brim_line.append(brim[0])
+	draw_polyline(brim_line, OUTLINE, 2.5, true)
+	var crown := PackedVector2Array()
+	for i in 13:
+		var a := PI + PI * i / 12.0
+		crown.append(Vector2(cos(a) * r * 0.85, brim_y - 2.0 + sin(a) * r * 0.85))
+	draw_colored_polygon(crown, straw)
+	var crown_line := crown.duplicate()
+	draw_polyline(crown_line, OUTLINE, 2.5, true)
+	draw_line(Vector2(-r * 0.83, brim_y - 5.0), Vector2(r * 0.83, brim_y - 5.0), Color(0.85, 0.15, 0.15), 5.0, true)
+	for k in 4:
+		var x := lerpf(-r * 1.2, r * 1.2, k / 3.0)
+		draw_line(Vector2(x, brim_y - 1.0), Vector2(x * 1.08, brim_y + 3.0), straw.darkened(0.25), 1.5, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+## Ichi's spiky orange hair, sticking out every which way.
+func _draw_reaper_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
+	_head_space(head, neck)
+	var r := HEAD_RADIUS
+	var color := data.hair_color
+	var spikes := [[-15.0, 9.0], [-40.0, 13.0], [-62.0, 15.0], [-84.0, 16.0], [-106.0, 16.0], [-128.0, 15.0], [-150.0, 14.0], [-172.0, 12.0], [-194.0, 10.0], [-214.0, 7.0]]
+	for pass_index in 2:
+		for spike: Array in spikes:
+			var a := deg_to_rad(float(spike[0]))
+			var grow := 2.5 if pass_index == 0 else 0.0
+			var base := Vector2.from_angle(a) * (r - 3.0)
+			var tip := Vector2.from_angle(a - 0.25) * (r + float(spike[1]) + grow)
+			var across := Vector2.from_angle(a + PI / 2) * (7.0 + grow)
+			draw_colored_polygon(PackedVector2Array([base - across, tip, base + across]), OUTLINE if pass_index == 0 else color)
+	var cap := PackedVector2Array()
+	for i in 13:
+		cap.append(Vector2.from_angle(lerpf(PI * 1.05, TAU * 0.98, i / 12.0)) * (r + 1.0))
+	cap.append(Vector2(r * 0.6, -r * 0.05))
+	cap.append(Vector2(-r * 0.7, r * 0.2))
+	draw_colored_polygon(cap, color)
+	draw_colored_polygon(PackedVector2Array([Vector2(r * 0.1, -r * 0.9), Vector2(r * 1.05, -r * 0.15), Vector2(r * 0.55, -r * 0.35)]), color)
+	draw_set_transform(Vector2.ZERO)

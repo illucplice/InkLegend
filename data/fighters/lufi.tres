@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/meat.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"lufi"
+display_name = "Lufi"
+short_name = "Lufi"
+body_color = Color(0.88, 0.2, 0.18, 1)
+accent_color = Color(0.25, 0.4, 0.8, 1)
+cape_color = Color(0.88, 0.2, 0.18, 1)
+hair_color = Color(0.98, 0.82, 0.35, 1)
+weapon = ExtResource("2_weapon")
+style = &"straw"
+special_name = "Gum Barrage"
+special_description = "Five stretchy punches in a flurry. Up close they home in on the target."
+price = 600
+rarity = &"legendary"

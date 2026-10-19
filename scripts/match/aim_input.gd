@@ -22,6 +22,9 @@ var wind := 0.0
 ## Beam special: aim in a straight line, allowed to point below level.
 var straight := false
 var min_angle := Rules.MIN_ANGLE
+## An armed special: its name shows on the readout and the guide takes its colour.
+var special_name := ""
+var special_color := Color.WHITE
 
 var _active := false
 var _dragging := false
@@ -47,8 +50,15 @@ func set_beam(on: bool) -> void:
 		angle = 20.0
 
 
+## Shows (or clears, with an empty name) that a special is armed for this throw.
+func set_special(special: String, color: Color) -> void:
+	special_name = special
+	special_color = color
+
+
 func finish() -> void:
 	set_beam(false)
+	set_special("", Color.WHITE)
 	_active = false
 	_dragging = false
 	if fighter != null:
@@ -121,7 +131,9 @@ func _draw() -> void:
 	for i in range(1, dots + 1):
 		var t := guide_time * i / dots
 		var fade := 1.0 - float(i) / (dots + 2)
-		draw_circle(Rules.position_at(origin, velocity, t, wind, Rules.GRAVITY * fighter.data.weapon.gravity_scale), (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * inv_zoom, Color(1, 1, 1, alpha * fade))
+		var dot_color := special_color.lightened(0.3) if not special_name.is_empty() else Color.WHITE
+		var dot_size := (5.0 - i * 0.3 * PREVIEW_DOTS / dots) * (1.4 if not special_name.is_empty() else 1.0)
+		draw_circle(Rules.position_at(origin, velocity, t, wind, Rules.GRAVITY * fighter.data.weapon.gravity_scale), dot_size * inv_zoom, Color(dot_color, alpha * fade))
 
 	_draw_angle_arc(origin, inv_zoom, alpha)
 	_draw_power_gauge(inv_zoom, alpha)
@@ -129,6 +141,8 @@ func _draw() -> void:
 	var font := UiStyle.title_font()
 	var font_size := int(26 * inv_zoom)
 	var text := "release to cancel" if faded else "%d°   %d%%" % [roundi(angle), roundi(power * 100)]
+	if not faded and not special_name.is_empty():
+		text = "★ %s   %s" % [special_name.to_upper(), text]
 	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 28.0 * inv_zoom
 	var pill := Rect2(fighter.global_position + Vector2(-width / 2, -230.0 * minf(inv_zoom, 1.4) - 38.0 * inv_zoom), Vector2(width, 38.0 * inv_zoom))
 	draw_style_box(UiStyle.flat(Color(0.08, 0.05, 0.12, 0.75 * alpha), int(12 * inv_zoom), int(3 * inv_zoom)), pill)

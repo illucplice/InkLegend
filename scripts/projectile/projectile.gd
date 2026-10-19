@@ -16,6 +16,8 @@ signal exploded(projectile: Projectile, at: Vector2, direct: Fighter, part: Stri
 signal hit_target(projectile: Projectile, target: PracticeTarget)
 ## A crate was touched; the projectile keeps flying.
 signal hit_crate(projectile: Projectile, crate: Crate)
+## Moon Fang: cut through an obstacle and kept going.
+signal pierced(projectile: Projectile, obstacle: Obstacle)
 
 const INK := Color(0.12, 0.1, 0.14)
 ## Ground and obstacles (1), hitboxes (2), crates (4), practice targets (8).
@@ -41,6 +43,13 @@ var closest := INF
 var flight_time := 0.0
 ## Blast radius (bombs), set from the weapon; Big Boom makes it bigger.
 var explode_radius := 0.0
+## Flies through obstacles (cutting them) instead of stopping.
+var pierce := false
+## Gum Barrage: once within homing_range px of this fighter, steer toward them at up
+## to homing_turn rad/s.
+var homing_target: Fighter
+var homing_range := 0.0
+var homing_turn := 0.0
 
 var _origin := Vector2.ZERO
 var _velocity := Vector2.ZERO
@@ -117,6 +126,7 @@ func _physics_process(delta: float) -> void:
 	_trail.add_point(global_position)
 	if _trail.get_point_count() > TRAIL_POINTS:
 		_trail.remove_point(0)
+	_home(delta)
 	var next := Rules.position_at(_origin, _velocity, _t, wind, gravity)
 	var query := PhysicsRayQueryParameters2D.create(global_position, next, COLLISION_MASK, _exclude)
 	query.collide_with_areas = true
@@ -142,6 +152,11 @@ func _physics_process(delta: float) -> void:
 		_exclude.append(crate.get_rid())
 		hit_crate.emit(self, crate)
 		return
+	var obstacle := hit["collider"] as Obstacle
+	if pierce and obstacle != null:
+		_exclude.append(obstacle.get_rid())
+		pierced.emit(self, obstacle)
+		return
 	global_position = hit["position"]
 	var box := hit["collider"] as Hitbox
 	if explode_radius > 0.0:
@@ -157,6 +172,21 @@ func _physics_process(delta: float) -> void:
 		_bounce(hit["normal"])
 		return
 	_finish(weapon.sticks)
+
+
+## Bends the flight toward the homing target when close, by restarting the path from
+## here with the turned velocity.
+func _home(delta: float) -> void:
+	if homing_target == null or homing_target.is_knocked_out():
+		return
+	var to := homing_target.aim_point(false) - global_position
+	if to.length() > homing_range:
+		return
+	var velocity := Rules.velocity_at(_velocity, _t - delta, wind, gravity)
+	var turned := Vector2.from_angle(rotate_toward(velocity.angle(), to.angle(), homing_turn * delta)) * velocity.length()
+	_origin = global_position
+	_velocity = turned
+	_t = delta
 
 
 ## Shockwave: rebound off the surface with some energy lost, and keep flying.
@@ -260,6 +290,75 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_colored_polygon(cup, w.color)
 			cup.append(cup[0])
 			canvas.draw_polyline(cup, ink, 2.5, true)
+		&"meat":
+			# A big hunk of roast meat on a bone, the bone sticking out both ends.
+			var bone := Color(0.96, 0.93, 0.85)
+			for end: float in [-1.0, 1.0]:
+				var tip := Vector2(end * s * 0.62, 0)
+				canvas.draw_line(Vector2.ZERO, tip, ink, s * 0.2 + 4.0, true)
+				canvas.draw_line(Vector2.ZERO, tip, bone, s * 0.2, true)
+				for knob: float in [-1.0, 1.0]:
+					canvas.draw_circle(tip + Vector2(end * 2.0, knob * s * 0.1), s * 0.11 + 2.0, ink, true, -1.0, true)
+					canvas.draw_circle(tip + Vector2(end * 2.0, knob * s * 0.1), s * 0.11, bone, true, -1.0, true)
+			var lump := PackedVector2Array()
+			for i in 20:
+				var a := TAU * i / 20.0
+				lump.append(Vector2(cos(a) * s * 0.4, sin(a) * s * 0.3 * (1.0 + 0.08 * sin(a * 3.0))))
+			canvas.draw_colored_polygon(lump, w.color)
+			var rim := lump.duplicate()
+			rim.append(lump[0])
+			canvas.draw_polyline(rim, ink, 2.5, true)
+			canvas.draw_circle(Vector2(-s * 0.12, -s * 0.1), s * 0.12, w.color.lightened(0.3), true, -1.0, true)
+			for k in 3:
+				var x := (k - 1) * s * 0.18
+				canvas.draw_line(Vector2(x - s * 0.06, -s * 0.18), Vector2(x + s * 0.06, s * 0.18), w.color.darkened(0.35), 2.5, true)
+		&"fist":
+			# A rubbery arm stretched out behind a big clenched fist.
+			var arm := PackedVector2Array()
+			for i in 9:
+				var t := i / 8.0
+				arm.append(Vector2(-s * 2.6 + t * s * 2.4, sin(t * 9.0) * 2.5 * (1.0 - t)))
+			canvas.draw_polyline(arm, ink, 6.0, true)
+			canvas.draw_rect(Rect2(-s * 0.42, -s * 0.24, s * 0.16, s * 0.48), w.color)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42 + 2.0, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2(s * 0.08, 0), s * 0.36, ink.lightened(0.12), true, -1.0, true)
+			for k in 3:
+				var y := (k - 1) * s * 0.2
+				canvas.draw_line(Vector2(s * 0.18, y), Vector2(s * 0.36, y), Color(1, 1, 1, 0.45), 2.0, true)
+			canvas.draw_circle(Vector2(-s * 0.05, -s * 0.24), s * 0.13, ink, true, -1.0, true)
+		&"cleaver":
+			# A huge black cleaver of a sword: no guard, a wrapped hilt and a cloth tail.
+			var hilt := Rect2(-s * 0.62, -s * 0.06, s * 0.3, s * 0.12)
+			canvas.draw_rect(hilt, Color(0.92, 0.9, 0.85))
+			for k in 4:
+				var x := hilt.position.x + hilt.size.x * (k + 0.5) / 4.0
+				canvas.draw_line(Vector2(x - 4, hilt.position.y), Vector2(x + 4, hilt.end.y), ink, 2.0, true)
+			canvas.draw_rect(hilt, ink, false, 2.0)
+			var wave := sin(Time.get_ticks_msec() * 0.008) * 5.0
+			canvas.draw_polyline(PackedVector2Array([Vector2(-s * 0.62, 0), Vector2(-s * 0.8, 6 + wave), Vector2(-s * 1.0, 2 - wave), Vector2(-s * 1.15, 8 + wave)]), Color(0.92, 0.9, 0.85), 3.0, true)
+			var blade := PackedVector2Array([Vector2(-s * 0.32, -s * 0.13), Vector2(s * 0.5, -s * 0.13), Vector2(s * 0.66, -s * 0.02), Vector2(s * 0.62, s * 0.15), Vector2(-s * 0.32, s * 0.15)])
+			canvas.draw_colored_polygon(blade, ink)
+			canvas.draw_polyline(PackedVector2Array([Vector2(-s * 0.3, -s * 0.11), Vector2(s * 0.5, -s * 0.11), Vector2(s * 0.64, -s * 0.02)]), steel, 2.5, true)
+			canvas.draw_line(Vector2(-s * 0.32, -s * 0.13), Vector2(-s * 0.32, s * 0.15), steel.darkened(0.3), 3.0, true)
+		&"crescent":
+			# Moon Fang: a crescent of dark energy with a blood-red rim.
+			var outer := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for i in 17:
+				var a := lerpf(-1.25, 1.25, i / 16.0)
+				outer.append(Vector2(cos(a) * s * 0.55, sin(a) * s))
+				inner.append(Vector2(cos(a) * s * 0.2 - s * 0.12, sin(a) * s * 0.82))
+			var shape := outer.duplicate()
+			for i in range(inner.size() - 1, -1, -1):
+				shape.append(inner[i])
+			for ring in 3:
+				var glow := PackedVector2Array()
+				for point in shape:
+					glow.append(point * (1.18 - ring * 0.06))
+				canvas.draw_colored_polygon(glow, Color(w.color, 0.12 + ring * 0.06))
+			canvas.draw_colored_polygon(shape, Color(0.08, 0.04, 0.12))
+			canvas.draw_polyline(outer, w.color.lightened(0.2), 4.0, true)
+			canvas.draw_polyline(outer, Color(1, 0.85, 0.85, 0.7), 1.5, true)
 		_:
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 1.5, ink, true, -1.0, true)
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 - 1.0, Color(0.32, 0.3, 0.34), true, -1.0, true)
@@ -304,6 +403,20 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
+		&"cleaver":
+			# Gripped by the hilt with the blade running back along the arm.
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(PI, Vector2(-w.size * 0.47, 0)))
+		&"fist":
+			# A big clenched fist; winding up coils the rubber arm behind it.
+			if loaded:
+				canvas.draw_set_transform_matrix(xf)
+				for k in int(pull * 5.0):
+					canvas.draw_arc(Vector2(-6.0 - k * 7.0, 0), 9.0, -1.4, 1.4, 8, ink, 2.5, true)
+				canvas.draw_circle(Vector2(6, 0), w.size * 0.34 + 1.5, ink, true, -1.0, true)
+				canvas.draw_rect(Rect2(-4, -w.size * 0.2, 6, w.size * 0.4), w.color)
+				for k in 3:
+					canvas.draw_line(Vector2(10, (k - 1) * 5.0), Vector2(15, (k - 1) * 5.0), Color(1, 1, 1, 0.45), 2.0, true)
 		&"hammer":
 			# Held low across the body by the middle of the shaft, head out front.
 			if loaded:

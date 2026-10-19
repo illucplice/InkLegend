@@ -24,6 +24,8 @@ func _initialize() -> void:
 	await _test_map_variety()
 	await _test_ai_vs_ai_match()
 	await _test_anime_match()
+	await _test_straw_reaper_match()
+	await _test_homing_and_balance()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -389,3 +391,82 @@ func _test_map_variety() -> void:
 	await process_frame
 	_check(holder.get_child_count() == ids.size() * 4, "every obstacle style draws")
 	holder.queue_free()
+
+
+## Phase K: Lufi (Gum Barrage) against Ichi (Moon Fang) plays through to a knockout,
+## with both specials going off.
+func _test_straw_reaper_match() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	var lufi: FighterData = load("res://data/fighters/lufi.tres")
+	var ichi: FighterData = load("res://data/fighters/ichi.tres")
+	_check(game.roster().has(lufi) and game.roster().has(ichi), "Lufi and Ichi are in the roster")
+	_check(lufi.rarity == &"legendary" and ichi.rarity == &"legendary", "Lufi and Ichi are legendary chest finds")
+	_check(game.is_straight_special(&"fang") and not game.is_straight_special(&"barrage"), "Moon Fang aims straight; Gum Barrage arcs")
+	var result := {}
+	var hits := {"barrage": 0, "fang": 0}
+	game.match_ended.connect(func(winner: Fighter) -> void: result["winner"] = winner)
+	Engine.time_scale = 6.0
+	game.start_match(lufi, ichi, game.Mode.VS_AI, AiAimer.Difficulty.HARD, load("res://data/maps/frozen.tres"))
+	for frame in 9000:
+		if not result.is_empty():
+			break
+		# Arm each side's special the first time it lines up, so both always go off.
+		if game.state == game.State.AI_AIM and not game._special_used[game.current]:
+			game._charge[game.current] = 1.0
+			game._special_armed = true
+		for projectile: Projectile in game._in_flight:
+			for kind: String in hits:
+				if projectile.get_meta(kind, false):
+					hits[kind] = maxi(hits[kind], 1)
+		await physics_frame
+	Engine.time_scale = 1.0
+	_check(not result.is_empty(), "a Lufi vs Ichi match ends in a knockout")
+	_check(hits["barrage"] > 0, "Lufi threw a Gum Barrage")
+	_check(hits["fang"] > 0, "Ichi fired a Moon Fang")
+	_check(not game._launching, "no special is left half-launched")
+	game.queue_free()
+
+
+## Gum Barrage fists bend into a nearby target (and only a nearby one), and the
+## specials stay within sensible damage.
+func _test_homing_and_balance() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	for child in game._obstacle_layer.get_children():
+		child.queue_free()
+	var lufi: FighterData = load("res://data/fighters/lufi.tres")
+	var target: Fighter = game._spawn_fighter(lufi, 400, -1, true)
+	var thrower: Fighter = game._spawn_fighter(lufi, -2000, 1, true)
+	var results := []
+	for homing: bool in [true, false]:
+		var fist := lufi.weapon.duplicate() as WeaponData
+		fist.shape = &"fist"
+		fist.spin = 0.0
+		fist.gravity_scale = 0.0
+		var projectile: Projectile = game.PROJECTILE_SCENE.instantiate()
+		game._actors.add_child(projectile)
+		projectile.launch(fist, thrower, Vector2(-200, -330), Vector2(900, 0))
+		if homing:
+			projectile.homing_target = target
+			projectile.homing_range = game.BARRAGE_HOMING_RANGE
+			projectile.homing_turn = game.BARRAGE_HOMING_TURN
+		var hit := {"hit": false}
+		projectile.hit_fighter.connect(func(_p: Projectile, who: Fighter, _part: StringName) -> void: hit["hit"] = who == target)
+		for frame in 150:
+			if not projectile.is_flying():
+				break
+			await physics_frame
+		results.append(hit["hit"])
+		if is_instance_valid(projectile):
+			projectile.queue_free()
+	_check(results[0], "a homing fist bends down into a target it flies just over")
+	_check(not results[1], "the same fist without homing sails over")
+	var full_barrage: int = game.BARRAGE_FISTS * roundi(lufi.weapon.body_damage * game.BARRAGE_MULTIPLIER)
+	_check(full_barrage <= 60, "a full Gum Barrage body hit is at most 60 (%d)" % full_barrage)
+	var gok: FighterData = load("res://data/fighters/gok.tres")
+	_check(roundi(gok.weapon.head_damage * game.BEAM_MULTIPLIER) <= 60, "Mega Wave headshots are no longer near one-hit kills")
+	game.queue_free()

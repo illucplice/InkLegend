@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"meat"
+display_name = "Meat on the Bone"
+max_speed = 1240.0
+body_damage = 24
+head_damage = 42
+count = 1
+spin = 9.0
+sticks = false
+shape = &"meat"
+size = 40.0
+color = Color(0.72, 0.32, 0.2, 1)
+special = &"barrage"
