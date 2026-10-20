@@ -61,6 +61,7 @@ var progress_path := PROGRESS_PATH
 
 
 func _ready() -> void:
+	_bring_over_old_save()
 	load_settings()
 	apply()
 	load_progress()
@@ -223,3 +224,17 @@ func add_xp(amount: int) -> int:
 	var before: int = level_info()["level"]
 	xp += amount
 	return int(level_info()["level"]) - before
+
+
+## The game was renamed from Wobble Wars, and Godot keeps saves in a folder named
+## after the game. On the first run under the new name, copy the old save across.
+func _bring_over_old_save() -> void:
+	var here := OS.get_user_data_dir()
+	var old := here.get_base_dir().path_join("Wobble Wars")
+	if old == here or not DirAccess.dir_exists_absolute(old):
+		return
+	for file: String in ["settings.cfg", "progress.cfg"]:
+		var target := here.path_join(file)
+		var source := old.path_join(file)
+		if not FileAccess.file_exists(target) and FileAccess.file_exists(source):
+			DirAccess.copy_absolute(source, target)

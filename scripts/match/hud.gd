@@ -409,7 +409,7 @@ func _process(delta: float) -> void:
 	var view := get_viewport().get_visible_rect().size
 	_portrait_tip.visible = not _portrait_dismissed and view.y > view.x
 	if _title_screen != null and _title_screen.visible:
-		_showcase_root.position = Vector2(_showcase_area.size.x * 0.5, _showcase_area.size.y * 0.64)
+		_showcase_root.position = Vector2(_showcase_area.size.x * 0.5, _showcase_area.size.y * 0.6)
 		_animate_showcase(delta)
 	# A ready special button breathes so you notice it.
 	if _special_button != null and _special_button.visible and _special_ready:
@@ -648,7 +648,7 @@ func _build_title() -> Control:
 	var middle := CenterContainer.new()
 	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var logo := WavyTitle.new()
-	logo.lines = ["WOBBLE WARS"]
+	logo.lines = ["INK LEGENDS"]
 	logo.font_size = 50
 	middle.add_child(logo)
 	top.add_child(middle)
@@ -860,6 +860,7 @@ func _chest_row() -> HBoxContainer:
 		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var art := ChestArt.new()
 		art.color = info["color"]
+		art.kind = kind
 		art.custom_minimum_size = Vector2(0, 82)
 		stack.add_child(art)
 		var name_label := UiStyle.ink_label(String(info["name"]).split(" ")[0], 16, true)
@@ -961,25 +962,90 @@ func _animate_showcase(delta: float) -> void:
 	_showcase_root.queue_redraw()
 
 
+## The showcase stage behind your fighter, Brawlhalla-style: a tall banner in their
+## rarity colour, a spotlight, a floating stone island with a glowing rim and runes,
+## banner poles either side and sparks drifting up. The fighter stands at (0, 0).
 func _draw_pedestal() -> void:
 	var root := _showcase_root
 	var glow := Color(1.0, 0.75, 0.4)
 	if _showcase != null and _showcase.data != null:
 		glow = Chests.RARITY_COLORS.get(_showcase.data.rarity, glow)
-	var pulse := 0.5 + 0.5 * sin(_time * 2.0)
-	root.draw_colored_polygon(PackedVector2Array([Vector2(-60, -560), Vector2(60, -560), Vector2(150, 0), Vector2(-150, 0)]), Color(glow.lightened(0.5), 0.08 + 0.04 * pulse))
-	root.draw_set_transform(Vector2(0, 6), 0.0, Vector2(1.0, 0.26))
-	for i in 4:
-		root.draw_circle(Vector2.ZERO, 150.0 + i * 26.0, Color(glow, 0.07 + 0.04 * pulse), true, -1.0, true)
-	root.draw_circle(Vector2.ZERO, 128.0, INK, true, -1.0, true)
-	root.draw_circle(Vector2.ZERO, 122.0, Color(0.72, 0.62, 0.62), true, -1.0, true)
-	root.draw_circle(Vector2(0, -14), 112.0, Color(0.86, 0.78, 0.74), true, -1.0, true)
+	var t := _time
+	var pulse := 0.5 + 0.5 * sin(t * 2.0)
+	var cloth := Color(glow.darkened(0.68), 0.9)
+	var gold := Color(1.0, 0.82, 0.35)
+	# The big banner hanging behind them, swaying a little.
+	var banner := PackedVector2Array()
+	for k in 9:
+		var y := lerpf(-330.0, -120.0, k / 8.0)
+		banner.append(Vector2(-105.0 + sin(t * 1.4 + k * 0.6) * 4.0 * (k / 8.0), y))
+	banner.append(Vector2(0, -80.0 + sin(t * 1.4) * 4.0))
+	for k in range(8, -1, -1):
+		var y := lerpf(-330.0, -120.0, k / 8.0)
+		banner.append(Vector2(105.0 + sin(t * 1.4 + k * 0.6 + 1.0) * 4.0 * (k / 8.0), y))
+	root.draw_colored_polygon(banner, cloth)
+	var trim := banner.duplicate()
+	trim.append(banner[0])
+	root.draw_polyline(trim, gold, 6.0, true)
+	root.draw_rect(Rect2(-118, -342, 236, 16), Color(0.3, 0.22, 0.18))
+	root.draw_rect(Rect2(-118, -342, 236, 16), INK, false, 3.0)
+	var emblem := Vector2(0, -230)
+	root.draw_circle(emblem, 46.0, Color(glow, 0.22 + 0.12 * pulse), true, -1.0, true)
+	root.draw_arc(emblem, 40.0, 0.0, TAU, 48, gold, 5.0, true)
+	var star := PackedVector2Array()
+	for k in 10:
+		var a := -PI / 2 + k * PI / 5.0
+		star.append(emblem + Vector2.from_angle(a) * (28.0 if k % 2 == 0 else 12.0))
+	root.draw_colored_polygon(star, gold)
+	# Spotlight from above.
+	root.draw_colored_polygon(PackedVector2Array([Vector2(-50, -700), Vector2(50, -700), Vector2(230, 0), Vector2(-230, 0)]), Color(1, 1, 1, 0.05 + 0.03 * pulse))
+	# Banner poles on the island's edges.
+	for side: float in [-1.0, 1.0]:
+		var base := Vector2(side * 210.0, -6.0)
+		root.draw_line(base, base + Vector2(0, -250), INK, 9.0, true)
+		root.draw_line(base, base + Vector2(0, -250), Color(0.55, 0.4, 0.25), 5.0, true)
+		root.draw_circle(base + Vector2(0, -254), 8.0, gold, true, -1.0, true)
+		var flag := PackedVector2Array([base + Vector2(0, -242)])
+		for k in 7:
+			var u := k / 6.0
+			flag.append(base + Vector2(-side * u * 64.0, -242.0 + sin(t * 4.0 + u * 4.0) * 6.0 * u))
+		flag.append(base + Vector2(-side * 64.0, -200.0 + sin(t * 4.0 + 4.0) * 6.0))
+		flag.append(base + Vector2(0, -192))
+		root.draw_colored_polygon(flag, glow.darkened(0.15))
+	# Underside of the floating island: jagged rock with glowing runes.
+	var bob := sin(t * 1.6) * 4.0
+	var under := PackedVector2Array([Vector2(-240, 6)])
+	for k in 9:
+		var u := k / 8.0
+		var depth := sin(u * PI) * 80.0 + (14.0 if k % 2 == 0 else 0.0)
+		under.append(Vector2(lerpf(-230.0, 230.0, u), 10.0 + depth))
+	under.append(Vector2(240, 6))
+	root.draw_colored_polygon(under, Color(0.32, 0.28, 0.36))
+	var under_line := under.duplicate()
+	under_line.append(under[0])
+	root.draw_polyline(under_line, INK, 4.0, true)
+	for k in 5:
+		var at := Vector2(-120.0 + k * 60.0, 34.0 + (k % 2) * 16.0)
+		root.draw_circle(at, 9.0, Color(glow, 0.25 * pulse), true, -1.0, true)
+		root.draw_line(at + Vector2(-5, -5), at + Vector2(5, 5), Color(glow, 0.6 + 0.4 * pulse), 2.5, true)
+		root.draw_line(at + Vector2(5, -5), at + Vector2(-5, 5), Color(glow, 0.6 + 0.4 * pulse), 2.5, true)
+	for k in 3:
+		var rock := Vector2(-170.0 + k * 170.0, 112.0 + sin(t * 1.8 + k * 2.0) * 10.0 + bob)
+		root.draw_colored_polygon(PackedVector2Array([rock + Vector2(-18, 0), rock + Vector2(-6, -12), rock + Vector2(16, -6), rock + Vector2(8, 14)]), Color(0.32, 0.28, 0.36))
+	# The island's top: stone with a glowing rim.
+	root.draw_set_transform(Vector2(0, 6), 0.0, Vector2(1.0, 0.2))
+	for i in 3:
+		root.draw_circle(Vector2.ZERO, 250.0 + i * 24.0, Color(glow, 0.06 + 0.04 * pulse), true, -1.0, true)
+	root.draw_circle(Vector2.ZERO, 244.0, INK, true, -1.0, true)
+	root.draw_circle(Vector2.ZERO, 238.0, Color(0.6, 0.56, 0.62), true, -1.0, true)
+	root.draw_circle(Vector2(0, -16), 226.0, Color(0.78, 0.74, 0.8), true, -1.0, true)
+	root.draw_arc(Vector2(0, -16), 200.0, 0.0, TAU, 64, Color(glow, 0.5 + 0.4 * pulse), 8.0, true)
 	root.draw_set_transform(Vector2.ZERO)
-	root.draw_rect(Rect2(-123, 6, 246, 34), Color(0.62, 0.52, 0.54))
-	root.draw_rect(Rect2(-123, 14, 246, 6), Color(glow, 0.6 + 0.3 * pulse))
-	root.draw_set_transform(Vector2(0, 40), 0.0, Vector2(1.0, 0.26))
-	root.draw_circle(Vector2.ZERO, 123.0, Color(0.5, 0.4, 0.44), true, -1.0, true)
-	root.draw_set_transform(Vector2.ZERO)
+	# Sparks drifting up off the island.
+	for k in 18:
+		var rise := fmod(t * 0.35 + k * 0.057, 1.0)
+		var at := Vector2(sin(k * 3.1) * 220.0, -rise * 420.0)
+		root.draw_circle(at, 3.0 * (1.0 - rise), Color(glow.lightened(0.4), 0.8 * (1.0 - rise)), true, -1.0, true)
 
 
 # --- fighter select ---

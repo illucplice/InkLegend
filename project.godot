@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Wobble Wars"
+config/name="Ink Legends"
 config/description="Turn-based aim-and-throw with floppy fighters."
 run/main_scene="res://scenes/match/match.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")

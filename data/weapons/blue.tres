@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"blue"
+display_name = "Blue"
+max_speed = 1250.0
+body_damage = 18
+head_damage = 32
+count = 1
+spin = 0.0
+sticks = false
+shape = &"blue_orb"
+size = 26.0
+color = Color(0.3, 0.6, 1, 1)
+gravity_scale = 0.6
+pull_target = 260.0
+special = &"purple"

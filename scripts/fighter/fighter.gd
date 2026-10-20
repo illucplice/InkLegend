@@ -225,7 +225,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and (data.weapon.shape == &"pebble" or data.weapon.shape == &"arrow" or data.weapon.shape == &"ki" or data.weapon.shape == &"fist")
+	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken"]
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -392,7 +392,7 @@ func _draw() -> void:
 	_taper(p[&"belbow"], p[&"bhand"], LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(p[&"bhand"], 4.5, ink, true, -1.0, true)
 	if _skin_head():
-		draw_circle(p[&"bhand"], 3.0, data.skin_color, true, -1.0, true)
+		draw_circle(p[&"bhand"], 3.0, _hand_color(), true, -1.0, true)
 	_taper(p[&"hip"], p[&"bknee"], LINE * 1.15, LINE, ink)
 	_taper(p[&"bknee"], p[&"bfoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"bfoot"], p[&"bknee"], ink)
@@ -400,9 +400,10 @@ func _draw() -> void:
 	_taper(p[&"fknee"], p[&"ffoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"ffoot"], p[&"fknee"], ink)
 	if _skin_head():
+		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
-			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, Color(0.96, 0.95, 0.92), true, -1.0, true)
+			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
 	_taper(p[&"hip"], p[&"neck"], LINE * 1.2, LINE, ink)
 	_draw_outfit(p, shoulder, ink)
 
@@ -410,6 +411,8 @@ func _draw() -> void:
 	draw_circle(head, HEAD_RADIUS, ink, true, -1.0, true)
 	if _skin_head():
 		draw_circle(head, HEAD_RADIUS - 2.2, data.skin_color, true, -1.0, true)
+	if data.style in NEW_STYLES:
+		_draw_new_head(head, p[&"neck"])
 	if _is_anime():
 		_draw_hair(head, p[&"neck"], ink)
 	elif data.style == &"straw":
@@ -447,7 +450,7 @@ func _draw() -> void:
 	_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
 	draw_circle(hand, 4.5, ink, true, -1.0, true)
 	if _skin_head():
-		draw_circle(hand, 3.0, data.skin_color, true, -1.0, true)
+		draw_circle(hand, 3.0, _hand_color(), true, -1.0, true)
 	_draw_sleeve(shoulder, p[&"felbow"])
 	if form == &"mugetsu":
 		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
@@ -597,6 +600,8 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 func _draw_aura(p: Dictionary) -> void:
 	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.4)
 	var glow := data.body_color.lightened(0.3)
+	if data.style in NEW_STYLES:
+		glow = _new_aura_color()
 	if data.style == &"straw":
 		glow = Color(1.0, 0.72, 0.72)
 	elif data.style == &"reaper":
@@ -621,7 +626,7 @@ func _draw_aura(p: Dictionary) -> void:
 
 ## Fighters with a power-up aura when their meter is full (only the anime pair turn gold).
 func _has_aura() -> bool:
-	return _is_anime() or (data != null and (data.style == &"straw" or data.style == &"reaper"))
+	return _is_anime() or (data != null and (data.style == &"straw" or data.style == &"reaper" or data.style in NEW_STYLES))
 
 
 ## Sets the canvas to head space: origin at the head, x pointing the way they face,
@@ -635,6 +640,9 @@ func _head_space(head: Vector2, neck: Vector2) -> void:
 ## Clothes drawn over the stick body, before the head: Lufi's open red vest, sash and
 ## blue shorts; Ichi's black robe, sword strap, wide sleeve and flared trousers.
 func _draw_outfit(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
+	if data.style in NEW_STYLES:
+		_draw_outfit_new(p, shoulder, ink)
+		return
 	if data.style != &"straw" and data.style != &"reaper":
 		return
 	var hip: Vector2 = p[&"hip"]
@@ -938,4 +946,204 @@ func _draw_mugetsu_arm(shoulder: Vector2, elbow: Vector2, hand: Vector2) -> void
 
 ## Ichi (as a shinigami, bankai or not) shows a face, hands and white socks.
 func _skin_head() -> bool:
-	return data != null and data.style == &"reaper" and form == &""
+	return data != null and ((data.style == &"reaper" and form == &"") or data.style in NEW_STYLES)
+
+
+# --- Uryo, Yuj, Megu, Goj, Ryo and Akum ---
+
+const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon"]
+
+
+## Special charged (or firing): changes Goj's eyes, Yuj's face and so on.
+func _charged() -> bool:
+	return (charge >= 1.0 or _powering > 0.0) and not is_knocked_out()
+
+
+## Outfits for the newer fighters: jackets, gis and coats over the stick body.
+func _draw_outfit_new(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
+	var hip: Vector2 = p[&"hip"]
+	var neck: Vector2 = p[&"neck"]
+	var spine := (neck - hip).normalized()
+	var side := spine.orthogonal()
+	match data.style:
+		&"quincy":
+			_draw_hakama(p, side, Color(0.96, 0.97, 1.0))
+			_poly([neck + side * 11.0, hip + side * 12.0, hip - side * 12.0, neck - side * 11.0], Color(0.97, 0.98, 1.0), 2.5)
+			_taper(neck.lerp(hip, 0.1), hip, 2.5, 2.5, Color(0.3, 0.5, 0.9))
+			var cross := neck.lerp(hip, 0.35) + side * 5.0
+			draw_line(cross + spine * 5.0, cross - spine * 5.0, Color(0.3, 0.5, 0.9), 2.5, true)
+			draw_line(cross + side * 4.0, cross - side * 4.0, Color(0.3, 0.5, 0.9), 2.5, true)
+			_taper(hip + side * 12.0, hip - side * 12.0, 4.0, 4.0, Color(0.3, 0.5, 0.9))
+		&"jujutsu", &"shadow", &"infinity":
+			var cloth := Color(0.1, 0.11, 0.2)
+			if data.style == &"shadow":
+				_draw_shadow_pool(p)
+			_draw_pants(p, cloth)
+			_poly([neck + side * 11.0, hip + side * 12.0, hip - side * 12.0, neck - side * 11.0], cloth, 2.5)
+			for k in 3:
+				draw_circle(neck.lerp(hip, 0.25 + k * 0.22), 1.8, Color(0.85, 0.75, 0.3), true, -1.0, true)
+			if data.style == &"jujutsu":
+				# Red hood bunched behind the neck.
+				draw_circle(neck - Vector2(facing * 7.0, 2.0), 7.0, OUTLINE, true, -1.0, true)
+				draw_circle(neck - Vector2(facing * 7.0, 2.0), 5.5, Color(0.8, 0.15, 0.18), true, -1.0, true)
+			else:
+				# A tall stiff collar.
+				_poly([neck + side * 8.0 + spine * 7.0, neck + side * 10.0, neck - side * 10.0, neck - side * 8.0 + spine * 7.0], cloth, 2.0)
+		&"gi":
+			var gi := Color(0.62, 0.62, 0.66) if form == &"satsui" else Color(0.97, 0.97, 0.95)
+			_draw_pants(p, gi)
+			if form == &"satsui":
+				# Gi top torn off: a bare chest with a burning hole in it.
+				_poly([neck + side * 9.0, hip + side * 8.0, hip - side * 8.0, neck - side * 9.0], data.skin_color, 2.5)
+				var wound := neck.lerp(hip, 0.32)
+				draw_circle(wound, 8.0, Color(0.95, 0.15, 0.1, 0.5 + 0.3 * sin(_time * 8.0)), true, -1.0, true)
+				draw_circle(wound, 5.0, Color(0.03, 0.0, 0.02), true, -1.0, true)
+			else:
+				_poly([neck + side * 11.0, hip + side * 12.0, hip - side * 12.0, neck - side * 11.0], gi, 2.5)
+				draw_colored_polygon(PackedVector2Array([neck + side * 6.0, neck.lerp(hip, 0.4), neck - side * 6.0]), data.skin_color)
+			_taper(hip + side * 12.0, hip - side * 12.0, 5.0, 5.0, Color(0.1, 0.08, 0.1))
+		&"demon":
+			var gi := Color(0.22, 0.22, 0.26)
+			_draw_pants(p, gi)
+			_poly([neck + side * 11.0, hip + side * 12.0, hip - side * 12.0, neck - side * 11.0], gi, 2.5)
+			draw_colored_polygon(PackedVector2Array([neck + side * 6.0, neck.lerp(hip, 0.4), neck - side * 6.0]), data.skin_color)
+			_taper(hip + side * 12.0, hip - side * 12.0, 5.0, 5.0, Color(0.55, 0.4, 0.22))
+			# Prayer beads round the neck.
+			for k in 9:
+				var a := k * TAU / 9.0
+				var at := neck.lerp(hip, 0.12) + Vector2(cos(a) * 9.0, sin(a) * 6.0)
+				draw_circle(at, 2.6, OUTLINE, true, -1.0, true)
+				draw_circle(at, 1.8, Color(0.5, 0.33, 0.2), true, -1.0, true)
+
+
+## Thick trousers over both legs.
+func _draw_pants(p: Dictionary, color: Color) -> void:
+	for leg: Array in [[&"bknee", &"bfoot"], [&"fknee", &"ffoot"]]:
+		var knee: Vector2 = p[leg[0]]
+		var foot: Vector2 = p[leg[1]]
+		var ankle := knee.lerp(foot, 0.85)
+		_taper(p[&"hip"], knee, 15.0, 13.0, OUTLINE)
+		_taper(knee, ankle, 13.0, 11.0, OUTLINE)
+		_taper(p[&"hip"], knee, 12.0, 10.0, color)
+		_taper(knee, ankle, 10.0, 8.0, color)
+
+
+## Hair and faces, in head space.
+func _draw_new_head(head: Vector2, neck: Vector2) -> void:
+	_head_space(head, neck)
+	var r := HEAD_RADIUS
+	var hair := data.hair_color
+	match data.style:
+		&"quincy":
+			# Neat black hair with a side part, falling over one eye, and glasses.
+			var cap := PackedVector2Array()
+			for i in 13:
+				cap.append(Vector2.from_angle(lerpf(PI * 0.9, TAU * 1.02, i / 12.0)) * (r + 2.0))
+			cap.append(Vector2(r * 0.85, r * 0.15))
+			cap.append(Vector2(r * 0.55, -r * 0.4))
+			cap.append(Vector2(-r * 0.6, r * 0.5))
+			_poly(cap, hair, 2.0)
+			for x: float in [0.18, 0.62]:
+				draw_rect(Rect2(Vector2(r * x, -r * 0.08), Vector2(r * 0.36, r * 0.26)), Color(0.9, 0.97, 1.0, 0.85))
+				draw_rect(Rect2(Vector2(r * x, -r * 0.08), Vector2(r * 0.36, r * 0.26)), OUTLINE, false, 1.5)
+			draw_line(Vector2(r * 0.54, r * 0.04), Vector2(r * 0.62, r * 0.04), OUTLINE, 1.5)
+		&"jujutsu":
+			# Short spiky pink hair, dark at the roots.
+			_spiky_cap(hair, [[-40.0, 6.0], [-65.0, 8.0], [-90.0, 9.0], [-115.0, 8.0], [-140.0, 7.0], [-165.0, 5.0]], 2.0)
+			if form == &"sukuna":
+				# Sukuna surfaces: black markings and a second pair of eyes.
+				draw_line(Vector2(r * 0.25, r * 0.15), Vector2(r * 0.85, r * 0.15), OUTLINE, 2.0, true)
+				draw_line(Vector2(r * 0.3, r * 0.45), Vector2(r * 0.8, r * 0.45), OUTLINE, 2.0, true)
+				for eye: Vector2 in [Vector2(r * 0.55, -r * 0.1), Vector2(r * 0.6, r * 0.3)]:
+					draw_circle(eye, 2.6, Color(0.9, 0.1, 0.12), true, -1.0, true)
+				draw_line(Vector2(-r * 0.1, -r * 0.7), Vector2(r * 0.2, -r * 0.3), OUTLINE, 2.0, true)
+		&"shadow":
+			# A big, wild, spiky black sea-urchin of hair and sharp eyes.
+			_spiky_cap(hair, [[0.0, 10.0], [-22.0, 16.0], [-44.0, 19.0], [-66.0, 21.0], [-88.0, 22.0], [-110.0, 21.0], [-132.0, 20.0], [-154.0, 18.0], [-176.0, 16.0], [-198.0, 13.0], [-220.0, 9.0]], 2.0)
+			for eye: Vector2 in [Vector2(r * 0.55, r * 0.02), Vector2(r * 0.22, 0.0)]:
+				draw_line(eye + Vector2(-3.0, -1.0), eye + Vector2(3.0, 1.0), OUTLINE, 2.2, true)
+				draw_circle(eye + Vector2(0.5, 0.8), 1.2, Color(0.3, 0.4, 0.8), true, -1.0, true)
+		&"infinity":
+			# Tall white hair standing straight up, and a blindfold (off when charged).
+			_spiky_cap(hair, [[-50.0, 12.0], [-70.0, 16.0], [-90.0, 18.0], [-110.0, 16.0], [-130.0, 12.0], [-150.0, 9.0]], 2.0)
+			if _charged():
+				for eye: Vector2 in [Vector2(r * 0.55, -r * 0.08), Vector2(r * 0.2, -r * 0.1)]:
+					draw_circle(eye, 5.0, Color(0.3, 0.75, 1.0, 0.35), true, -1.0, true)
+					draw_circle(eye, 2.4, Color(0.55, 0.9, 1.0), true, -1.0, true)
+			else:
+				draw_rect(Rect2(Vector2(-r * 0.9, -r * 0.3), Vector2(r * 1.95, r * 0.42)), OUTLINE)
+		&"gi":
+			# Short brown hair and a red headband with its tails flying behind.
+			_spiky_cap(hair, [[-45.0, 6.0], [-75.0, 8.0], [-105.0, 8.0], [-135.0, 7.0], [-160.0, 5.0]], 2.0)
+			draw_rect(Rect2(Vector2(-r * 0.95, -r * 0.55), Vector2(r * 1.95, r * 0.32)), Color(0.85, 0.12, 0.15))
+			var wave := sin(_time * 6.0) * 3.0
+			for k in 2:
+				draw_polyline(PackedVector2Array([Vector2(-r * 0.9, -r * 0.4), Vector2(-r * 1.7, -r * 0.3 + wave + k * 4.0), Vector2(-r * 2.5, -r * 0.1 - wave + k * 6.0)]), Color(0.85, 0.12, 0.15), 3.0, true)
+			if form == &"satsui":
+				draw_circle(Vector2(r * 0.55, -r * 0.05), 2.6, Color(1.0, 0.15, 0.15), true, -1.0, true)
+		&"demon":
+			# Wild red hair swept up and back, and glowing red eyes.
+			_spiky_cap(hair, [[-30.0, 9.0], [-60.0, 14.0], [-90.0, 15.0], [-120.0, 15.0], [-150.0, 13.0], [-180.0, 10.0]], 2.0)
+			draw_circle(Vector2(r * 0.55, -r * 0.05), 4.5, Color(1.0, 0.15, 0.1, 0.35), true, -1.0, true)
+			draw_circle(Vector2(r * 0.55, -r * 0.05), 2.2, Color(1.0, 0.2, 0.15), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+## Spiky hair over the top of the head in head space: each spike is [angle, length].
+func _spiky_cap(color: Color, spikes: Array, outline: float) -> void:
+	var r := HEAD_RADIUS
+	for pass_index in 2:
+		for spike: Array in spikes:
+			var a := deg_to_rad(float(spike[0]))
+			var grow := outline if pass_index == 0 else 0.0
+			var base := Vector2.from_angle(a) * (r - 3.0)
+			var tip := Vector2.from_angle(a - 0.2) * (r + float(spike[1]) + grow)
+			var across := Vector2.from_angle(a + PI / 2) * (6.0 + grow)
+			draw_colored_polygon(PackedVector2Array([base - across, tip, base + across]), OUTLINE if pass_index == 0 else color)
+	var cap := PackedVector2Array()
+	for i in 13:
+		cap.append(Vector2.from_angle(lerpf(PI * 1.0, TAU * 0.99, i / 12.0)) * (r + 1.0))
+	cap.append(Vector2(r * 0.55, -r * 0.2))
+	cap.append(Vector2(-r * 0.7, r * 0.15))
+	draw_colored_polygon(cap, color)
+
+
+## Aura colour for each of the newer fighters when charged.
+func _new_aura_color() -> Color:
+	match data.style:
+		&"quincy":
+			return Color(0.55, 0.85, 1.0)
+		&"jujutsu":
+			return Color(0.9, 0.15, 0.2) if form == &"sukuna" else Color(0.95, 0.5, 0.6)
+		&"shadow":
+			return Color(0.25, 0.2, 0.45)
+		&"infinity":
+			return Color(0.6, 0.85, 1.0)
+		&"gi":
+			return Color(0.9, 0.1, 0.1) if form == &"satsui" else Color(0.45, 0.7, 1.0)
+		&"demon":
+			return Color(0.75, 0.08, 0.15)
+	return data.body_color
+
+
+## Ryo fights in red gloves; everyone else's hands are bare.
+func _hand_color() -> Color:
+	return Color(0.85, 0.15, 0.15) if data.style == &"gi" else data.skin_color
+
+
+## Megu always stands in a pool of shadow; charged, the Divine Dogs rise out of it.
+func _draw_shadow_pool(p: Dictionary) -> void:
+	var feet: Vector2 = (p[&"bfoot"] as Vector2).lerp(p[&"ffoot"], 0.5)
+	draw_set_transform(feet + Vector2(0, 2), 0.0, Vector2(1.0, 0.22))
+	draw_circle(Vector2.ZERO, 42.0 + sin(_time * 2.0) * 3.0, Color(0.03, 0.02, 0.07, 0.75), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
+	if not _charged():
+		return
+	for dog in 2:
+		var white := dog == 0
+		var at := feet + Vector2(float(facing) * (34.0 if white else -38.0), -4.0 + sin(_time * 3.0 + dog) * 2.0)
+		var fur := Color(0.95, 0.95, 0.97) if white else Color(0.05, 0.04, 0.08)
+		var dir := float(facing) if white else -float(facing)
+		var head := PackedVector2Array([at + Vector2(-dir * 12.0, 0), at + Vector2(-dir * 10.0, -22.0), at + Vector2(-dir * 4.0, -34.0), at + Vector2(dir * 2.0, -24.0), at + Vector2(dir * 18.0, -20.0), at + Vector2(dir * 20.0, -14.0), at + Vector2(dir * 6.0, -8.0), at + Vector2(dir * 4.0, 0)])
+		_poly(head, fur, 2.0)
+		draw_circle(at + Vector2(dir * 6.0, -20.0), 1.8, Color(0.9, 0.2, 0.2) if white else Color(0.9, 0.85, 0.3), true, -1.0, true)

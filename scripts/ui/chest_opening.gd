@@ -30,6 +30,7 @@ func play(kind: String, result: Dictionary) -> void:
 	_rays_color = Chests.RARITY_COLORS[fighter.rarity]
 	_chest = ChestArt.new()
 	_chest.color = Chests.KINDS[kind]["color"]
+	_chest.kind = kind
 	_chest.custom_minimum_size = Vector2(300, 300)
 	_chest.size = Vector2(300, 300)
 	_chest.position = size / 2 - Vector2(150, 110)

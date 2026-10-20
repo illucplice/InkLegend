@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/iron_ball.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"yuj"
+display_name = "Yuj"
+short_name = "Yuj"
+body_color = Color(0.95, 0.45, 0.55, 1)
+accent_color = Color(0.12, 0.13, 0.25, 1)
+skin_color = Color(1, 0.84, 0.7, 1)
+cape_color = Color(0.95, 0.45, 0.55, 1)
+hair_color = Color(0.98, 0.6, 0.66, 1)
+weapon = ExtResource("2_weapon")
+style = &"jujutsu"
+special_name = "Sukuna: Fuga"
+special_description = "Sukuna takes over and looses a blazing fire arrow that explodes."
+price = 600
+rarity = &"legendary"

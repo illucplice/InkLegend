@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"hadoken"
+display_name = "Hadoken"
+max_speed = 1150.0
+body_damage = 22
+head_damage = 38
+count = 1
+spin = 0.0
+sticks = false
+shape = &"hadoken"
+size = 30.0
+color = Color(0.35, 0.65, 1, 1)
+gravity_scale = 0.5
+pull_target = 0.0
+special = &"shinku"

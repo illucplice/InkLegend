@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/blue.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"goj"
+display_name = "Goj"
+short_name = "Goj"
+body_color = Color(0.4, 0.72, 1, 1)
+accent_color = Color(0.1, 0.1, 0.2, 1)
+skin_color = Color(1, 0.88, 0.78, 1)
+cape_color = Color(0.4, 0.72, 1, 1)
+hair_color = Color(0.96, 0.97, 1, 1)
+weapon = ExtResource("2_weapon")
+style = &"infinity"
+special_name = "Hollow Purple"
+special_description = "Red and Blue collide into a beam of purple that erases everything in its path."
+price = 600
+rarity = &"legendary"

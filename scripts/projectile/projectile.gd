@@ -88,7 +88,7 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	fade.set_color(1, Color(1, 1, 1, 0.55))
 	_trail.gradient = fade
 	_trail.z_index = -1
-	if weapon.shape == &"ki":
+	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow"]:
 		set_trail_color(weapon.color)
 		_trail.width = 16.0
 	add_child(_trail)
@@ -374,6 +374,67 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			for k in 4:
 				link += Vector2(-3.0, 5.0)
 				canvas.draw_arc(link, 2.6, 0.0, TAU, 8, ink, 1.6, true)
+		&"quincy":
+			# A spirit arrow: a shaft of blue light with a bright core and a glowing head.
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.42, 0), Color(w.color, 0.35), 9.0, true)
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.42, 0), w.color, 4.0, true)
+			canvas.draw_line(Vector2(-s * 0.45, 0), Vector2(s * 0.4, 0), Color.WHITE, 1.6, true)
+			var tip := PackedVector2Array([Vector2(s * 0.62, 0), Vector2(s * 0.38, -s * 0.12), Vector2(s * 0.44, 0), Vector2(s * 0.38, s * 0.12)])
+			canvas.draw_colored_polygon(tip, w.color.lightened(0.5))
+			for side: float in [-1.0, 1.0]:
+				canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(-s * 0.62, side * 7.0), w.color, 2.0, true)
+		&"iron_ball":
+			# A heavy iron shot-put ball.
+			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 2.0, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5, w.color, true, -1.0, true)
+			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.16), s * 0.16, w.color.lightened(0.4), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.36, 0.3, 1.6, 8, w.color.darkened(0.3), 2.0, true)
+		&"nue":
+			# Nue: a shadow bird with a white mask and spread wings.
+			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
+			for side: float in [-1.0, 1.0]:
+				canvas.draw_colored_polygon(PackedVector2Array([Vector2(-s * 0.1, 0), Vector2(-s * 0.4, side * (s * 0.55 + flap)), Vector2(s * 0.15, side * s * 0.12)]), w.color)
+			canvas.draw_colored_polygon(PackedVector2Array([Vector2(s * 0.45, 0), Vector2(s * 0.05, -s * 0.15), Vector2(-s * 0.5, 0), Vector2(s * 0.05, s * 0.15)]), w.color)
+			canvas.draw_colored_polygon(PackedVector2Array([Vector2(s * 0.44, 0), Vector2(s * 0.22, -s * 0.1), Vector2(s * 0.2, s * 0.08)]), Color(0.95, 0.95, 0.9))
+			canvas.draw_circle(Vector2(s * 0.3, -s * 0.02), 2.0, Color(0.9, 0.2, 0.2), true, -1.0, true)
+		&"blue_orb":
+			# Blue: a swirling sphere of pull, rings spinning round a bright core.
+			var spin := Time.get_ticks_msec() * 0.006
+			for ring in 3:
+				canvas.draw_circle(Vector2.ZERO, s * (1.0 - ring * 0.18), Color(w.color, 0.12 + ring * 0.08), true, -1.0, true)
+			for k in 3:
+				canvas.draw_arc(Vector2.ZERO, s * (0.55 + k * 0.12), spin + k * 2.1, spin + k * 2.1 + 2.2, 12, w.color.lightened(0.3), 2.5, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.32, w.color.lightened(0.5), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.16, Color.WHITE, true, -1.0, true)
+		&"hadoken", &"gou_fireball":
+			# A fireball of ki with flame tongues licking back from it.
+			var flick := Time.get_ticks_msec() * 0.02
+			var core := Color.WHITE if w.shape == &"hadoken" else Color(1.0, 0.75, 0.75)
+			for k in 5:
+				var a := PI + (k - 2) * 0.35
+				var length := s * (0.9 + 0.3 * sin(flick + k))
+				canvas.draw_colored_polygon(PackedVector2Array([Vector2.from_angle(a - 0.4) * s * 0.4, Vector2.from_angle(a) * length, Vector2.from_angle(a + 0.4) * s * 0.4]), Color(w.color, 0.55))
+			canvas.draw_circle(Vector2.ZERO, s * 0.55, Color(w.color, 0.4), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42, w.color, true, -1.0, true)
+			canvas.draw_circle(Vector2(s * 0.06, 0), s * 0.24, core, true, -1.0, true)
+		&"beads":
+			# A loop of prayer beads with a red tassel.
+			for k in 12:
+				var a := k * TAU / 12.0
+				var at := Vector2.from_angle(a) * s * 0.42
+				canvas.draw_circle(at, s * 0.11 + 1.5, ink, true, -1.0, true)
+				canvas.draw_circle(at, s * 0.11, w.color.lightened(0.15 * (k % 2)), true, -1.0, true)
+			canvas.draw_line(Vector2(0, s * 0.42), Vector2(0, s * 0.72), Color(0.8, 0.12, 0.12), 3.0, true)
+			canvas.draw_circle(Vector2(0, s * 0.74), 3.5, Color(0.8, 0.12, 0.12), true, -1.0, true)
+		&"fire_arrow":
+			# Fuga: an arrow of blazing fire.
+			var flick := Time.get_ticks_msec() * 0.03
+			for k in 6:
+				var x := -s * (0.2 + k * 0.17)
+				var h := s * (0.22 - k * 0.025) * (1.0 + 0.3 * sin(flick + k))
+				canvas.draw_colored_polygon(PackedVector2Array([Vector2(x + s * 0.2, -h * 0.6), Vector2(x - s * 0.3, 0), Vector2(x + s * 0.2, h * 0.6)]), Color(1.0, 0.45 + k * 0.05, 0.1, 0.7))
+			canvas.draw_line(Vector2(-s * 0.4, 0), Vector2(s * 0.45, 0), Color(1.0, 0.85, 0.4), 5.0, true)
+			canvas.draw_colored_polygon(PackedVector2Array([Vector2(s * 0.7, 0), Vector2(s * 0.4, -s * 0.16), Vector2(s * 0.46, 0), Vector2(s * 0.4, s * 0.16)]), Color(1.0, 0.95, 0.7))
 		&"crescent":
 			# Moon Fang: a crescent of dark energy with a blood-red rim.
 			var outer := PackedVector2Array()
@@ -433,6 +494,23 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.92, 0.9, 0.85), 1.5, true)
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, nock + Vector2(w.size * 0.5, 0)))
+		&"quincy":
+			# A glowing blue spirit bow, string drawn back to a light arrow.
+			canvas.draw_set_transform_matrix(xf)
+			var limb := PackedVector2Array()
+			for i in 15:
+				var a := lerpf(-1.25, 1.25, i / 14.0)
+				limb.append(Vector2(6 + cos(a) * 12.0 - absf(a) * absf(a) * 3.0, sin(a) * 30.0))
+			canvas.draw_polyline(limb, Color(w.color, 0.35), 9.0, true)
+			canvas.draw_polyline(limb, w.color.lightened(0.3), 3.5, true)
+			var nock := Vector2(2 - pull * 18, 0)
+			canvas.draw_line(limb[0], nock, Color(0.8, 0.95, 1.0), 1.5, true)
+			canvas.draw_line(limb[limb.size() - 1], nock, Color(0.8, 0.95, 1.0), 1.5, true)
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, nock + Vector2(w.size * 0.5, 0)))
+		&"blue_orb", &"hadoken":
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
 		&"ki":
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:

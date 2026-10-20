@@ -33,6 +33,12 @@ const ROSTER := [
 	preload("res://data/fighters/egita.tres"),
 	preload("res://data/fighters/lufi.tres"),
 	preload("res://data/fighters/ichi.tres"),
+	preload("res://data/fighters/uryo.tres"),
+	preload("res://data/fighters/yuj.tres"),
+	preload("res://data/fighters/megu.tres"),
+	preload("res://data/fighters/goj.tres"),
+	preload("res://data/fighters/ryo.tres"),
+	preload("res://data/fighters/akum.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -91,6 +97,11 @@ const BARRAGE_HOMING_TURN := 5.0
 const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
+## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "rain": 0.45, "garden": 1.4}
+## Licht Regen: arrows in the storm, and how far either side of the target they fall.
+const RAIN_ARROWS := 8
+const RAIN_SPREAD := 110.0
 ## The headshot cam can trigger once a throw is this close (px) to a head.
 const CINEMATIC_RANGE := 260.0
 ## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
@@ -923,9 +934,13 @@ func _throw(angle: float, power: float) -> void:
 			_specials_used += 1
 		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
 		Audio.play("win", -8.0, 1.6, 0.0)
-	if special == &"beam":
+	if special in [&"beam", &"purple", &"shinku"]:
 		fighter.powered = false
-		_fire_beam(fighter, angle)
+		_fire_beam(fighter, angle, special)
+		return
+	if special in [&"fuga", &"gou", &"rain", &"garden"]:
+		fighter.powered = false
+		_new_special(fighter, special, angle)
 		return
 	if special == &"orb":
 		fighter.powered = false
@@ -997,6 +1012,9 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * ORB_MULTIPLIER)
 	if projectile.get_meta("barrage", false):
 		damage = maxi(1, roundi(damage * BARRAGE_MULTIPLIER))
+	for kind: String in SPECIAL_MULTIPLIERS:
+		if projectile.get_meta(kind, false):
+			damage = maxi(1, roundi(damage * float(SPECIAL_MULTIPLIERS[kind])))
 	if projectile.get_meta("fang", false):
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
@@ -1009,7 +1027,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false):
+	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false):
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -1110,7 +1128,7 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 
 ## Mega Wave: gather energy, then fire a straight beam. It smashes through obstacles
 ## and stops at the first fighter (or the ground) it meets.
-func _fire_beam(fighter: Fighter, angle: float) -> void:
+func _fire_beam(fighter: Fighter, angle: float, kind: StringName = &"beam") -> void:
 	fighter.power_up(1.8)
 	var origin := fighter.throw_origin()
 	var a := deg_to_rad(angle)
@@ -1142,7 +1160,15 @@ func _fire_beam(fighter: Fighter, angle: float) -> void:
 		struck_target = collider as PracticeTarget
 		break
 	var beam := Beam.new()
-	beam.setup(origin, end, fighter.data.weapon.color)
+	# Hollow Purple and the Shinku Hadoken are fatter beams in their own colours.
+	var beam_color := fighter.data.weapon.color
+	if kind == &"purple":
+		beam_color = Color(0.72, 0.3, 1.0)
+		beam.width_scale = 1.9
+	elif kind == &"shinku":
+		beam_color = Color(0.4, 0.75, 1.0)
+		beam.width_scale = 1.5
+	beam.setup(origin, end, beam_color)
 	_actors.add_child(beam)
 	_beam_end = end
 	Audio.play("whoosh", -2.0, 0.4, 0.0)
@@ -1165,7 +1191,7 @@ func _fire_beam(fighter: Fighter, angle: float) -> void:
 		carrier.weapon = fighter.data.weapon
 		carrier.thrower = fighter
 		carrier.position = end
-		carrier.set_meta("beam", true)
+		carrier.set_meta("purple" if kind == &"purple" else "beam", true)
 		_on_projectile_hit(carrier, victim, part, 1.0, direction * 1500.0 + Vector2(0, -300))
 		carrier.free()
 	if struck_target != null and is_instance_valid(struck_target):
@@ -1464,7 +1490,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special == &"beam" or special == &"fang"
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.
@@ -1623,3 +1649,149 @@ func _resolve_finisher(hit: bool) -> void:
 	_finisher["hit"] = hit
 	state = State.GAME_OVER
 	finisher_resolved.emit()
+
+
+## The newer fighters' specials: Fuga, Gou Hadoken, Licht Regen and Chimera Shadow Garden.
+func _new_special(fighter: Fighter, special: StringName, angle: float) -> void:
+	match special:
+		&"fuga":
+			_fuga(fighter, angle)
+		&"gou":
+			_straight_shot(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", true, 0.0, 2.2)
+		&"rain":
+			_licht_regen(fighter)
+		&"garden":
+			_shadow_garden(fighter)
+
+
+## Yuj: Sukuna takes over (his face marks up), then looses a blazing fire arrow that
+## explodes on whatever it touches.
+func _fuga(fighter: Fighter, angle: float) -> void:
+	var match_id := _match_id
+	fighter.form = &"sukuna"
+	fighter.power_up(2.0)
+	_hud.announce("SUKUNA: FUGA", Color(1.0, 0.35, 0.2))
+	Effects.burst(_actors, fighter.aim_point(true), Color(0.8, 0.1, 0.12), 30, 420.0, 180.0, 1.4)
+	_launching = true
+	await get_tree().create_timer(0.6, false).timeout
+	_launching = false
+	if match_id != _match_id:
+		return
+	_straight_shot(fighter, angle, &"fire_arrow", 64.0, Color(1.0, 0.5, 0.15), "fuga", false, 170.0, 1.0)
+	await get_tree().create_timer(1.6, false).timeout
+	if is_instance_valid(fighter):
+		fighter.form = &""
+
+
+## A big special projectile that flies dead straight: Gou Hadoken pierces obstacles,
+## Fuga explodes.
+func _straight_shot(fighter: Fighter, angle: float, shape: StringName, size: float, color: Color, meta: String, pierce: bool, blast: float, size_scale: float) -> void:
+	fighter.play_throw()
+	var shot := fighter.data.weapon.duplicate() as WeaponData
+	shot.shape = shape
+	shot.size = size
+	shot.color = color
+	shot.spin = 0.0
+	shot.sticks = false
+	shot.gravity_scale = 0.0
+	shot.explode_radius = blast
+	Audio.play("whoosh", 0.0, 0.5, 0.0)
+	_camera.shake(0.4)
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(shot, fighter, fighter.throw_origin(), Rules.launch_velocity(angle, 1.0, FANG_SPEED, fighter.facing), 0.0)
+	projectile.scale = Vector2.ONE * size_scale
+	projectile.target = fighters[1 - current]
+	projectile.pierce = pierce
+	projectile.set_meta(meta, true)
+	projectile.set_trail_color(color)
+	_track(projectile)
+
+
+## Uryo: a storm of spirit arrows falls out of the sky around the target.
+func _licht_regen(fighter: Fighter) -> void:
+	var weapon := fighter.data.weapon
+	var target := fighters[1 - current]
+	var match_id := _match_id
+	fighter.play_throw()
+	_launching = true
+	for i in RAIN_ARROWS:
+		var from := Vector2(target.global_position.x + rng.randf_range(-RAIN_SPREAD, RAIN_SPREAD), -1300.0)
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(weapon, fighter, from, Vector2(rng.randf_range(-80.0, 80.0), 1250.0), 0.0)
+		projectile.target = target
+		projectile.set_meta("rain", true)
+		projectile.set_trail_color(weapon.color)
+		_track(projectile)
+		Audio.play("twang", -8.0, rng.randf_range(1.1, 1.4), 0.0)
+		await get_tree().create_timer(0.07, false).timeout
+		if match_id != _match_id:
+			return
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
+
+
+## Megu: shadows flood across the ground; spikes of shadow burst up under the enemy,
+## hurting them and pinning them for a turn. It cannot be blocked by obstacles.
+func _shadow_garden(fighter: Fighter) -> void:
+	var match_id := _match_id
+	var target := fighters[1 - current]
+	fighter.play_throw()
+	var pool := {"r": 0.0}
+	var shadows := Node2D.new()
+	shadows.z_index = 3
+	shadows.draw.connect(func() -> void:
+		var r: float = pool["r"]
+		shadows.draw_set_transform(Vector2(fighter.global_position.x, -2), 0.0, Vector2(1.0, 0.12))
+		shadows.draw_circle(Vector2.ZERO, r, Color(0.04, 0.03, 0.08, 0.85), true, -1.0, true)
+		shadows.draw_set_transform(Vector2.ZERO))
+	_actors.add_child(shadows)
+	var spread := shadows.create_tween()
+	var reach := absf(target.global_position.x - fighter.global_position.x) + 260.0
+	spread.tween_method(func(r: float) -> void:
+		pool["r"] = r
+		shadows.queue_redraw(), 0.0, reach, 0.7).set_trans(Tween.TRANS_SINE)
+	Audio.play("whoosh", -2.0, 0.35, 0.0)
+	await spread.finished
+	if match_id != _match_id:
+		return
+	# Spikes erupt under them.
+	var spikes := Node2D.new()
+	spikes.z_index = 6
+	spikes.position = target.global_position
+	spikes.draw.connect(func() -> void:
+		for k in 7:
+			var x := (k - 3) * 18.0
+			var h := 120.0 - absf(k - 3) * 24.0
+			spikes.draw_colored_polygon(PackedVector2Array([Vector2(x - 9, 0), Vector2(x + (k - 3) * 6.0, -h), Vector2(x + 9, 0)]), Color(0.05, 0.04, 0.1)))
+	_actors.add_child(spikes)
+	spikes.scale = Vector2(1, 0)
+	var burst := spikes.create_tween()
+	burst.tween_property(spikes, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	burst.tween_interval(0.7)
+	burst.tween_property(spikes, "modulate:a", 0.0, 0.3)
+	burst.tween_callback(spikes.queue_free)
+	Audio.play("hit_body", 2.0, 0.6, 0.0)
+	_camera.shake(0.6)
+	var carrier := Projectile.new()
+	carrier.weapon = fighter.data.weapon
+	carrier.thrower = fighter
+	carrier.position = target.aim_point(false)
+	carrier.set_meta("garden", true)
+	if mode == Mode.PRACTICE:
+		if _practice_target != null and is_instance_valid(_practice_target):
+			_on_practice_target_hit(carrier, _practice_target)
+	else:
+		_on_projectile_hit(carrier, target, Rules.BODY, 1.0, Vector2(0, -600))
+		if not target.is_knocked_out():
+			target.pinned = true
+			_hud.announce("CAUGHT IN SHADOW!", Color(0.6, 0.55, 0.95))
+	carrier.free()
+	await get_tree().create_timer(0.9, false).timeout
+	var fade := shadows.create_tween()
+	fade.tween_property(shadows, "modulate:a", 0.0, 0.4)
+	fade.tween_callback(shadows.queue_free)
+	if match_id == _match_id:
+		_after_throw()

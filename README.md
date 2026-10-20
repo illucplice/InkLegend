@@ -1,4 +1,4 @@
-# Wobble Wars
+# Ink Legends
 
 Turn-based aim-and-throw with pen-and-ink stickmen. Godot 4.7, built for desktop and phones.
 
