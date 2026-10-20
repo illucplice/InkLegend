@@ -98,10 +98,19 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "rain": 0.45, "garden": 1.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.45, "dogs": 0.9}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 const RAIN_ARROWS := 8
-const RAIN_SPREAD := 110.0
+const RAIN_SPREAD := 45.0
+## Hollow Purple: blast radius, and how close (px) and fast (px/s at point blank) it drags the enemy.
+const PURPLE_RADIUS := 240.0
+const PURPLE_PULL_RANGE := 600.0
+const PURPLE_PULL_SPEED := 420.0
+## Blue (Goj's basic throw): a smaller, gentler pull.
+const BLUE_PULL_RANGE := 420.0
+const BLUE_PULL_SPEED := 300.0
+## Divine Dogs: how fast the wolves run, px/s.
+const DOG_SPEED := 1100.0
 ## The headshot cam can trigger once a throw is this close (px) to a head.
 const CINEMATIC_RANGE := 260.0
 ## Wind strength per AI difficulty; 1v1 uses LOCAL_WIND.
@@ -260,6 +269,8 @@ func go_to_menu() -> void:
 	state = State.MENU
 	tournament = {}
 	_arena.set_spread(MENU_GAP / 2)
+	Terrain.build(rng, MENU_GAP / 2, 0.6 * (current_map.terrain_roughness if current_map != null else 1.0))
+	_arena.refresh_terrain()
 	_build_obstacles(MENU_GAP, 1210.0)
 	_camera.snap()
 	_hud.show_title()
@@ -289,6 +300,8 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	var gap := Rules.random_distance_px(rng, current_map)
 	_gap = gap
 	_arena.set_spread(gap / 2)
+	Terrain.build(rng, gap / 2, current_map.terrain_roughness)
+	_arena.refresh_terrain()
 	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
 	var vs_ai := mode != Mode.LOCAL_2P
 	fighters.append(_spawn_fighter(left, -gap / 2, 1, vs_ai and autoplay))
@@ -420,7 +433,7 @@ func _pull_fighter(target: Fighter, thrower: Fighter, amount: float) -> void:
 	if absf(x - target.position.x) < 2.0:
 		return
 	Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "PULLED!", Color(1.0, 0.55, 0.75), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
-	target.create_tween().tween_property(target, "position:x", x, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	target.create_tween().tween_property(target, "position", Vector2(x, Terrain.height_at(x)), 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 ## Bomb: everyone in the blast takes damage (less toward the edge) and is thrown
@@ -466,6 +479,8 @@ func start_practice(pick: FighterData) -> void:
 	_obstacle_rects.clear()
 	_gap = 2000.0
 	_arena.set_spread(700.0)
+	Terrain.build(rng, 700.0, 0.7 * current_map.terrain_roughness)
+	_arena.refresh_terrain()
 	fighters.append(_spawn_fighter(pick, -700, 1, false))
 	# An invisible stand-in opponent keeps the two-sided turn code happy; it can't be hit.
 	var stand_in := _spawn_fighter(pick, 3600, -1, true)
@@ -507,7 +522,7 @@ func _spawn_practice_target() -> void:
 	var distance := (25.0 + index * 6.0) * Rules.PX_PER_M
 	var floating := index >= 3 and index % 2 == 1
 	var height := rng.randf_range(160.0, 340.0) if floating else 70.0
-	var at := Vector2(thrower_x + distance, -height)
+	var at := Vector2(thrower_x + distance, -height + Terrain.height_at(thrower_x + distance))
 	# From the 6th target on, a wall stands in the way.
 	for child in _obstacle_layer.get_children():
 		child.queue_free()
@@ -517,6 +532,7 @@ func _spawn_practice_target() -> void:
 		var mid := thrower_x + distance * 0.5
 		var box := Rect2(mid - 45, -rng.randf_range(160.0, 260.0), 90, 0)
 		box.size.y = -box.position.y
+		box.position.y += Terrain.height_at(mid)
 		wall.setup(&"tower", box, rng.randi(), current_map)
 		wall.destroyed.connect(_on_obstacle_destroyed)
 		_obstacle_layer.add_child(wall)
@@ -679,6 +695,11 @@ func _build_obstacles(gap: float, slowest_speed: float) -> void:
 	for child in _obstacle_layer.get_children():
 		child.queue_free()
 	var layout := ObstacleLayout.generate(rng, gap, slowest_speed, current_map.obstacle_patterns if current_map != null else PackedStringArray())
+	# Stand each obstacle on the ground beneath it.
+	for item in layout:
+		var box: Rect2 = item["rect"]
+		box.position.y += Terrain.height_at(box.get_center().x)
+		item["rect"] = box
 	_obstacle_rects = ObstacleLayout.rects(layout)
 	for item in layout:
 		var obstacle := Obstacle.new()
@@ -727,7 +748,8 @@ func _maybe_spawn_crate(chance: float) -> void:
 	if rng.randf() > chance:
 		return
 	for attempt in 12:
-		var at := Vector2(rng.randf_range(-_gap * 0.28, _gap * 0.28), rng.randf_range(-430.0, -250.0))
+		var crate_x := rng.randf_range(-_gap * 0.28, _gap * 0.28)
+		var at := Vector2(crate_x, rng.randf_range(-430.0, -250.0) + Terrain.height_at(crate_x))
 		var space := Rect2(at - Vector2(40, 110), Vector2(80, 140))
 		var clear := true
 		for box in _obstacle_rects:
@@ -765,7 +787,7 @@ func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
 
 func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fighter:
 	var fighter: Fighter = FIGHTER_SCENE.instantiate()
-	fighter.position = Vector2(x, 0)
+	fighter.position = Vector2(x, Terrain.height_at(x))
 	_actors.add_child(fighter)
 	# Fighters only move when a plunger drags them, by tween, so skip interpolation.
 	fighter.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -853,6 +875,7 @@ func _process(delta: float) -> void:
 
 ## Slow-mo cam: if a throw is about to hit a head, slow time and swoop in on it.
 func _physics_process(_delta: float) -> void:
+	_pull_toward_purple(_delta)
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
 	for projectile in _in_flight:
@@ -934,13 +957,13 @@ func _throw(angle: float, power: float) -> void:
 			_specials_used += 1
 		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
 		Audio.play("win", -8.0, 1.6, 0.0)
-	if special in [&"beam", &"purple", &"shinku"]:
+	if special == &"beam":
 		fighter.powered = false
 		_fire_beam(fighter, angle, special)
 		return
-	if special in [&"fuga", &"gou", &"rain", &"garden"]:
+	if special in [&"fuga", &"gou", &"rain", &"dogs", &"purple", &"shinku"]:
 		fighter.powered = false
-		_new_special(fighter, special, angle)
+		_new_special(fighter, special, angle, power)
 		return
 	if special == &"orb":
 		fighter.powered = false
@@ -984,6 +1007,9 @@ func _throw(angle: float, power: float) -> void:
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.hit_crate.connect(_on_projectile_hit_crate)
 		projectile.hit_target.connect(_on_practice_target_hit)
+		# Blue drags the enemy toward it as it flies.
+		if weapon.shape == &"blue_orb":
+			projectile.set_meta("blue", true)
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -1083,8 +1109,12 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
 			_camera.shake(0.45 if projectile.weapon.count == 1 else 0.25)
 			_slow_time(0.06, 0.15)
+	# A wet splat on top of solid hits (blood or ink, per the Gore setting).
+	if damage >= 18:
+		Audio.play("splat", -8.0 + minf(damage, 60) * 0.1, randf_range(0.9, 1.2), 0.0)
 	if target.is_knocked_out():
 		Audio.play("ko", 0.0, 1.0, 0.0)
+		Audio.play("gore", -2.0, 1.0, 0.0)
 		Device.vibrate(140)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -150), "K.O.!", Color(1.0, 0.4, 0.3), 80, inv_zoom, view)
 		_camera.shake(1.0)
@@ -1563,10 +1593,12 @@ func _moon_fang(fighter: Fighter, angle: float) -> void:
 
 ## Moon Fang slicing through an obstacle on its way.
 func _on_projectile_pierced(projectile: Projectile, obstacle: Obstacle) -> void:
-	obstacle.damage(2)
+	# Hollow Purple erases obstacles outright; everything else cuts a chunk out.
+	var devour: bool = projectile.get_meta("devour", false)
+	obstacle.damage(999 if devour else 2)
 	var at := projectile.global_position
 	Effects.burst(_actors, at, projectile.weapon.color.lightened(0.3), 24, 520.0, 180.0, 1.2)
-	Effects.popup(_actors, at + Vector2(0, -50), "SLICED!", Color(1.0, 0.45, 0.45), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.popup(_actors, at + Vector2(0, -50), "ERASED!" if devour else "SLICED!", Color(1.0, 0.45, 0.45), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Audio.play("thunk", 0.0, 0.5, 0.0)
 	_camera.shake(0.35)
 
@@ -1651,41 +1683,41 @@ func _resolve_finisher(hit: bool) -> void:
 	finisher_resolved.emit()
 
 
-## The newer fighters' specials: Fuga, Gou Hadoken, Licht Regen and Chimera Shadow Garden.
-func _new_special(fighter: Fighter, special: StringName, angle: float) -> void:
+## The newer fighters' specials: Fuga, Gou and Shinku Hadoken, Hollow Purple, Licht
+## Regen and the Divine Dogs.
+func _new_special(fighter: Fighter, special: StringName, angle: float, power: float) -> void:
 	match special:
 		&"fuga":
 			_fuga(fighter, angle)
 		&"gou":
-			_straight_shot(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", true, 0.0, 2.2)
+			_straight_shot(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", true, 170.0, 3.4)
+		&"shinku":
+			_straight_shot(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", false, 150.0, 2.8)
+		&"purple":
+			_hollow_purple(fighter, angle)
 		&"rain":
 			_licht_regen(fighter)
-		&"garden":
-			_shadow_garden(fighter)
+		&"dogs":
+			_divine_dogs(fighter)
 
 
-## Yuj: Sukuna takes over (his face marks up), then looses a blazing fire arrow that
-## explodes on whatever it touches.
+## Yuj: Sukuna takes over (tattoos and all), then looses a giant fire arrow that burns
+## through obstacles and explodes on the enemy.
 func _fuga(fighter: Fighter, angle: float) -> void:
 	var match_id := _match_id
-	fighter.form = &"sukuna"
 	fighter.power_up(2.0)
-	_hud.announce("SUKUNA: FUGA", Color(1.0, 0.35, 0.2))
 	Effects.burst(_actors, fighter.aim_point(true), Color(0.8, 0.1, 0.12), 30, 420.0, 180.0, 1.4)
 	_launching = true
 	await get_tree().create_timer(0.6, false).timeout
 	_launching = false
 	if match_id != _match_id:
 		return
-	_straight_shot(fighter, angle, &"fire_arrow", 64.0, Color(1.0, 0.5, 0.15), "fuga", false, 170.0, 1.0)
-	await get_tree().create_timer(1.6, false).timeout
-	if is_instance_valid(fighter):
-		fighter.form = &""
+	_straight_shot(fighter, angle, &"fire_arrow", 64.0, Color(1.0, 0.5, 0.15), "fuga", true, 200.0, 2.2)
 
 
-## A big special projectile that flies dead straight: Gou Hadoken pierces obstacles,
-## Fuga explodes.
-func _straight_shot(fighter: Fighter, angle: float, shape: StringName, size: float, color: Color, meta: String, pierce: bool, blast: float, size_scale: float) -> void:
+## A big special projectile that flies dead straight; it can burn through obstacles
+## and explodes on whatever stops it.
+func _straight_shot(fighter: Fighter, angle: float, shape: StringName, size: float, color: Color, meta: String, pierce: bool, blast: float, size_scale: float) -> Projectile:
 	fighter.play_throw()
 	var shot := fighter.data.weapon.duplicate() as WeaponData
 	shot.shape = shape
@@ -1695,6 +1727,7 @@ func _straight_shot(fighter: Fighter, angle: float, shape: StringName, size: flo
 	shot.sticks = false
 	shot.gravity_scale = 0.0
 	shot.explode_radius = blast
+	shot.pull_target = 0.0
 	Audio.play("whoosh", 0.0, 0.5, 0.0)
 	_camera.shake(0.4)
 	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
@@ -1706,9 +1739,49 @@ func _straight_shot(fighter: Fighter, angle: float, shape: StringName, size: flo
 	projectile.set_meta(meta, true)
 	projectile.set_trail_color(color)
 	_track(projectile)
+	return projectile
 
 
-## Uryo: a storm of spirit arrows falls out of the sky around the target.
+## Goj: Hollow Purple flies dead straight and devours everything in its path: every
+## obstacle it touches is erased outright, and it still drags the enemy toward it as
+## it closes in, before bursting on them.
+func _hollow_purple(fighter: Fighter, angle: float) -> void:
+	fighter.power_up(1.5)
+	var projectile := _straight_shot(fighter, angle, &"blue_orb", 30.0, Color(0.72, 0.3, 1.0), "purple", true, PURPLE_RADIUS, 2.6)
+	projectile.set_meta("devour", true)
+	Audio.play("whoosh", 2.0, 0.3, 0.0)
+
+
+## Hollow Purple and Blue both pull: each tick one is in flight, the enemy slides toward
+## it, faster the nearer it is. They are never dragged into the obstacles in the middle.
+func _pull_toward_purple(delta: float) -> void:
+	for projectile in _in_flight:
+		if not is_instance_valid(projectile) or not projectile.is_flying():
+			continue
+		var purple: bool = projectile.get_meta("purple", false)
+		if not purple and not projectile.get_meta("blue", false):
+			continue
+		var target := projectile.target
+		if target == null or target.is_knocked_out():
+			continue
+		var reach := PURPLE_PULL_RANGE if purple else BLUE_PULL_RANGE
+		var distance := projectile.global_position.distance_to(target.aim_point(false))
+		if distance > reach:
+			continue
+		var strength := 1.0 - distance / reach
+		var speed := PURPLE_PULL_SPEED if purple else BLUE_PULL_SPEED
+		var x := move_toward(target.position.x, projectile.global_position.x, speed * strength * delta)
+		var nearest := 450.0
+		for box in _obstacle_rects:
+			nearest = maxf(nearest, maxf(absf(box.position.x), absf(box.end.x)) + 150.0)
+		if absf(x) < nearest:
+			x = signf(target.position.x) * nearest
+		target.position = Vector2(x, Terrain.height_at(x))
+		target._tilt_velocity += signf(projectile.global_position.x - x) * strength * 0.6
+
+
+## Uryo: a storm of spirit arrows falls out of the sky right over the target, each
+## arrow bending toward them as it comes down.
 func _licht_regen(fighter: Fighter) -> void:
 	var weapon := fighter.data.weapon
 	var target := fighters[1 - current]
@@ -1716,11 +1789,15 @@ func _licht_regen(fighter: Fighter) -> void:
 	fighter.play_throw()
 	_launching = true
 	for i in RAIN_ARROWS:
-		var from := Vector2(target.global_position.x + rng.randf_range(-RAIN_SPREAD, RAIN_SPREAD), -1300.0)
+		var aim: Vector2 = _practice_target.global_position if mode == Mode.PRACTICE and _practice_target != null and is_instance_valid(_practice_target) else target.aim_point(false)
+		var from := Vector2(aim.x + rng.randf_range(-RAIN_SPREAD, RAIN_SPREAD), aim.y - 1100.0)
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 		_actors.add_child(projectile)
-		projectile.launch(weapon, fighter, from, Vector2(rng.randf_range(-80.0, 80.0), 1250.0), 0.0)
+		projectile.launch(weapon, fighter, from, Vector2((aim.x - from.x) * 0.9, 1250.0), 0.0)
 		projectile.target = target
+		projectile.homing_target = _practice_target if mode == Mode.PRACTICE else target
+		projectile.homing_range = 500.0
+		projectile.homing_turn = 5.0
 		projectile.set_meta("rain", true)
 		projectile.set_trail_color(weapon.color)
 		_track(projectile)
@@ -1733,65 +1810,77 @@ func _licht_regen(fighter: Fighter) -> void:
 		_after_throw()
 
 
-## Megu: shadows flood across the ground; spikes of shadow burst up under the enemy,
-## hurting them and pinning them for a turn. It cannot be blocked by obstacles.
-func _shadow_garden(fighter: Fighter) -> void:
+## Megu: two shadow wolves, one white and one black, burst out of his shadow, race
+## across the ground and maul the enemy.
+func _divine_dogs(fighter: Fighter) -> void:
 	var match_id := _match_id
 	var target := fighters[1 - current]
+	var goal_x: float = _practice_target.global_position.x if mode == Mode.PRACTICE and _practice_target != null and is_instance_valid(_practice_target) else target.global_position.x
 	fighter.play_throw()
-	var pool := {"r": 0.0}
-	var shadows := Node2D.new()
-	shadows.z_index = 3
-	shadows.draw.connect(func() -> void:
-		var r: float = pool["r"]
-		shadows.draw_set_transform(Vector2(fighter.global_position.x, -2), 0.0, Vector2(1.0, 0.12))
-		shadows.draw_circle(Vector2.ZERO, r, Color(0.04, 0.03, 0.08, 0.85), true, -1.0, true)
-		shadows.draw_set_transform(Vector2.ZERO))
-	_actors.add_child(shadows)
-	var spread := shadows.create_tween()
-	var reach := absf(target.global_position.x - fighter.global_position.x) + 260.0
-	spread.tween_method(func(r: float) -> void:
-		pool["r"] = r
-		shadows.queue_redraw(), 0.0, reach, 0.7).set_trans(Tween.TRANS_SINE)
-	Audio.play("whoosh", -2.0, 0.35, 0.0)
-	await spread.finished
-	if match_id != _match_id:
-		return
-	# Spikes erupt under them.
-	var spikes := Node2D.new()
-	spikes.z_index = 6
-	spikes.position = target.global_position
-	spikes.draw.connect(func() -> void:
-		for k in 7:
-			var x := (k - 3) * 18.0
-			var h := 120.0 - absf(k - 3) * 24.0
-			spikes.draw_colored_polygon(PackedVector2Array([Vector2(x - 9, 0), Vector2(x + (k - 3) * 6.0, -h), Vector2(x + 9, 0)]), Color(0.05, 0.04, 0.1)))
-	_actors.add_child(spikes)
-	spikes.scale = Vector2(1, 0)
-	var burst := spikes.create_tween()
-	burst.tween_property(spikes, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	burst.tween_interval(0.7)
-	burst.tween_property(spikes, "modulate:a", 0.0, 0.3)
-	burst.tween_callback(spikes.queue_free)
-	Audio.play("hit_body", 2.0, 0.6, 0.0)
-	_camera.shake(0.6)
+	Audio.play("ko", -4.0, 1.4, 0.0)
+	_launching = true
+	var running := {"left": 2}
+	for dog in 2:
+		var white := dog == 0
+		var wolf := Node2D.new()
+		wolf.z_index = 6
+		var start_x := fighter.global_position.x + fighter.facing * 30.0
+		var gait := {"t": 0.0}
+		wolf.draw.connect(func() -> void:
+			var fur := Color(0.95, 0.95, 0.97) if white else Color(0.06, 0.05, 0.1)
+			var step: float = sin(float(gait["t"]) * 30.0) * 7.0
+			var f := float(fighter.facing)
+			var body := PackedVector2Array([Vector2(-30 * f, -26), Vector2(18 * f, -32), Vector2(30 * f, -26), Vector2(26 * f, -16), Vector2(-28 * f, -14)])
+			wolf.draw_colored_polygon(body, fur)
+			wolf.draw_polyline(PackedVector2Array([body[0], body[1], body[2], body[3], body[4], body[0]]), Color(0.06, 0.055, 0.07), 2.0, true)
+			var head := PackedVector2Array([Vector2(24 * f, -30), Vector2(34 * f, -46), Vector2(40 * f, -38), Vector2(52 * f, -34), Vector2(40 * f, -24)])
+			wolf.draw_colored_polygon(head, fur)
+			wolf.draw_polyline(PackedVector2Array([head[0], head[1], head[2], head[3], head[4], head[0]]), Color(0.06, 0.055, 0.07), 2.0, true)
+			wolf.draw_circle(Vector2(40 * f, -34), 2.0, Color(0.9, 0.2, 0.2) if white else Color(0.95, 0.85, 0.3), true, -1.0, true)
+			for leg in 4:
+				var lx := (-22.0 + leg * 14.0) * f
+				var swing := step if leg % 2 == 0 else -step
+				wolf.draw_line(Vector2(lx, -16), Vector2(lx + swing * f, 0), Color(0.06, 0.055, 0.07), 4.0, true)
+			wolf.draw_polyline(PackedVector2Array([Vector2(-30 * f, -24), Vector2(-44 * f, -32), Vector2(-50 * f, -26)]), fur, 4.0, true))
+		wolf.scale = Vector2.ONE * 1.6
+		_actors.add_child(wolf)
+		var run := wolf.create_tween()
+		var seconds := absf(goal_x - start_x) / DOG_SPEED
+		run.tween_interval(dog * 0.25)
+		run.tween_method(func(x: float) -> void:
+			gait["t"] = x / DOG_SPEED
+			wolf.position = Vector2(x, Terrain.height_at(x))
+			wolf.queue_redraw(), start_x, goal_x - fighter.facing * 20.0, seconds)
+		run.tween_callback(func() -> void:
+			if match_id != _match_id:
+				return
+			_dog_bite(fighter, target, wolf.position)
+			var fade := wolf.create_tween()
+			fade.tween_property(wolf, "modulate:a", 0.0, 0.3)
+			fade.tween_callback(wolf.queue_free)
+			running["left"] = int(running["left"]) - 1
+			if int(running["left"]) <= 0:
+				_launching = false
+				var settle := get_tree().create_timer(0.5, false)
+				settle.timeout.connect(func() -> void:
+					if match_id == _match_id and state == State.FLYING and _in_flight.is_empty():
+						_after_throw()))
+	state = State.FLYING
+
+
+## One Divine Dog sinking its teeth in.
+func _dog_bite(fighter: Fighter, target: Fighter, at: Vector2) -> void:
+	Audio.play("hit_body", 2.0, 0.8, 0.0)
+	_camera.shake(0.5)
+	Effects.burst(_actors, at + Vector2(0, -40), Color(0.75, 0.05, 0.08), 18, 420.0, 180.0, 1.2)
 	var carrier := Projectile.new()
 	carrier.weapon = fighter.data.weapon
 	carrier.thrower = fighter
-	carrier.position = target.aim_point(false)
-	carrier.set_meta("garden", true)
+	carrier.position = at + Vector2(0, -50)
+	carrier.set_meta("dogs", true)
 	if mode == Mode.PRACTICE:
 		if _practice_target != null and is_instance_valid(_practice_target):
 			_on_practice_target_hit(carrier, _practice_target)
-	else:
-		_on_projectile_hit(carrier, target, Rules.BODY, 1.0, Vector2(0, -600))
-		if not target.is_knocked_out():
-			target.pinned = true
-			_hud.announce("CAUGHT IN SHADOW!", Color(0.6, 0.55, 0.95))
+	elif not target.is_knocked_out():
+		_on_projectile_hit(carrier, target, Rules.BODY, 1.0, Vector2(fighter.facing * 500.0, -300.0))
 	carrier.free()
-	await get_tree().create_timer(0.9, false).timeout
-	var fade := shadows.create_tween()
-	fade.tween_property(shadows, "modulate:a", 0.0, 0.4)
-	fade.tween_callback(shadows.queue_free)
-	if match_id == _match_id:
-		_after_throw()

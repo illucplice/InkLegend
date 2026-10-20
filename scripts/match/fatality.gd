@@ -35,6 +35,8 @@ var _drops := 0
 var _bounce: Tween
 ## The game speed before the fatality, put back when it ends.
 var _base_scale := 1.0
+## When each gore sound last played (see _sfx).
+var _last_sfx := {}
 ## What the camera frames while the finisher plays.
 var _frame := PackedVector2Array()
 
@@ -134,7 +136,7 @@ func _finish() -> void:
 	if is_instance_valid(winner):
 		winner.scale = Vector2.ONE
 		winner.form = &""
-		winner.global_position.y = 0.0
+		winner.global_position.y = Terrain.height_at(winner.global_position.x)
 		winner.aiming = false
 	finished.emit()
 
@@ -644,7 +646,7 @@ func _flash_ring(at: Vector2, color: Color, radius: float) -> void:
 func _obliterate() -> void:
 	var side := _toward_loser()
 	winner.power_up(4.0)
-	var above := Vector2(loser.global_position.x - side * 60.0, -430.0)
+	var above := Vector2(loser.global_position.x - side * 60.0, loser.global_position.y - 430.0)
 	_frame_around(loser.global_position, 320.0, 620.0)
 	Audio.play("whoosh", 0.0, 0.4, 0.0)
 	await _move_winner(above, 0.7, 0.0)
@@ -715,7 +717,7 @@ func _home_run() -> void:
 	if not await _wait(0.5):
 		return
 	# Up and over.
-	var above := Vector2(loser.global_position.x - side * 30.0, -380.0)
+	var above := Vector2(loser.global_position.x - side * 30.0, loser.global_position.y - 380.0)
 	_frame_around(loser.global_position + Vector2(0, -60), 300.0, 620.0)
 	Audio.play("whoosh", 0.0, 0.7, 0.0)
 	await _move_winner(above, 0.55, 160.0)
@@ -788,7 +790,7 @@ func _moon_slash() -> void:
 		return
 	var b := loser.body_points()
 	var centre: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.4)
-	winner.global_position.x = loser.global_position.x - side * 120.0
+	_place_winner(loser.global_position.x - side * 120.0)
 	winner.reset_physics_interpolation()
 	for i in 3:
 		var angle := [-0.6, 0.5, -0.1][i] as float
@@ -805,12 +807,13 @@ func _moon_slash() -> void:
 		fade.tween_property(slash, "modulate:a", 0.0, 0.4)
 		fade.tween_callback(slash.queue_free)
 		Audio.play("whoosh", -2.0, 1.4 + i * 0.1, 0.0)
+		_sfx("slice", 0.0, 1.0 + i * 0.1)
 		loser._flash = 1.0
 		_spray(centre + Vector2(0, (i - 1) * 24.0), Vector2(randf_range(-1, 1), -1.0).normalized(), 14, 380.0, 0.6)
 		if not await _wait(0.16):
 			return
 	# Back off and raise the arm: Mugetsu.
-	winner.global_position.x = loser.global_position.x - side * 260.0
+	_place_winner(loser.global_position.x - side * 260.0)
 	winner.reset_physics_interpolation()
 	winner.aiming = true
 	winner.aim_angle = 88.0
@@ -936,7 +939,7 @@ func _sprenger() -> void:
 	hud.announce("HIRENKYAKU", Color(0.6, 0.85, 1.0))
 	Audio.play("whoosh", 2.0, 1.7, 0.0)
 	var start := winner.global_position
-	await _move_winner(Vector2(at.x - side * 230.0, -420.0), 0.3, 0.0)
+	await _move_winner(Vector2(at.x - side * 230.0, at.y - 420.0), 0.3, 0.0)
 	if _done:
 		return
 	winner.aiming = true
@@ -1058,7 +1061,7 @@ func _malevolent_shrine() -> void:
 	_wash(Color(0.25, 0.0, 0.02), 0.55, 0.6, 3.2, 0.8, 2)
 	# The shrine looms up behind him.
 	var rise := {"s": 0.0}
-	var base := Vector2(winner.global_position.x - side * 140.0, 0)
+	var base := Vector2(winner.global_position.x - side * 140.0, Terrain.height_at(winner.global_position.x - side * 140.0))
 	var shrine := _prop(func(canvas: Node2D) -> void:
 		var s: float = rise["s"]
 		if s <= 0.01:
@@ -1112,7 +1115,7 @@ func _malevolent_shrine() -> void:
 		loser._tilt_velocity += randf_range(-3, 3)
 		if cut % 2 == 0:
 			_spray(slash.position, Vector2.from_angle(angle + PI / 2), 8, 420.0, 0.5)
-			Audio.play("whoosh", -6.0, randf_range(1.6, 2.0), 0.0)
+			_sfx("slice", -2.0, randf_range(0.9, 1.3))
 		if not await _wait(0.06):
 			return
 	# Cleave: one enormous cut right across the screen.
@@ -1158,7 +1161,7 @@ func _mahoraga() -> void:
 	winner.power_up(6.0)
 	hud.announce("I SUMMON... MAHORAGA!", Color(0.85, 0.85, 0.95))
 	# He rises out of the shadow right beside the enemy.
-	var spot := Vector2(loser.global_position.x - side * 170.0, 0)
+	var spot := Vector2(loser.global_position.x - side * 170.0, Terrain.height_at(loser.global_position.x - side * 170.0))
 	var shadow := _prop(func(canvas: Node2D) -> void:
 		canvas.draw_set_transform(spot, 0.0, Vector2(1.0, 0.14))
 		canvas.draw_circle(Vector2.ZERO, 170.0, Color(0.03, 0.02, 0.06, 0.9), true, -1.0, true)
@@ -1307,7 +1310,7 @@ func _unlimited_void() -> void:
 	var void_fade := stars.create_tween()
 	void_fade.tween_property(stars, "modulate:a", 0.0, 0.5)
 	var side := _toward_loser()
-	winner.global_position.x = loser.global_position.x + side * 46.0
+	_place_winner(loser.global_position.x + side * 46.0)
 	winner.facing = -winner.facing
 	winner.reset_physics_interpolation()
 	winner.aiming = true
@@ -1461,6 +1464,9 @@ func _raging_demon() -> void:
 
 ## Moves the winner to `to` over `seconds`, hopping `arc` px high on the way.
 func _move_winner(to: Vector2, seconds: float, arc: float) -> void:
+	# y = 0 means "on the ground there".
+	if is_zero_approx(to.y):
+		to.y = Terrain.height_at(to.x)
 	var start := winner.global_position
 	var move := winner.create_tween()
 	move.tween_method(func(t: float) -> void:
@@ -1509,6 +1515,8 @@ func _gib(points: PackedVector2Array, velocity: Vector2, spin: float, bleed: flo
 
 
 func _hide_loser() -> void:
+	_sfx("gore", 2.0, randf_range(0.9, 1.05))
+	_sfx("crunch", -2.0, randf_range(0.9, 1.1))
 	loser.visible = false
 	for box in loser.get_children():
 		if box is Hitbox:
@@ -1575,12 +1583,13 @@ func _scorch(x: float, radius: float) -> void:
 		canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.16))
 		canvas.draw_circle(Vector2.ZERO, radius, Color(0.08, 0.06, 0.06, 0.55), true, -1.0, true)
 		canvas.draw_circle(Vector2.ZERO, radius * 0.6, Color(0.05, 0.04, 0.04, 0.6), true, -1.0, true))
-	mark.position = Vector2(x, -2)
+	mark.position = Vector2(x, Terrain.height_at(x) - 2.0)
 	mark.z_index = -1
 
 
 ## A burst of blood drops along `direction`, spread by up to `spread` radians.
 func _spray(at: Vector2, direction: Vector2, amount: int, speed: float, spread: float) -> void:
+	_sfx("splat", -6.0 + minf(amount, 60) * 0.08, randf_range(0.85, 1.15))
 	var count := maxi(4, roundi(amount * Device.particle_scale()))
 	for i in count:
 		var dir := direction.normalized().rotated(randf_range(-spread, spread))
@@ -1589,6 +1598,7 @@ func _spray(at: Vector2, direction: Vector2, amount: int, speed: float, spread: 
 
 ## Blood pumping out of `at` for a while.
 func _fountain(at: Vector2, seconds: float, direction: Vector2) -> void:
+	_sfx("gush", 0.0, randf_range(0.9, 1.1))
 	var left := seconds
 	while left > 0.0 and not _done and is_inside_tree():
 		_spray(at, direction, 4, 620.0 * (0.4 + left / seconds), 0.25)
@@ -1674,7 +1684,8 @@ class Gib extends Node2D:
 		var reach := maxf(head_radius, width * 0.5)
 		var low := -INF
 		for p in points:
-			low = maxf(low, (global_transform * p).y + reach)
+			var world := global_transform * p
+			low = maxf(low, world.y + reach - Terrain.height_at(world.x))
 		return low
 
 	func _draw() -> void:
@@ -1705,8 +1716,9 @@ class Drop extends Node2D:
 	func _physics_process(delta: float) -> void:
 		velocity.y += GRAVITY * delta
 		position += velocity * delta
-		if position.y >= -1.0:
-			position.y = -1.0
+		var ground := Terrain.height_at(position.x) - 1.0
+		if position.y >= ground:
+			position.y = ground
 			_landed = true
 			size *= randf_range(1.6, 2.6)
 			z_index = -1
@@ -1719,3 +1731,19 @@ class Drop extends Node2D:
 			draw_circle(Vector2.ZERO, size * 1.6, color, true, -1.0, true)
 		else:
 			draw_circle(Vector2.ZERO, size, color, true, -1.0, true)
+
+
+## Moves the winner straight to x, standing on the ground there.
+func _place_winner(x: float) -> void:
+	winner.global_position = Vector2(x, Terrain.height_at(x))
+	winner.reset_physics_interpolation()
+
+
+## Plays a gore sound, but not the same one twice within a few frames, so a big
+## finisher doesn't turn into noise.
+func _sfx(sound: String, volume_db: float, pitch: float) -> void:
+	var now := Time.get_ticks_msec()
+	if now - int(_last_sfx.get(sound, -1000)) < 90:
+		return
+	_last_sfx[sound] = now
+	Audio.play(sound, volume_db, pitch, 0.05)

@@ -454,6 +454,7 @@ func _draw() -> void:
 	_draw_sleeve(shoulder, p[&"felbow"])
 	if form == &"mugetsu":
 		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
+	_draw_sukuna_marks(p)
 
 	if pinned and not knocked:
 		_draw_chains()
@@ -1048,9 +1049,17 @@ func _draw_new_head(head: Vector2, neck: Vector2) -> void:
 				draw_rect(Rect2(Vector2(r * x, -r * 0.08), Vector2(r * 0.36, r * 0.26)), OUTLINE, false, 1.5)
 			draw_line(Vector2(r * 0.54, r * 0.04), Vector2(r * 0.62, r * 0.04), OUTLINE, 1.5)
 		&"jujutsu":
-			# Short spiky pink hair, dark at the roots.
-			_spiky_cap(hair, [[-40.0, 6.0], [-65.0, 8.0], [-90.0, 9.0], [-115.0, 8.0], [-140.0, 7.0], [-165.0, 5.0]], 2.0)
-			if form == &"sukuna":
+			var sukuna := form == &"sukuna" or _charged()
+			if sukuna:
+				# Sukuna: the hair swept up and back.
+				_spiky_cap(hair, [[-80.0, 9.0], [-105.0, 12.0], [-130.0, 13.0], [-155.0, 12.0], [-180.0, 9.0]], 2.0)
+			else:
+				# Short spiky pink hair.
+				_spiky_cap(hair, [[-40.0, 6.0], [-65.0, 8.0], [-90.0, 9.0], [-115.0, 8.0], [-140.0, 7.0], [-165.0, 5.0]], 2.0)
+			if sukuna:
+				# Tattoo lines across the brow and cheeks.
+				draw_line(Vector2(-r * 0.2, -r * 0.6), Vector2(r * 0.9, -r * 0.45), OUTLINE, 2.0, true)
+				draw_line(Vector2(r * 0.9, r * 0.6), Vector2(r * 0.4, r * 0.75), OUTLINE, 2.0, true)
 				# Sukuna surfaces: black markings and a second pair of eyes.
 				draw_line(Vector2(r * 0.25, r * 0.15), Vector2(r * 0.85, r * 0.15), OUTLINE, 2.0, true)
 				draw_line(Vector2(r * 0.3, r * 0.45), Vector2(r * 0.8, r * 0.45), OUTLINE, 2.0, true)
@@ -1114,7 +1123,7 @@ func _new_aura_color() -> Color:
 		&"quincy":
 			return Color(0.55, 0.85, 1.0)
 		&"jujutsu":
-			return Color(0.9, 0.15, 0.2) if form == &"sukuna" else Color(0.95, 0.5, 0.6)
+			return Color(0.9, 0.15, 0.2) if form == &"sukuna" or _charged() else Color(0.95, 0.5, 0.6)
 		&"shadow":
 			return Color(0.25, 0.2, 0.45)
 		&"infinity":
@@ -1147,3 +1156,12 @@ func _draw_shadow_pool(p: Dictionary) -> void:
 		var head := PackedVector2Array([at + Vector2(-dir * 12.0, 0), at + Vector2(-dir * 10.0, -22.0), at + Vector2(-dir * 4.0, -34.0), at + Vector2(dir * 2.0, -24.0), at + Vector2(dir * 18.0, -20.0), at + Vector2(dir * 20.0, -14.0), at + Vector2(dir * 6.0, -8.0), at + Vector2(dir * 4.0, 0)])
 		_poly(head, fur, 2.0)
 		draw_circle(at + Vector2(dir * 6.0, -20.0), 1.8, Color(0.9, 0.2, 0.2) if white else Color(0.9, 0.85, 0.3), true, -1.0, true)
+
+
+## Sukuna's tattoos ring Yuj's wrists when he takes over.
+func _draw_sukuna_marks(p: Dictionary) -> void:
+	if data.style != &"jujutsu" or not (form == &"sukuna" or _charged()):
+		return
+	for hand: StringName in [&"bhand", &"fhand"]:
+		draw_arc(p[hand], 5.0, 0.0, TAU, 12, OUTLINE, 2.0, true)
+		draw_line((p[hand] as Vector2) + Vector2(-3, -3), (p[hand] as Vector2) + Vector2(3, 3), OUTLINE, 1.5, true)

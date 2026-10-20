@@ -16,6 +16,6 @@ hair_color = Color(0.75, 0.1, 0.12, 1)
 weapon = ExtResource("2_weapon")
 style = &"demon"
 special_name = "Gou Hadoken"
-special_description = "A huge crimson fireball that tears through every obstacle."
+special_description = "An enormous crimson fireball that tears through every obstacle and explodes."
 price = 600
 rarity = &"legendary"

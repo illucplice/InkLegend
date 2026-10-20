@@ -33,3 +33,4 @@ min_distance_m = 75.0
 max_distance_m = 90.0
 obstacle_style = &"basalt"
 obstacle_patterns = PackedStringArray("tower", "twin_towers", "tower_floating", "mesa", "wall_floating")
+terrain_roughness = 1.1

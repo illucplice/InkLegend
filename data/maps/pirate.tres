@@ -33,3 +33,4 @@ min_distance_m = 85.0
 max_distance_m = 100.0
 obstacle_style = &"wood"
 obstacle_patterns = PackedStringArray("spire", "spire_pair", "spire_wall", "wall_tower", "low_walls")
+terrain_roughness = 0.3

@@ -12,3 +12,4 @@ min_distance_m = 60.0
 max_distance_m = 75.0
 obstacle_style = &"stone"
 obstacle_patterns = PackedStringArray()
+terrain_roughness = 0.8

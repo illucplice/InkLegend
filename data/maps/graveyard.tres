@@ -34,3 +34,4 @@ min_distance_m = 70.0
 max_distance_m = 85.0
 obstacle_style = &"grave"
 obstacle_patterns = PackedStringArray("low_walls", "spire_wall", "spire_floating", "wall_floating", "spire_pair")
+terrain_roughness = 0.9

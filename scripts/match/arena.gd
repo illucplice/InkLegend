@@ -21,6 +21,10 @@ var _pillars: Array[float] = []
 var _braziers: Array[float] = []
 ## Fires and glows by the props, rebuilt when the props move.
 var _lights: Node2D
+## The ground's collision: a line along the terrain's surface.
+var _ground: CollisionPolygon2D
+## How far the prop being drawn is lifted to sit on the terrain.
+var _lift := 0.0
 ## The floor is drawn once, so lava glow is a fixed per-spot brightness (the fires flicker).
 var _time := 0.0
 
@@ -29,19 +33,42 @@ func _ready() -> void:
 	var body := StaticBody2D.new()
 	body.collision_layer = 1
 	body.collision_mask = 0
-	var shape := RectangleShape2D.new()
-	shape.size = Vector2(HALF_WIDTH * 2, DEPTH)
-	var collision := CollisionShape2D.new()
-	collision.shape = shape
-	collision.position = Vector2(0, DEPTH / 2)
-	body.add_child(collision)
+	_ground = CollisionPolygon2D.new()
+	_ground.build_mode = CollisionPolygon2D.BUILD_SEGMENTS
+	body.add_child(_ground)
 	add_child(body)
+	_shape_ground()
 
 	_glow = _glow_texture()
 	_lights = Node2D.new()
 	add_child(_lights)
 	set_spread(840.0)
 	_add_weather()
+
+
+## Re-shapes the ground after Terrain changes: collision, props and lights.
+func refresh_terrain() -> void:
+	_shape_ground()
+	if _lights != null:
+		for child in _lights.get_children():
+			child.queue_free()
+		_add_lights()
+	queue_redraw()
+
+
+func _shape_ground() -> void:
+	if _ground == null:
+		return
+	var outline := Terrain.profile()
+	outline.append(Vector2(HALF_WIDTH, DEPTH))
+	outline.append(Vector2(-HALF_WIDTH, DEPTH))
+	_ground.polygon = outline
+
+
+## Lifts the next prop to stand on the terrain at x.
+func _lift_to(x: float) -> void:
+	_lift = Terrain.height_at(x)
+	draw_set_transform(Vector2(0, _lift))
 
 
 ## Moves the props out to stand beside fighters `half_gap` px either side of the middle.
@@ -103,160 +130,207 @@ func _draw() -> void:
 	match map.props:
 		&"cactus":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_big_cactus(x, rng)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_skull_rocks(x, rng)
 		&"dojo":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_stone_lantern(x)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_paper_lantern(x)
 		&"graves":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_lamp_post(x)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_candle_grave(x, rng)
 		&"masts":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_mast(x)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_barrels(x, rng)
 		&"rooftop":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_water_tower(x)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_neon_post(x)
 		&"trees":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_big_tree(x, rng)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_bush(x, rng)
 		&"ice":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_crystals(x, rng)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_brazier(x, Color(0.55, 0.7, 0.85))
 		&"basalt":
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_basalt(x, rng)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_lava_pool(x)
 		_:
 			for x: float in _pillars:
+				_lift_to(x)
 				_draw_pillar(x)
 			for x: float in _braziers:
+				_lift_to(x)
 				_draw_brazier(x, Color(0.42, 0.3, 0.26))
+	_lift = 0.0
+	draw_set_transform(Vector2(0, _lift))
 	_draw_ground(rng)
+
+
+## A point `y` below the ground surface at x (the ground follows the terrain).
+func _g(x: float, y: float) -> Vector2:
+	return Vector2(x, y + Terrain.height_at(x))
 
 
 func _draw_ground(rng: RandomNumberGenerator) -> void:
 	var wall := map.wall_color
-	draw_rect(Rect2(-HALF_WIDTH, 0, HALF_WIDTH * 2, DEPTH), wall.darkened(0.3))
+	var surface := Terrain.profile(30.0)
+	# The earth or wall under the whole profile.
+	var mass := surface.duplicate()
+	mass.append(Vector2(HALF_WIDTH, DEPTH))
+	mass.append(Vector2(-HALF_WIDTH, DEPTH))
+	draw_colored_polygon(mass, wall.darkened(0.3))
 	if map.props == &"masts":
-		# A ship's hull: long planks with rows of rivets.
+		# A ship's hull: long planks with rows of rivets, following the deck.
 		for row in 12:
 			var y := 30.0 + row * 26.0
-			draw_rect(Rect2(-HALF_WIDTH, y, HALF_WIDTH * 2, 22), wall.darkened(0.05 + row * 0.04 + rng.randf_range(-0.03, 0.03)))
+			var plank := PackedVector2Array()
+			for p in surface:
+				plank.append(p + Vector2(0, y))
+			for k in range(surface.size() - 1, -1, -1):
+				plank.append(surface[k] + Vector2(0, y + 22))
+			draw_colored_polygon(plank, wall.darkened(0.05 + row * 0.04 + rng.randf_range(-0.03, 0.03)))
 			for x in range(-int(HALF_WIDTH), int(HALF_WIDTH), 160):
-				draw_circle(Vector2(x + (row % 2) * 80, y + 11), 2.5, wall.darkened(0.5), true, -1.0, true)
+				draw_circle(_g(x + (row % 2) * 80, y + 11), 2.5, wall.darkened(0.5), true, -1.0, true)
 	elif map.props == &"trees":
 		# Earth with roots and pebbles under the grass.
-		draw_rect(Rect2(-HALF_WIDTH, 0, HALF_WIDTH * 2, DEPTH), wall)
+		var earth := surface.duplicate()
+		earth.append(Vector2(HALF_WIDTH, DEPTH))
+		earth.append(Vector2(-HALF_WIDTH, DEPTH))
+		draw_colored_polygon(earth, wall)
 		for i in 220:
-			var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(40.0, 320.0))
-			draw_circle(at, rng.randf_range(3.0, 8.0), wall.darkened(rng.randf_range(0.15, 0.35)), true, -1.0, true)
+			var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
+			draw_circle(_g(x, rng.randf_range(40.0, 320.0)), rng.randf_range(3.0, 8.0), wall.darkened(rng.randf_range(0.15, 0.35)), true, -1.0, true)
 		for i in 60:
 			var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
-			draw_polyline(PackedVector2Array([Vector2(x, 26), Vector2(x + 8, 60), Vector2(x - 4, 96), Vector2(x + 6, 130)]), wall.darkened(0.45), 3.0, true)
+			draw_polyline(PackedVector2Array([_g(x, 26), _g(x + 8, 60), _g(x - 4, 96), _g(x + 6, 130)]), wall.darkened(0.45), 3.0, true)
 	for row in (0 if map.props == &"masts" or map.props == &"trees" else 10):
 		var y := 34.0 + row * 34.0
 		var shift := 40.0 if row % 2 else 0.0
 		for i in int(HALF_WIDTH * 2 / 80):
-			var brick := Rect2(-HALF_WIDTH + i * 80 + shift, y, 76, 30)
+			var x := -HALF_WIDTH + i * 80 + shift
+			var top := _g(x + 38, y)
+			var brick := Rect2(Vector2(x, top.y), Vector2(76, 30))
 			var tint := rng.randf_range(-0.06, 0.06)
 			draw_rect(brick, wall.darkened(0.1 + row * 0.05 + tint))
 			draw_rect(Rect2(brick.position, Vector2(brick.size.x, 4)), wall.lightened(0.12 - row * 0.03))
 	if map.props == &"basalt":
 		# Lava glowing through the joints of the wall.
 		for row in 4:
-			draw_line(Vector2(-HALF_WIDTH, 33.0 + row * 34.0), Vector2(HALF_WIDTH, 33.0 + row * 34.0), Color(map.fire_color, 0.35 - row * 0.08), 2.0)
+			var seam := PackedVector2Array()
+			for p in surface:
+				seam.append(p + Vector2(0, 33.0 + row * 34.0))
+			draw_polyline(seam, Color(map.fire_color, 0.35 - row * 0.08), 2.0)
 
-	var top := PackedVector2Array()
-	for x in range(-int(HALF_WIDTH), int(HALF_WIDTH) + 1, 30):
-		top.append(Vector2(x, 30.0 + 3.0 * sin(x * 0.03) + 2.0 * sin(x * 0.11)))
-	top.append(Vector2(HALF_WIDTH, -2))
-	top.append(Vector2(-HALF_WIDTH, -2))
-	draw_colored_polygon(top, map.ground_top)
-	draw_rect(Rect2(-HALF_WIDTH, -2, HALF_WIDTH * 2, 6), map.ground_lip)
-	draw_line(Vector2(-HALF_WIDTH, -2), Vector2(HALF_WIDTH, -2), INK, 4.0)
+	# The top layer: a band of ground colour following the surface, a lip and an ink edge.
+	var band := PackedVector2Array()
+	for p in surface:
+		band.append(p + Vector2(0, -2))
+	for k in range(surface.size() - 1, -1, -1):
+		var p := surface[k]
+		band.append(p + Vector2(0, 30.0 + 3.0 * sin(p.x * 0.03) + 2.0 * sin(p.x * 0.11)))
+	draw_colored_polygon(band, map.ground_top)
+	var lip := PackedVector2Array()
+	for p in surface:
+		lip.append(p + Vector2(0, 1))
+	draw_polyline(lip, map.ground_lip, 6.0, true)
+	var edge := PackedVector2Array()
+	for p in surface:
+		edge.append(p + Vector2(0, -2))
+	draw_polyline(edge, INK, 4.0, true)
 	match map.weather:
 		&"none":
 			# Deck planks.
 			for x in range(-int(HALF_WIDTH), int(HALF_WIDTH), 70):
-				draw_line(Vector2(x + rng.randf_range(-6, 6), 4), Vector2(x, 28), map.ground_top.darkened(0.3), 2.0)
+				draw_line(_g(x + rng.randf_range(-6, 6), 4), _g(x, 28), map.ground_top.darkened(0.3), 2.0)
 			for i in 200:
-				draw_circle(Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(8.0, 26.0)), 1.5, map.ground_top.darkened(0.2), true, -1.0, true)
+				draw_circle(_g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(8.0, 26.0)), 1.5, map.ground_top.darkened(0.2), true, -1.0, true)
 		&"rain":
 			for i in 40:
-				var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(8.0, 22.0))
+				var at := _g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(8.0, 22.0))
 				draw_set_transform(at, 0.0, Vector2(1.0, 0.25))
 				draw_circle(Vector2.ZERO, rng.randf_range(18.0, 40.0), Color(0.55, 0.45, 0.85, 0.35), true, -1.0, true)
-			draw_set_transform(Vector2.ZERO)
+			draw_set_transform(Vector2(0, _lift))
 			for x in range(-int(HALF_WIDTH), int(HALF_WIDTH), 120):
-				draw_line(Vector2(x, 2), Vector2(x, 30), map.ground_top.darkened(0.3), 2.0)
+				draw_line(_g(x, 2), _g(x, 30), map.ground_top.darkened(0.3), 2.0)
 		&"dust":
 			# Sun-baked cracks in the dirt.
 			for i in 70:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
-				var crack := PackedVector2Array([Vector2(x, 6), Vector2(x + rng.randf_range(-14, 14), 14), Vector2(x + rng.randf_range(-20, 20), 24)])
+				var crack := PackedVector2Array([_g(x, 6), _g(x + rng.randf_range(-14, 14), 14), _g(x + rng.randf_range(-20, 20), 24)])
 				draw_polyline(crack, map.ground_top.darkened(0.3), 2.0, true)
 		&"leaves", &"fireflies":
 			# Grass, with fallen leaves in the dojo.
 			for i in 500:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
 				var h := rng.randf_range(6.0, 14.0)
-				draw_line(Vector2(x, 0), Vector2(x - 3, -h), map.ground_top.darkened(0.2), 2.5, true)
+				draw_line(_g(x, 0), _g(x - 3, -h), map.ground_top.darkened(0.2), 2.5, true)
 			if map.weather == &"leaves":
 				for i in 60:
-					var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(-4.0, 20.0))
+					var at := _g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(-4.0, 20.0))
 					draw_set_transform(at, rng.randf_range(0, TAU), Vector2(1.0, 0.45))
 					draw_circle(Vector2.ZERO, 6.0, [Color(0.95, 0.6, 0.25), Color(0.85, 0.35, 0.25), Color(0.6, 0.75, 0.3)][i % 3], true, -1.0, true)
-				draw_set_transform(Vector2.ZERO)
+				draw_set_transform(Vector2(0, _lift))
 		&"petals":
 			for i in 500:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
 				var h := rng.randf_range(6.0, 13.0)
-				draw_line(Vector2(x, 0), Vector2(x - 3, -h), map.ground_top.darkened(0.15), 2.5, true)
+				draw_line(_g(x, 0), _g(x - 3, -h), map.ground_top.darkened(0.15), 2.5, true)
 			for i in 50:
-				var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), -5)
-				draw_circle(at, 4.0, [Color(1, 0.7, 0.85), Color.WHITE, Color(1, 0.9, 0.4)][i % 3], true, -1.0, true)
+				draw_circle(_g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), -5), 4.0, [Color(1, 0.7, 0.85), Color.WHITE, Color(1, 0.9, 0.4)][i % 3], true, -1.0, true)
 	match map.weather:
 		&"snow":
 			for i in 600:
-				var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0))
-				draw_circle(at, rng.randf_range(1.0, 2.4), Color(0.7, 0.82, 0.95) if i % 3 else Color.WHITE, true, -1.0, true)
+				draw_circle(_g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0)), rng.randf_range(1.0, 2.4), Color(0.7, 0.82, 0.95) if i % 3 else Color.WHITE, true, -1.0, true)
 			for i in 60:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
-				draw_line(Vector2(x, 8), Vector2(x + rng.randf_range(-20, 20), 22), Color(0.6, 0.78, 0.95), 2.0, true)
+				draw_line(_g(x, 8), _g(x + rng.randf_range(-20, 20), 22), Color(0.6, 0.78, 0.95), 2.0, true)
 		&"ash":
 			for i in 500:
-				var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0))
-				draw_circle(at, rng.randf_range(1.0, 2.6), map.ground_top.lightened(rng.randf_range(0.05, 0.2)), true, -1.0, true)
+				draw_circle(_g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0)), rng.randf_range(1.0, 2.6), map.ground_top.lightened(rng.randf_range(0.05, 0.2)), true, -1.0, true)
 			var pulse := 0.6 + 0.4 * sin(_time * 2.5)
 			for i in 40:
 				var x := rng.randf_range(-HALF_WIDTH, HALF_WIDTH)
-				var crack := PackedVector2Array([Vector2(x, 4), Vector2(x + 8, 12), Vector2(x + 2, 20), Vector2(x + 12, 28)])
+				var crack := PackedVector2Array([_g(x, 4), _g(x + 8, 12), _g(x + 2, 20), _g(x + 12, 28)])
 				draw_polyline(crack, Color(map.fire_color, 0.8 * pulse), 2.5, true)
 		_:
 			for i in 700:
-				var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0))
-				draw_circle(at, rng.randf_range(1.0, 2.6), map.ground_top.darkened(rng.randf_range(0.1, 0.25)), true, -1.0, true)
+				draw_circle(_g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(6.0, 28.0)), rng.randf_range(1.0, 2.6), map.ground_top.darkened(rng.randf_range(0.1, 0.25)), true, -1.0, true)
 	for i in 30:
-		var at := Vector2(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(10.0, 22.0))
+		var at := _g(rng.randf_range(-HALF_WIDTH, HALF_WIDTH), rng.randf_range(10.0, 22.0))
 		draw_set_transform(at, 0.0, Vector2(1.0, 0.55))
 		draw_circle(Vector2.ZERO, rng.randf_range(5.0, 9.0), map.obstacle_dark, true, -1.0, true)
 		draw_circle(Vector2(-2, -2), 3.0, map.obstacle_stone, true, -1.0, true)
-	draw_set_transform(Vector2.ZERO)
+	draw_set_transform(Vector2(0, _lift))
 
 
 # --- colosseum props ---
@@ -357,11 +431,11 @@ func _draw_basalt(x: float, rng: RandomNumberGenerator) -> void:
 ## A pool of bubbling lava set into the floor, with a fire jet.
 func _draw_lava_pool(x: float) -> void:
 	var pulse := 0.6 + 0.4 * sin(_time * 3.0 + x)
-	draw_set_transform(Vector2(x, -2), 0.0, Vector2(1.0, 0.25))
+	draw_set_transform(Vector2(x, -2 + _lift), 0.0, Vector2(1.0, 0.25))
 	draw_circle(Vector2.ZERO, 90.0, INK, true, -1.0, true)
 	draw_circle(Vector2.ZERO, 84.0, map.fire_color, true, -1.0, true)
 	draw_circle(Vector2(-10, -10), 54.0, map.fire_color.lightened(0.3 * pulse), true, -1.0, true)
-	draw_set_transform(Vector2.ZERO)
+	draw_set_transform(Vector2(0, _lift))
 	for i in 4:
 		var t := fmod(_time * 0.6 + i * 0.25, 1.0)
 		draw_circle(Vector2(x - 50 + i * 30, -4 - t * 10), 6.0 * (1.0 - t), Color(1.0, 0.85, 0.4, 1.0 - t), true, -1.0, true)
@@ -378,7 +452,7 @@ func _add_fire(at: Vector2, size: float = 1.0) -> void:
 	glow.material = additive
 	glow.modulate = Color(map.fire_color, 0.45)
 	glow.scale = Vector2.ONE * 7.0 * size
-	glow.position = at
+	glow.position = at + Vector2(0, Terrain.height_at(at.x))
 	_lights.add_child(glow)
 	var flicker := glow.create_tween().set_loops()
 	flicker.tween_property(glow, "modulate:a", 0.3, 0.13).set_trans(Tween.TRANS_SINE)
@@ -408,7 +482,7 @@ func _add_fire(at: Vector2, size: float = 1.0) -> void:
 	ramp.set_color(1, Color(map.fire_color.darkened(0.4), 0))
 	ramp.add_point(0.4, Color(map.fire_color, 0.9))
 	flame.color_ramp = ramp
-	flame.position = at
+	flame.position = at + Vector2(0, Terrain.height_at(at.x))
 	_lights.add_child(flame)
 
 
@@ -421,7 +495,7 @@ func _add_glow(at: Vector2, size: float) -> void:
 	glow.material = additive
 	glow.modulate = Color(map.fire_color, 0.5)
 	glow.scale = Vector2.ONE * 7.0 * size
-	glow.position = at
+	glow.position = at + Vector2(0, Terrain.height_at(at.x))
 	_lights.add_child(glow)
 	var flicker := glow.create_tween().set_loops()
 	flicker.tween_property(glow, "modulate:a", 0.25, 0.9).set_trans(Tween.TRANS_SINE)
@@ -769,10 +843,10 @@ func _draw_paper_lantern(x: float) -> void:
 	draw_line(Vector2(x, -226), Vector2(x + 50, -226), Color(0.45, 0.6, 0.25), 6.0)
 	draw_line(Vector2(x + 44, -226), Vector2(x + 44, -204), INK, 2.0)
 	var body := Vector2(x + 44, -172)
-	draw_set_transform(body, 0.0, Vector2(1.0, 1.3))
+	draw_set_transform(body + Vector2(0, _lift), 0.0, Vector2(1.0, 1.3))
 	draw_circle(Vector2.ZERO, 26.0, INK, true, -1.0, true)
 	draw_circle(Vector2.ZERO, 23.0, Color(0.9, 0.22, 0.2), true, -1.0, true)
-	draw_set_transform(Vector2.ZERO)
+	draw_set_transform(Vector2(0, _lift))
 	for k in 3:
 		var y := body.y - 18 + k * 18
 		draw_line(Vector2(body.x - 20, y), Vector2(body.x + 20, y), Color(0.65, 0.12, 0.12), 2.0)
@@ -796,7 +870,7 @@ func _draw_lamp_post(x: float) -> void:
 func _draw_candle_grave(x: float, rng: RandomNumberGenerator) -> void:
 	var stone := map.obstacle_stone.darkened(0.2)
 	var tilt := rng.randf_range(-0.15, 0.15)
-	draw_set_transform(Vector2(x, 0), tilt)
+	draw_set_transform(Vector2(x, _lift), tilt)
 	var outline := PackedVector2Array([Vector2(-26, 2)])
 	for k in 9:
 		var a := PI + PI * k / 8.0
@@ -808,6 +882,6 @@ func _draw_candle_grave(x: float, rng: RandomNumberGenerator) -> void:
 	draw_polyline(closed, INK, 3.0, true)
 	draw_line(Vector2(0, -66), Vector2(0, -30), stone.darkened(0.3), 4.0)
 	draw_line(Vector2(-10, -54), Vector2(10, -54), stone.darkened(0.3), 4.0)
-	draw_set_transform(Vector2.ZERO)
+	draw_set_transform(Vector2(0, _lift))
 	draw_rect(Rect2(x + 30, -26, 8, 26), Color(0.95, 0.92, 0.8))
 	draw_rect(Rect2(x + 30, -26, 8, 26), INK, false, 2.0)

@@ -16,6 +16,6 @@ hair_color = Color(0.98, 0.6, 0.66, 1)
 weapon = ExtResource("2_weapon")
 style = &"jujutsu"
 special_name = "Sukuna: Fuga"
-special_description = "Sukuna takes over and looses a blazing fire arrow that explodes."
+special_description = "Sukuna takes over and looses a giant fire arrow that burns through obstacles and explodes."
 price = 600
 rarity = &"legendary"

@@ -54,3 +54,5 @@ extends Resource
 ## Obstacle layouts this map picks from (see ObstacleLayout.PATTERNS). Empty = the
 ## classic stone set.
 @export var obstacle_patterns: PackedStringArray = PackedStringArray()
+## How hilly the ground is (0 = flat, 1 = rolling hills, more = steeper).
+@export var terrain_roughness: float = 1.0

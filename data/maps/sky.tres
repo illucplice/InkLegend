@@ -33,3 +33,4 @@ min_distance_m = 90.0
 max_distance_m = 105.0
 obstacle_style = &"cloud"
 obstacle_patterns = PackedStringArray("islands", "islands_tall", "floating_high")
+terrain_roughness = 1.0

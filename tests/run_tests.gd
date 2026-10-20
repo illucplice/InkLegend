@@ -18,6 +18,7 @@ func _initialize() -> void:
 	_test_solver_lands_on_target()
 	_test_ai_sharpens()
 	_test_obstacles()
+	_test_terrain()
 	_test_wind_solver()
 	_test_destructible_obstacles()
 	_test_progression(root.get_node("Save"))
@@ -487,6 +488,9 @@ func _test_practice_specials() -> void:
 			if game.state == game.State.PLAYER_AIM:
 				break
 			await process_frame
+		# Let the target finish popping in before aiming at it.
+		for frame in 30:
+			await process_frame
 		_check(game._charge[0] >= 1.0 and game._hud._special_button.visible, "%s starts practice with the special ready" % id)
 		game._on_special_toggled(true)
 		var origin: Vector2 = game.fighters[0].throw_origin()
@@ -562,3 +566,29 @@ func _test_fatalities() -> void:
 		else:
 			_check(fatality != null and fatality.is_done(), "tapping skips the fatality")
 	game.queue_free()
+
+
+## Hilly ground: each fighter stands on a flat plateau, the valley between them is
+## lower than both, and the ground never jumps.
+func _test_terrain() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var all_good := true
+	for i in 20:
+		var half_gap := rng.randf_range(550.0, 1050.0)
+		Terrain.build(rng, half_gap, rng.randf_range(0.3, 1.3))
+		for side: float in [-1.0, 1.0]:
+			var stand := Terrain.height_at(side * half_gap)
+			all_good = all_good and is_equal_approx(Terrain.height_at(side * half_gap + 120.0), stand) and is_equal_approx(Terrain.height_at(side * half_gap - 120.0), stand)
+		var valley := Terrain.height_at(0.0)
+		all_good = all_good and valley > Terrain.height_at(-half_gap) and valley > Terrain.height_at(half_gap)
+		var previous := Terrain.height_at(-Terrain.HALF_WIDTH)
+		var x := -Terrain.HALF_WIDTH
+		while x < Terrain.HALF_WIDTH:
+			x += 10.0
+			var now := Terrain.height_at(x)
+			all_good = all_good and absf(now - previous) < 12.0
+			previous = now
+	_check(all_good, "fighters stand on flat plateaus above a smooth valley")
+	Terrain.flat()
+	_check(Terrain.height_at(123.0) == 0.0, "flat ground is at y = 0")

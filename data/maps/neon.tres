@@ -34,3 +34,4 @@ min_distance_m = 65.0
 max_distance_m = 80.0
 obstacle_style = &"neon"
 obstacle_patterns = PackedStringArray("floating_high", "wall_floating", "islands", "spire_floating", "tower_floating")
+terrain_roughness = 0.6
