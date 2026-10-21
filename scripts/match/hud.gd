@@ -54,6 +54,8 @@ var _special_ready := false
 var _special_data: FighterData
 var _announcer: VBoxContainer
 var _hint: Label
+var _tip: PanelContainer
+var _time_stop: ColorRect
 var _pause_button: Button
 var _intro: VsIntro
 
@@ -499,6 +501,44 @@ func _build_match_hud() -> void:
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_hint)
+
+	# Time stop: everything behind the HUD drains to grey-violet.
+	_time_stop = ColorRect.new()
+	_time_stop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_time_stop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var grey := ShaderMaterial.new()
+	grey.shader = Shader.new()
+	grey.shader.code = "shader_type canvas_item;
+uniform sampler2D screen : hint_screen_texture, filter_linear;
+uniform float amount = 1.0;
+void fragment() {
+	vec3 c = texture(screen, SCREEN_UV).rgb;
+	float g = dot(c, vec3(0.3, 0.59, 0.11));
+	vec3 tint = vec3(g * 0.8 + 0.08, g * 0.7 + 0.04, g * 0.95 + 0.14);
+	COLOR = vec4(mix(c, tint, amount), 1.0);
+}
+"
+	_time_stop.material = grey
+	_time_stop.hide()
+	add_child(_time_stop)
+	move_child(_time_stop, 0)
+
+	_tip = PanelContainer.new()
+	_tip.add_theme_stylebox_override("panel", UiStyle.flat(Color(0.08, 0.07, 0.12, 0.88), 18))
+	_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_tip.offset_left = -330
+	_tip.offset_right = 330
+	_tip.offset_top = -210
+	_tip.offset_bottom = -90
+	var tip_label := UiStyle.game_label("", 24)
+	tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tip_label.custom_minimum_size = Vector2(600, 0)
+	_tip.add_child(tip_label)
+	_tip.set_meta("label", tip_label)
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip.hide()
+	add_child(_tip)
 
 	_pause_button = _icon_button(&"pause", "", UiStyle.YELLOW, Vector2(72, 68), 0)
 	_pause_button.theme = UiStyle.theme()
@@ -1570,6 +1610,14 @@ func show_ladder(info: Dictionary) -> void:
 	var go := _icon_button(&"sword", "Fight round %d!" % (info["round"] + 1), UiStyle.GREEN, Vector2(320, 70), 30)
 	go.pressed.connect(round_requested.emit)
 	buttons.add_child(quit)
+	# Mid-tournament (not yet won a round's result screen): start over with a new pick.
+	if int(info["round"]) > 0 or Save.tournament.size() > 0:
+		var fresh := _icon_button(&"restart", "New tournament", UiStyle.ORANGE, Vector2(260, 70), 24)
+		fresh.pressed.connect(func() -> void:
+			Save.tournament = {}
+			Save.save_progress()
+			_open_select(MatchController.Mode.TOURNAMENT))
+		buttons.add_child(fresh)
 	buttons.add_child(go)
 	_ladder_content.add_child(buttons)
 	_show_screen(_ladder_screen)
@@ -1860,7 +1908,9 @@ func _fighter_tile(fighter: FighterData) -> Button:
 	portrait_box.add_child(portrait)
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(fighter.short_name if owned else "???", 20, true))
-	var status := UiStyle.ink_label("✔ Your fighter" if selected else ("Owned" if owned else "Find in chests"), 14)
+	var level := Save.fighter_level(String(fighter.id))
+	var owned_text := ("Owned  ·  Lv %d" % level) if level > 0 else "Owned"
+	var status := UiStyle.ink_label("✔ Your fighter" if selected else (owned_text if owned else "Find in chests"), 14)
 	status.add_theme_color_override("font_color", UiStyle.GREEN.darkened(0.35) if selected else INK.lightened(0.2))
 	stack.add_child(status)
 	tile.add_child(stack)
@@ -2078,3 +2128,34 @@ func _build_portrait_tip() -> void:
 	_portrait_tip.pressed.connect(func() -> void: _portrait_dismissed = true)
 	_portrait_tip.hide()
 	add_child(_portrait_tip)
+
+
+## A coaching tip for the first match, shown above the bottom of the screen until the
+## next throw.
+func show_tip(text: String) -> void:
+	var label: Label = _tip.get_meta("label")
+	label.text = text
+	_tip.show()
+	_tip.modulate.a = 0.0
+	_tip.create_tween().tween_property(_tip, "modulate:a", 1.0, 0.3)
+
+
+func hide_tip() -> void:
+	_tip.hide()
+
+
+## Turns the time-stop tint on or off.
+func set_time_stop(on: bool) -> void:
+	if _time_stop == null or on == _time_stop.visible:
+		return
+	var grey: ShaderMaterial = _time_stop.material
+	if on:
+		_time_stop.show()
+		grey.set_shader_parameter("amount", 0.0)
+		create_tween().tween_method(func(a: float) -> void: grey.set_shader_parameter("amount", a), 0.0, 1.0, 0.4)
+	else:
+		_time_stop.hide()
+
+
+func time_stopped() -> bool:
+	return _time_stop != null and _time_stop.visible

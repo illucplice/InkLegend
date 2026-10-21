@@ -97,6 +97,8 @@ var _dazed := false
 ## A transformation drawn instead of the usual look: "mugetsu" (Ichi's Final Getsuga Tensho form).
 var form: StringName = &""
 var _bankai_sword: WeaponData
+## Turns left on fire (Fuga): burning hurts at the start of each of their turns.
+var burn_turns := 0
 ## The skeleton drawn last frame, in node space.
 var _points := {}
 
@@ -164,6 +166,10 @@ func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 	_flash = 1.0
 	_squash = 1.0
 	_ouch = 1.0
+	if health == 0:
+		_say_sound("voice_die", -2.0, voice_pitch())
+	else:
+		_say_sound("voice_hurt", -5.0, voice_pitch() * randf_range(0.94, 1.08))
 	health_changed.emit(self, health)
 	if health == 0 or damage >= KNOCKDOWN_DAMAGE:
 		_knock_down(part, impact_velocity)
@@ -372,6 +378,8 @@ func _draw() -> void:
 
 	if _has_aura() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		_draw_aura(p)
+	if has_stand() and not is_knocked_out():
+		_draw_stand(p)
 	if _gear2():
 		_draw_haki(p)
 
@@ -401,6 +409,8 @@ func _draw() -> void:
 	_foot(p[&"ffoot"], p[&"fknee"], ink)
 	if _skin_head():
 		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
+		if data.style in HERO_STYLES:
+			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32)}[data.style]
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
@@ -455,6 +465,7 @@ func _draw() -> void:
 	if form == &"mugetsu":
 		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
 	_draw_sukuna_marks(p)
+	_draw_burning(p)
 
 	if pinned and not knocked:
 		_draw_chains()
@@ -952,7 +963,7 @@ func _skin_head() -> bool:
 
 # --- Uryo, Yuj, Megu, Goj, Ryo and Akum ---
 
-const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon"]
+const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire"]
 
 
 ## Special charged (or firing): changes Goj's eyes, Yuj's face and so on.
@@ -962,6 +973,9 @@ func _charged() -> bool:
 
 ## Outfits for the newer fighters: jackets, gis and coats over the stick body.
 func _draw_outfit_new(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
+	if data.style in HERO_STYLES:
+		_draw_hero_outfit(p)
+		return
 	var hip: Vector2 = p[&"hip"]
 	var neck: Vector2 = p[&"neck"]
 	var spine := (neck - hip).normalized()
@@ -975,6 +989,17 @@ func _draw_outfit_new(p: Dictionary, shoulder: Vector2, ink: Color) -> void:
 			draw_line(cross + spine * 5.0, cross - spine * 5.0, Color(0.3, 0.5, 0.9), 2.5, true)
 			draw_line(cross + side * 4.0, cross - side * 4.0, Color(0.3, 0.5, 0.9), 2.5, true)
 			_taper(hip + side * 12.0, hip - side * 12.0, 4.0, 4.0, Color(0.3, 0.5, 0.9))
+		&"jujutsu" when form == &"sukuna" or _charged():
+			# Sukuna takes over: the jacket comes off and his tattoos show.
+			_draw_pants(p, Color(0.1, 0.11, 0.2))
+			_poly([neck + side * 9.0, hip + side * 8.0, hip - side * 8.0, neck - side * 9.0], data.skin_color, 2.5)
+			for band in 2:
+				var at := neck.lerp(hip, 0.18 + band * 0.14)
+				draw_line(at + side * 9.0, at - side * 9.0 + spine * 2.0, OUTLINE, 2.2, true)
+			var belly := neck.lerp(hip, 0.62)
+			draw_line(belly + side * 7.0, belly - side * 7.0, OUTLINE, 2.0, true)
+			draw_line(belly + side * 4.0 - spine * 4.0, belly + side * 6.0 - spine * 12.0, OUTLINE, 1.6, true)
+			draw_line(belly - side * 4.0 - spine * 4.0, belly - side * 6.0 - spine * 12.0, OUTLINE, 1.6, true)
 		&"jujutsu", &"shadow", &"infinity":
 			var cloth := Color(0.1, 0.11, 0.2)
 			if data.style == &"shadow":
@@ -1031,6 +1056,9 @@ func _draw_pants(p: Dictionary, color: Color) -> void:
 
 ## Hair and faces, in head space.
 func _draw_new_head(head: Vector2, neck: Vector2) -> void:
+	if data.style in HERO_STYLES:
+		_draw_hero_head(head, neck)
+		return
 	_head_space(head, neck)
 	var r := HEAD_RADIUS
 	var hair := data.hair_color
@@ -1120,6 +1148,18 @@ func _spiky_cap(color: Color, spikes: Array, outline: float) -> void:
 ## Aura colour for each of the newer fighters when charged.
 func _new_aura_color() -> Color:
 	match data.style:
+		&"thunder":
+			return Color(0.6, 0.8, 1.0)
+		&"captain":
+			return Color(0.4, 0.55, 1.0)
+		&"spider":
+			return Color(1.0, 0.3, 0.3)
+		&"bat":
+			return Color(0.35, 0.35, 0.45)
+		&"stardust":
+			return Color(0.6, 0.4, 0.95)
+		&"vampire":
+			return Color(1.0, 0.82, 0.3)
 		&"quincy":
 			return Color(0.55, 0.85, 1.0)
 		&"jujutsu":
@@ -1137,7 +1177,12 @@ func _new_aura_color() -> Color:
 
 ## Ryo fights in red gloves; everyone else's hands are bare.
 func _hand_color() -> Color:
-	return Color(0.85, 0.15, 0.15) if data.style == &"gi" else data.skin_color
+	match data.style:
+		&"gi", &"captain", &"spider":
+			return Color(0.85, 0.15, 0.15)
+		&"bat":
+			return Color(0.08, 0.08, 0.1)
+	return data.skin_color
 
 
 ## Megu always stands in a pool of shadow; charged, the Divine Dogs rise out of it.
@@ -1165,3 +1210,273 @@ func _draw_sukuna_marks(p: Dictionary) -> void:
 	for hand: StringName in [&"bhand", &"fhand"]:
 		draw_arc(p[hand], 5.0, 0.0, TAU, 12, OUTLINE, 2.0, true)
 		draw_line((p[hand] as Vector2) + Vector2(-3, -3), (p[hand] as Vector2) + Vector2(3, 3), OUTLINE, 1.5, true)
+
+
+## Flames licking off a burning fighter.
+func _draw_burning(p: Dictionary) -> void:
+	if burn_turns <= 0 or is_knocked_out():
+		return
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"neck"], 0.5)
+	for k in 7:
+		var rise := fmod(_time * 1.8 + k * 0.143, 1.0)
+		var at := centre + Vector2(sin(k * 2.6 + _time * 3.0) * 14.0, 20.0 - rise * 70.0)
+		draw_circle(at, 9.0 * (1.0 - rise), Color(1.0, 0.45 + rise * 0.4, 0.1, 0.75 * (1.0 - rise)), true, -1.0, true)
+
+
+# --- Thundr, Capt, Spydr and Batz ---
+
+const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire"]
+
+
+## Outfits for the four heroes.
+func _draw_hero_outfit(p: Dictionary) -> void:
+	var hip: Vector2 = p[&"hip"]
+	var neck: Vector2 = p[&"neck"]
+	var spine := (neck - hip).normalized()
+	var side := spine.orthogonal()
+	var torso := [neck + side * 11.0, hip + side * 12.0, hip - side * 12.0, neck - side * 11.0]
+	match data.style:
+		&"thunder":
+			_draw_cape(p, Color(0.8, 0.12, 0.14))
+			_draw_pants(p, Color(0.15, 0.15, 0.2))
+			_poly(torso, Color(0.25, 0.26, 0.32), 2.5)
+			for k in 4:
+				var at := neck.lerp(hip, 0.2 + (k / 2) * 0.28) + side * (5.0 if k % 2 == 0 else -5.0)
+				draw_circle(at, 4.5, OUTLINE, true, -1.0, true)
+				draw_circle(at, 3.5, Color(0.8, 0.82, 0.88), true, -1.0, true)
+		&"captain":
+			_draw_pants(p, Color(0.2, 0.32, 0.72))
+			_poly(torso, Color(0.2, 0.35, 0.8), 2.5)
+			for k in 3:
+				var y := hip.lerp(neck, 0.08 + k * 0.08)
+				draw_line(y + side * 11.0, y - side * 11.0, Color(0.85, 0.15, 0.2) if k % 2 == 0 else Color(0.96, 0.96, 0.98), 3.0)
+			var star_at := neck.lerp(hip, 0.32)
+			var star := PackedVector2Array()
+			for k in 10:
+				star.append(star_at + Vector2.from_angle(-PI / 2 + k * PI / 5.0) * (7.0 if k % 2 == 0 else 3.0))
+			draw_colored_polygon(star, Color.WHITE)
+		&"spider":
+			_draw_pants(p, Color(0.15, 0.3, 0.8))
+			_poly(torso, Color(0.9, 0.12, 0.15), 2.5)
+			for k in 4:
+				var a := neck.lerp(hip, 0.2 + k * 0.18)
+				draw_line(a + side * 10.0, a - side * 10.0, Color(0.15, 0.05, 0.08), 1.0, true)
+			draw_line(neck, hip, Color(0.15, 0.05, 0.08), 1.0, true)
+			var spider := neck.lerp(hip, 0.32)
+			draw_circle(spider, 3.0, OUTLINE, true, -1.0, true)
+			for leg in 4:
+				var dir := Vector2.from_angle(-PI * 0.8 + leg * PI * 0.53)
+				draw_line(spider, spider + dir * 7.0, OUTLINE, 1.2, true)
+				draw_line(spider, spider + Vector2(-dir.x, dir.y) * 7.0, OUTLINE, 1.2, true)
+		&"bat":
+			_draw_cape(p, Color(0.08, 0.08, 0.1))
+			_draw_pants(p, Color(0.28, 0.28, 0.32))
+			_poly(torso, Color(0.32, 0.32, 0.36), 2.5)
+			var emblem := neck.lerp(hip, 0.3)
+			var bat := PackedVector2Array([emblem + Vector2(-9, -2), emblem + Vector2(-4, -4), emblem + Vector2(0, -6), emblem + Vector2(4, -4), emblem + Vector2(9, -2), emblem + Vector2(4, 1), emblem + Vector2(0, 4), emblem + Vector2(-4, 1)])
+			draw_colored_polygon(bat, Color(0.05, 0.05, 0.06))
+			_taper(hip + side * 12.0, hip - side * 12.0, 5.0, 5.0, Color(0.95, 0.8, 0.2))
+		&"stardust":
+			# Jotar: a long black school coat with tails to the knees, a high collar and
+			# a gold chain hanging from it.
+			var back := Vector2(-facing, 0)
+			var tails := PackedVector2Array([hip + side * 12.0, hip + back * 18.0 + Vector2(0, 46), hip + back * 4.0 + Vector2(0, 50), hip - side * 12.0])
+			if Geometry2D.triangulate_polygon(tails).is_empty():
+				tails = Geometry2D.convex_hull(tails)
+				tails.remove_at(tails.size() - 1)
+			_poly(tails, Color(0.1, 0.1, 0.15), 2.5)
+			_draw_pants(p, Color(0.1, 0.1, 0.15))
+			_poly(torso, Color(0.13, 0.13, 0.2), 2.5)
+			_poly([neck + side * 12.0, neck + side * 8.0 + spine * 8.0, neck - side * 8.0 + spine * 8.0, neck - side * 12.0], Color(0.1, 0.1, 0.15), 2.0)
+			var chain := neck.lerp(hip, 0.12) + side * 8.0 * facing
+			draw_polyline(PackedVector2Array([chain, chain.lerp(hip, 0.3) + Vector2(facing * 4.0, 0), chain.lerp(hip, 0.55)]), Color(0.95, 0.8, 0.3), 2.0, true)
+			draw_line(hip + side * 12.0, hip - side * 12.0, Color(0.95, 0.8, 0.3), 2.5, true)
+		&"vampire":
+			# Dyo: a sleeveless yellow jacket over black, green trousers with heart knee
+			# pads.
+			_draw_pants(p, Color(0.28, 0.5, 0.32))
+			for knee: StringName in [&"bknee", &"fknee"]:
+				_draw_heart(p[knee], 5.0, Color(0.95, 0.8, 0.22))
+			_poly(torso, Color(0.1, 0.1, 0.12), 2.5)
+			_poly([neck + side * 11.0, hip + side * 12.0, hip + side * 5.0, neck + side * 3.0], Color(0.96, 0.8, 0.22), 2.0)
+			_poly([neck - side * 3.0, hip - side * 5.0, hip - side * 12.0, neck - side * 11.0], Color(0.96, 0.8, 0.22), 2.0)
+			_draw_heart(neck.lerp(hip, 0.35), 5.0, Color(0.3, 0.62, 0.35))
+
+
+## A cape hanging from the shoulders down the back, rippling.
+func _draw_cape(p: Dictionary, color: Color) -> void:
+	var neck: Vector2 = p[&"neck"]
+	var back := Vector2(-facing, 0)
+	var wave := sin(_time * 3.0) * 5.0
+	var cape := PackedVector2Array([neck + back * 4.0, neck + back * 10.0 + Vector2(0, 4), neck + back * 26.0 + Vector2(wave, 60), neck + back * 30.0 + Vector2(wave * 1.5, 92), neck + back * 6.0 + Vector2(wave, 96), neck + Vector2(0, 20)])
+	if Geometry2D.triangulate_polygon(cape).is_empty():
+		cape = Geometry2D.convex_hull(cape)
+		cape.remove_at(cape.size() - 1)
+	_poly(cape, color, 2.5)
+
+
+## Heads for the four heroes (in head space).
+func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
+	_head_space(head, neck)
+	var r := HEAD_RADIUS
+	match data.style:
+		&"thunder":
+			# Long blond hair falling to the shoulders.
+			var hair := PackedVector2Array([Vector2(r * 0.6, -r * 0.8), Vector2(-r * 0.2, -r * 1.15), Vector2(-r * 1.1, -r * 0.4), Vector2(-r * 1.3, r * 1.4), Vector2(-r * 0.4, r * 1.2), Vector2(-r * 0.2, -r * 0.3)])
+			_poly(hair, data.hair_color, 2.0)
+			draw_line(Vector2(r * 0.1, -r * 0.95), Vector2(r * 0.9, -r * 0.5), data.hair_color.darkened(0.2), 3.0, true)
+		&"captain":
+			# A blue helmet with a white A and little wings.
+			var helmet := PackedVector2Array()
+			for i in 13:
+				helmet.append(Vector2.from_angle(lerpf(PI * 1.0, TAU, i / 12.0)) * (r + 1.5))
+			helmet.append(Vector2(r * 0.9, -r * 0.05))
+			helmet.append(Vector2(-r * 0.9, r * 0.2))
+			_poly(helmet, Color(0.2, 0.35, 0.8), 2.0)
+			draw_line(Vector2(r * 0.3, -r * 0.35), Vector2(r * 0.45, -r * 0.8), Color.WHITE, 2.0, true)
+			draw_line(Vector2(r * 0.6, -r * 0.35), Vector2(r * 0.45, -r * 0.8), Color.WHITE, 2.0, true)
+			draw_line(Vector2(r * 0.36, -r * 0.5), Vector2(r * 0.55, -r * 0.5), Color.WHITE, 1.5, true)
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.4, -r * 0.6), Vector2(-r * 0.95, -r * 0.95), Vector2(-r * 0.75, -r * 0.4)]), Color.WHITE)
+		&"spider":
+			# A red mask over the whole head, webbed, with big white eyes.
+			draw_circle(Vector2.ZERO, r - 0.5, Color(0.9, 0.12, 0.15), true, -1.0, true)
+			for k in 3:
+				draw_arc(Vector2(r * 0.3, 0), r * (0.35 + k * 0.3), 0.0, TAU, 16, Color(0.15, 0.05, 0.08), 1.0, true)
+			for k in 6:
+				draw_line(Vector2(r * 0.3, 0), Vector2(r * 0.3, 0) + Vector2.from_angle(k * TAU / 6.0) * r * 1.2, Color(0.15, 0.05, 0.08), 1.0, true)
+			for eye: Vector2 in [Vector2(r * 0.55, -r * 0.15), Vector2(r * 0.05, -r * 0.18)]:
+				var lens := PackedVector2Array([eye + Vector2(-5, 2), eye + Vector2(0, -6), eye + Vector2(6, 0), eye + Vector2(1, 4)])
+				_poly(lens, Color.WHITE, 2.0)
+		&"bat":
+			# A black cowl with pointed ears; only the jaw shows.
+			var cowl := PackedVector2Array()
+			for i in 13:
+				cowl.append(Vector2.from_angle(lerpf(PI * 0.95, TAU * 1.04, i / 12.0)) * (r + 1.0))
+			cowl.append(Vector2(r * 0.95, r * 0.25))
+			cowl.append(Vector2(-r * 0.8, r * 0.45))
+			_poly(cowl, Color(0.08, 0.08, 0.1), 2.0)
+			for ear: float in [-0.35, 0.45]:
+				draw_colored_polygon(PackedVector2Array([Vector2(r * ear - 4.0, -r * 0.85), Vector2(r * ear, -r * 1.65), Vector2(r * ear + 4.0, -r * 0.85)]), Color(0.08, 0.08, 0.1))
+			for eye: Vector2 in [Vector2(r * 0.55, -r * 0.1), Vector2(r * 0.15, -r * 0.12)]:
+				draw_line(eye + Vector2(-3, 1), eye + Vector2(3, -1), Color.WHITE, 2.0, true)
+		&"stardust":
+			# A cap that melts into his hair at the back, with a gold badge and a hard
+			# brim; a fixed glare under it.
+			var hair := PackedVector2Array([Vector2(-r * 0.2, -r * 0.7), Vector2(-r * 1.2, -r * 0.6), Vector2(-r * 1.7, -r * 0.1), Vector2(-r * 1.3, r * 0.2), Vector2(-r * 1.6, r * 0.6), Vector2(-r * 0.7, r * 0.4)])
+			_poly(hair, data.hair_color, 2.0)
+			var cap := PackedVector2Array()
+			for i in 13:
+				cap.append(Vector2.from_angle(lerpf(PI * 1.0, TAU, i / 12.0)) * (r + 2.0) + Vector2(0, -r * 0.1))
+			_poly(cap, Color(0.12, 0.12, 0.18), 2.0)
+			_poly([Vector2(r * 0.3, -r * 0.3), Vector2(r * 1.6, -r * 0.25), Vector2(r * 1.5, -r * 0.05), Vector2(r * 0.3, -r * 0.05)], Color(0.12, 0.12, 0.18), 2.0)
+			draw_circle(Vector2(r * 0.25, -r * 0.7), 3.5, Color(0.95, 0.8, 0.3), true, -1.0, true)
+			draw_line(Vector2(r * 0.15, -r * 0.05), Vector2(r * 0.7, -r * 0.12), OUTLINE, 2.5, true)
+			draw_line(Vector2(r * 0.35, r * 0.1), Vector2(r * 0.6, r * 0.08), OUTLINE, 2.0, true)
+		&"vampire":
+			# Swept-back blond hair, a green heart headband and a cruel smile.
+			var hair := PackedVector2Array([Vector2(r * 0.7, -r * 0.7), Vector2(-r * 0.1, -r * 1.25), Vector2(-r * 1.2, -r * 0.8), Vector2(-r * 1.5, r * 0.3), Vector2(-r * 0.9, r * 0.9), Vector2(-r * 0.6, r * 0.1), Vector2(-r * 0.1, -r * 0.5)])
+			_poly(hair, data.hair_color, 2.0)
+			draw_line(Vector2(-r * 0.8, -r * 0.45), Vector2(r * 0.9, -r * 0.5), Color(0.3, 0.62, 0.35), 4.0, true)
+			_draw_heart(Vector2(r * 0.55, -r * 0.5), 3.5, Color(0.3, 0.62, 0.35))
+			draw_line(Vector2(r * 0.3, -r * 0.12), Vector2(r * 0.75, -r * 0.2), OUTLINE, 2.0, true)
+			draw_arc(Vector2(r * 0.5, r * 0.35), r * 0.25, 0.2, PI - 0.4, 8, OUTLINE, 1.8, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+# --- Stands (Jotar and Dyo) ---
+
+## How much of the stand shows (fatalities set it); it also comes out with every throw
+## and hovers faintly once the special is charged.
+var stand_out := 0.0
+## The stand throwing a flurry of fists (ORA / MUDA).
+var stand_barrage := false
+
+
+func has_stand() -> bool:
+	return data != null and data.style in [&"stardust", &"vampire"]
+
+
+## A small heart.
+func _draw_heart(at: Vector2, size: float, color: Color) -> void:
+	var heart := PackedVector2Array([at + Vector2(0, size), at + Vector2(-size, -size * 0.1), at + Vector2(-size * 0.6, -size * 0.8), at + Vector2(0, -size * 0.35), at + Vector2(size * 0.6, -size * 0.8), at + Vector2(size, -size * 0.1)])
+	draw_colored_polygon(heart, color)
+
+
+## The stand: a big muscular spirit hovering behind and above them, punching forward
+## as they throw. Star Platina is violet with long black hair and a red scarf; The
+## Warld is gold with a heart-studded helmet.
+func _draw_stand(p: Dictionary) -> void:
+	var show := maxf(stand_out, maxf(_swing, 0.3 if _charged() else 0.0))
+	if show < 0.02:
+		return
+	var star := data.style == &"stardust"
+	var body := Color(0.58, 0.4, 0.85) if star else Color(0.98, 0.8, 0.3)
+	var trim := Color(0.85, 0.15, 0.2) if star else Color(0.3, 0.62, 0.35)
+	var a := clampf(show, 0.0, 1.0) * 0.85
+	var fill := Color(body, a)
+	var line := Color(OUTLINE, a)
+	var base: Vector2 = (p[&"hip"] as Vector2) + Vector2(-facing * 26.0, -34.0 + sin(_time * 2.5) * 3.0)
+	draw_set_transform(base, 0.0, Vector2(facing * 1.25, 1.25))
+	draw_circle(Vector2(0, -40), 70.0, Color(body, a * 0.12), true, -1.0, true)
+	# Legs trailing away into mist.
+	for leg: float in [-8.0, 8.0]:
+		draw_line(Vector2(leg, 0), Vector2(leg * 1.4, 34), Color(body, a * 0.5), 9.0, true)
+	var torso := PackedVector2Array([Vector2(-22, -64), Vector2(22, -64), Vector2(12, -2), Vector2(-12, -2)])
+	draw_colored_polygon(torso, fill)
+	draw_polyline(PackedVector2Array([torso[0], torso[1], torso[2], torso[3], torso[0]]), line, 2.5, true)
+	draw_line(Vector2(0, -60), Vector2(0, -20), Color(OUTLINE, a * 0.5), 1.5, true)
+	if star:
+		draw_polyline(PackedVector2Array([Vector2(-14, -66), Vector2(0, -60), Vector2(14, -66)]), Color(trim, a), 5.0, true)
+		draw_line(Vector2(-8, -62), Vector2(-26, -40), Color(trim, a), 4.0, true)
+	else:
+		for k in 3:
+			_draw_heart(Vector2(-10 + k * 10, -48), 4.0, Color(trim, a))
+	# The back arm, guarding.
+	draw_line(Vector2(-18, -60), Vector2(-4, -32), fill, 9.0, true)
+	draw_circle(Vector2(-4, -32), 8.0, fill, true, -1.0, true)
+	# The punching arm: straight out with the throw, or a blur of fists.
+	var reach := 1.0 if stand_barrage else _swing
+	var fist := Vector2(24, -40).lerp(Vector2(72, -52), reach)
+	draw_line(Vector2(18, -60), fist, fill, 10.0, true)
+	if stand_barrage:
+		for k in 8:
+			var at := Vector2(56 + fmod(_time * 900.0 + k * 37.0, 40.0), -70 + fmod(k * 13.0 + _time * 300.0, 44.0))
+			draw_circle(at, 8.0, Color(body, a * 0.7), true, -1.0, true)
+			draw_arc(at, 8.0, 0.0, TAU, 12, Color(OUTLINE, a * 0.6), 1.5, true)
+	draw_circle(fist, 9.0, fill, true, -1.0, true)
+	draw_arc(fist, 9.0, 0.0, TAU, 14, line, 2.0, true)
+	draw_line(fist + Vector2(-8, 0), fist + Vector2(-2, 0), Color(1.0, 0.85, 0.3, a), 4.0, true)
+	# The head.
+	var head := Vector2(2, -80)
+	if star:
+		var hair := PackedVector2Array([head + Vector2(8, -12), head + Vector2(-10, -16), head + Vector2(-34, -4), head + Vector2(-44, 18), head + Vector2(-20, 8), head + Vector2(-8, 10)])
+		draw_colored_polygon(hair, Color(0.08, 0.07, 0.1, a))
+	draw_circle(head, 13.0, fill, true, -1.0, true)
+	draw_arc(head, 13.0, 0.0, TAU, 18, line, 2.0, true)
+	if not star:
+		draw_arc(head, 14.0, PI, TAU, 10, Color(trim, a), 4.0, true)
+		_draw_heart(head + Vector2(4, -10), 3.0, Color(trim, a))
+	draw_line(head + Vector2(3, -2), head + Vector2(10, -3), Color(1.0, 1.0, 1.0, a), 2.5, true)
+	draw_line(head + Vector2(4, 5), head + Vector2(10, 5), line, 1.5, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+## How high their voice is: big bruisers growl low, little ones squeak.
+const VOICE_PITCH := {
+	&"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
+	&"bomba": 0.86, &"ryo": 0.88, &"egita": 0.98, &"goj": 0.95, &"ichi": 0.92, &"uryo": 1.02, &"megu": 0.96,
+	&"yuj": 1.0, &"gok": 1.04, &"lufi": 1.12, &"spydr": 1.1, &"rango": 0.9, &"quotuk": 1.0, &"fentuk": 1.08,
+	&"klakla": 1.35, &"pipmo": 1.5, &"plopo": 1.6,
+}
+
+
+func voice_pitch() -> float:
+	return float(VOICE_PITCH.get(data.id, 1.0)) if data != null else 1.0
+
+
+## Plays one of their voice sounds (looked up at run time, so this class compiles
+## without the Audio autoload).
+func _say_sound(sound: String, volume_db: float, pitch: float) -> void:
+	var audio := get_node_or_null(^"/root/Audio")
+	if audio != null:
+		audio.call("play", sound, volume_db, pitch, 0.0)

@@ -16,10 +16,24 @@ func _initialize() -> void:
 		"slice": _slice(),
 		"crunch": _crunch(),
 		"punch": _punch(),
+		"cheer": _cheer(),
+		"clang": _clang(),
+		"zap": _zap(),
+		"boom": _boom(),
+		"voice_hurt": _voice_hurt(),
+		"voice_die": _voice_die(),
+		"voice_charge": _voice_charge(),
+		"voice_laugh": _voice_laugh(),
 	}
 	for name: String in sfx:
 		_save("res://audio/sfx/%s.wav" % name, sfx[name], 0.9)
-	_save("res://audio/music/battle.wav", _battle(), 0.8)
+	_save("res://audio/music/battle.wav", _battle(132.0, 0, [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]], "square", "pluck"), 0.8)
+	# Bamboo Dojo: a pentatonic tune, lighter and plucked.
+	_save("res://audio/music/battle_east.wav", _battle(118.0, 2, [[48, 55, 60], [45, 52, 57], [43, 50, 55], [45, 52, 60]], "triangle", "pluck"), 0.8)
+	# Graveyard and Lava Forge: slower, darker, in D minor.
+	_save("res://audio/music/battle_dark.wav", _battle(108.0, -7, [[57, 60, 64], [53, 57, 60], [55, 58, 62], [52, 56, 59]], "saw", "saw"), 0.8)
+	# Frozen Peaks and Sky Islands: bright and quick, in C major.
+	_save("res://audio/music/battle_bright.wav", _battle(144.0, 3, [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]], "triangle", "square"), 0.8)
 	_save("res://audio/music/menu.wav", _menu(), 0.75)
 	print("audio written")
 	quit()
@@ -145,6 +159,111 @@ func _punch() -> PackedFloat32Array:
 	return b
 
 
+
+## A crowd roaring: a swell of filtered noise, scattered claps and a few rising "woo"s.
+func _cheer() -> PackedFloat32Array:
+	var b := _buffer(2.4)
+	var y := 0.0
+	var a := _lp(1400.0)
+	for i in b.size():
+		var t := float(i) / RATE
+		var env := minf(1.0, t / 0.25) * exp(-maxf(0.0, t - 0.5) * 1.6)
+		y += a * (randf_range(-1.0, 1.0) - y)
+		b[i] = y * env * 1.6
+	for k in 70:
+		_mix(b, _noise(0.03, 7000.0, 3000.0, 14.0, true), randf_range(0.05, 1.8), randf_range(0.15, 0.35))
+	for k in 6:
+		var start := randf_range(0.0, 0.5)
+		var voice := _note(randf_range(62.0, 72.0), randf_range(0.5, 0.9), "saw", 0.08, 0.3, 900.0, 0.01)
+		_mix(b, voice, start, 0.08)
+	return b
+
+
+## Metal on bone: a bright ring with a hard knock.
+func _clang() -> PackedFloat32Array:
+	var b := _buffer(0.6)
+	for f: float in [820.0, 1290.0, 2010.0]:
+		_mix(b, _tone(0.55, f, f * 0.98, 6.0), 0.0, 0.35)
+	_mix(b, _noise(0.05, 8000.0, 3000.0, 12.0), 0.0, 0.8)
+	return b
+
+
+## Energy crackle: a falling buzz with fizz on top.
+func _zap() -> PackedFloat32Array:
+	var b := _note(84.0, 0.05, "square", 0.001, 0.25, 5000.0, 0.02)
+	var slide := _tone(0.35, 1600.0, 300.0, 5.0)
+	_mix(b, slide, 0.0, 0.5)
+	_mix(b, _noise(0.3, 9000.0, 4000.0, 6.0, true), 0.0, 0.4)
+	return b
+
+
+## An explosion: a deep rumble that rolls off slowly.
+func _boom() -> PackedFloat32Array:
+	var b := _noise(1.2, 900.0, 120.0, 3.5)
+	_mix(b, _tone(0.8, 90.0, 30.0, 4.0), 0.0, 1.2)
+	_mix(b, _noise(0.08, 6000.0, 2000.0, 10.0), 0.0, 0.6)
+	return b
+
+
+# --- voices ---
+
+## A voice: a buzzy pulse at a pitch sliding from `from_hz` to `to_hz` (with a little
+## vibrato), shaped by two vowel formants, under an envelope from `shape(t)`.
+func _voice(seconds: float, from_hz: float, to_hz: float, f1: float, f2: float, shape: Callable, vibrato: float = 0.0) -> PackedFloat32Array:
+	var b := _buffer(seconds)
+	var phase := 0.0
+	var r1 := _resonator(f1, 90.0)
+	var r2 := _resonator(f2, 140.0)
+	var s1 := [0.0, 0.0]
+	var s2 := [0.0, 0.0]
+	for i in b.size():
+		var t := float(i) / b.size()
+		var hz := lerpf(from_hz, to_hz, t) * (1.0 + vibrato * sin(TAU * 6.0 * t * seconds))
+		phase = fmod(phase + hz / RATE, 1.0)
+		var source := (2.0 * phase - 1.0) * 0.7 + randf_range(-0.15, 0.15)
+		var y1: float = r1[0] * source + r1[1] * float(s1[0]) + r1[2] * float(s1[1])
+		s1[1] = s1[0]
+		s1[0] = y1
+		var y2: float = r2[0] * source + r2[1] * float(s2[0]) + r2[2] * float(s2[1])
+		s2[1] = s2[0]
+		s2[0] = y2
+		b[i] = (y1 + y2 * 0.6) * float(shape.call(t))
+	return b
+
+
+## Two-pole resonator coefficients [gain, a1, a2] at `hz` with `width` Hz bandwidth.
+func _resonator(hz: float, width: float) -> Array:
+	var r := exp(-PI * width / RATE)
+	var a1 := 2.0 * r * cos(TAU * hz / RATE)
+	var a2 := -r * r
+	return [1.0 - r, a1, a2]
+
+
+## Hit: a short grunt, "uhh".
+func _voice_hurt() -> PackedFloat32Array:
+	return _voice(0.28, 210.0, 150.0, 600.0, 1100.0, func(t: float) -> float: return minf(1.0, t * 12.0) * pow(1.0 - t, 1.5))
+
+
+## Knocked out: a long falling cry, "aaahhh".
+func _voice_die() -> PackedFloat32Array:
+	return _voice(1.1, 300.0, 95.0, 780.0, 1250.0, func(t: float) -> float: return minf(1.0, t * 10.0) * pow(1.0 - t, 1.2), 0.03)
+
+
+## Special charged: a rising power-up yell, "haaa!".
+func _voice_charge() -> PackedFloat32Array:
+	var b := _voice(0.9, 140.0, 270.0, 720.0, 1300.0, func(t: float) -> float: return minf(1.0, t * 2.5) * (1.0 if t < 0.85 else (1.0 - t) / 0.15), 0.02)
+	_mix(b, _noise(0.9, 2500.0, 5000.0, 1.5, true), 0.0, 0.08)
+	return b
+
+
+## Fatality: a triumphant laugh, "ha-ha-HA!".
+func _voice_laugh() -> PackedFloat32Array:
+	var b := _buffer(0.9)
+	for k in 3:
+		var pulse := _voice(0.2 if k < 2 else 0.34, 230.0 + k * 20.0, 200.0 + k * 30.0, 750.0, 1200.0, func(t: float) -> float: return minf(1.0, t * 14.0) * pow(1.0 - t, 1.3))
+		_mix(b, pulse, k * 0.24, 0.8 if k < 2 else 1.0)
+	return b
+
 # --- music ---
 
 func _hz(midi: float) -> float:
@@ -198,18 +317,17 @@ func _note(midi: float, seconds: float, shape: String, attack: float, release: f
 	return b
 
 
-## Battle: 132 BPM in A minor. Driving drums, a pumping bass, a 16th-note arpeggio,
-## pads, and a lead hook in the second half. 16 bars that loop.
-func _battle() -> PackedFloat32Array:
-	var beat := 60.0 / 132.0
+## A battle track at `bpm`, shifted by `shift` semitones: driving drums, a pumping
+## bass, a 16th-note arpeggio, pads over `chords`, and a lead hook (`lead` shape) in
+## the second half. 16 bars that loop.
+func _battle(bpm: float, shift: int, chords: Array, lead: String, arp: String) -> PackedFloat32Array:
+	var beat := 60.0 / bpm
 	var bars := 16
 	var b := _buffer(bars * 4 * beat)
 	var kick := _kick()
 	var snare := _snare()
 	var hat := _hat(false)
 	var ohat := _hat(true)
-	# Am - F - C - G, twice as long in the back half.
-	var chords := [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]
 	for bar in bars:
 		var chord: Array = chords[bar % 4]
 		var t0 := bar * 4 * beat
@@ -224,22 +342,22 @@ func _battle() -> PackedFloat32Array:
 			_mix(b, ohat if step % 4 == 2 else hat, t, 0.18 if step % 2 == 0 else 0.1)
 			# Bass: eighth notes on the root, jumping an octave on the off-beats.
 			if step % 2 == 0:
-				var root: int = int(chord[0]) - 24 + (12 if step % 4 == 2 else 0)
+				var root: int = int(chord[0]) + shift - 24 + (12 if step % 4 == 2 else 0)
 				_mix(b, _note(root, beat * 0.4, "square", 0.004, 0.05, 900.0), t, 0.32)
 			# Arpeggio over the chord.
 			if bar >= 2:
-				var tone: int = int(chord[step % 3]) + 12 + (12 if step % 8 >= 4 else 0)
-				_mix(b, _note(tone, beat * 0.2, "pluck", 0.002, 0.08, 3500.0), t, 0.11)
+				var tone: int = int(chord[step % 3]) + shift + 12 + (12 if step % 8 >= 4 else 0)
+				_mix(b, _note(tone, beat * 0.2, arp, 0.002, 0.08, 3500.0), t, 0.11)
 		# Pads under it all.
 		for tone: int in chord:
-			_mix(b, _note(tone, beat * 3.8, "saw", 0.25, 0.3, 1400.0, 0.004), t0, 0.06)
+			_mix(b, _note(tone + shift, beat * 3.8, "saw", 0.25, 0.3, 1400.0, 0.004), t0, 0.06)
 		# Lead hook in the second half.
 		if bar >= 8:
 			var hook := [[0, 76, 1.0], [1, 74, 0.5], [1.5, 72, 0.5], [2, 69, 1.5], [3.5, 72, 0.5]]
 			if bar % 2 == 1:
 				hook = [[0, 72, 0.5], [0.5, 74, 0.5], [1, 76, 1.0], [2, 79, 1.0], [3, 76, 1.0]]
 			for n: Array in hook:
-				_mix(b, _note(float(n[1]), beat * float(n[2]) * 0.9, "square", 0.01, 0.12, 2600.0, 0.003), t0 + float(n[0]) * beat, 0.09)
+				_mix(b, _note(float(n[1]) + shift, beat * float(n[2]) * 0.9, lead, 0.01, 0.12, 2600.0, 0.003), t0 + float(n[0]) * beat, 0.09)
 	return b
 
 

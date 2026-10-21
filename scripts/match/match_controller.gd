@@ -39,6 +39,12 @@ const ROSTER := [
 	preload("res://data/fighters/goj.tres"),
 	preload("res://data/fighters/ryo.tres"),
 	preload("res://data/fighters/akum.tres"),
+	preload("res://data/fighters/thundr.tres"),
+	preload("res://data/fighters/capt.tres"),
+	preload("res://data/fighters/spydr.tres"),
+	preload("res://data/fighters/batz.tres"),
+	preload("res://data/fighters/jotar.tres"),
+	preload("res://data/fighters/dyo.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -65,6 +71,11 @@ const LAST_STAND_HEALTH := 20
 const MAX_SETTLE_WAIT := 3.0
 ## Chance a crate appears at the start of a turn (when none is waiting).
 const CRATE_CHANCE := 0.4
+## Every HAZARD_EVERY turns the map throws something down: a boulder, an icicle, a
+## lava bomb or a lightning strike. A red ring on the ground warns where.
+const HAZARD_EVERY := 5
+const HAZARD_RADIUS := 90.0
+const HAZARD_DAMAGE := 12
 ## Seconds a floating slab takes to drift to its new spot.
 const DRIFT_TIME := 0.8
 ## Target Practice: number of targets and tries per target (stars = tries left + 1).
@@ -98,10 +109,19 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.45, "dogs": 0.9}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
-const RAIN_ARROWS := 8
-const RAIN_SPREAD := 45.0
+## Fuga's burn: turns on fire and damage at the start of each.
+## Per fighter level (from duplicates): extra damage and faster special meter.
+const LEVEL_DAMAGE := 0.04
+const LEVEL_CHARGE := 0.06
+## God of Thunder's lightning blast and the Explosive Batarangs' blasts (px).
+const THUNDER_RADIUS := 170.0
+const BATBOMB_RADIUS := 110.0
+const BURN_TURNS := 3
+const BURN_DAMAGE := 6
+const RAIN_ARROWS := 6
+const RAIN_SPREAD := 80.0
 ## Hollow Purple: blast radius, and how close (px) and fast (px/s at point blank) it drags the enemy.
 const PURPLE_RADIUS := 240.0
 const PURPLE_PULL_RANGE := 600.0
@@ -120,6 +140,8 @@ const LOCAL_WIND := 0.8
 const THROW_SOUNDS := {
 	&"hammer": ["whoosh", 0.75],
 	&"pebble": ["sling", 1.0],
+	&"bearing": ["whoosh", 1.6],
+	&"knife": ["whoosh", 1.4],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -183,6 +205,10 @@ var _gap := 1500.0
 var _crate: Crate
 var _turn_count := 0
 var _extra_throw := false
+## Jotar's time stop: throws left before time moves again.
+var _time_stop_left := 0
+const TIME_STOP_THROWS := 3
+const KNIFE_STORM := 9
 ## Target Practice progress: index, attempt, stars, and whether this throw hit.
 var _practice := {}
 var _practice_target: PracticeTarget
@@ -285,8 +311,8 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	if mode != Mode.TOURNAMENT:
 		tournament = {}
 	_last_map = map
-	Audio.play_music("battle")
 	_set_map(map if map != null else MAPS[rng.randi_range(0, MAPS.size() - 1)])
+	Audio.play_music(_music_for(current_map))
 	if right == null:
 		var foes: Array[FighterData] = []
 		for fighter in roster():
@@ -329,8 +355,45 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 		await _hud.play_intro(left, right, names)
 		if match_id != _match_id:
 			return
+		_say(fighters[0], Taunts.intro_line(left.id, rng), 1.3)
+		await get_tree().create_timer(1.2, false).timeout
+		if match_id != _match_id:
+			return
+		_say(fighters[1], Taunts.intro_line(right.id, rng), 1.3)
+		await get_tree().create_timer(1.3, false).timeout
+		if match_id != _match_id:
+			return
 	_begin_turn()
 
+
+
+## A speech bubble over a fighter's head for a moment.
+func _say(fighter: Fighter, text: String, seconds: float = 1.6) -> void:
+	if fighter == null or not is_instance_valid(fighter):
+		return
+	var font := ThemeDB.fallback_font
+	var size := 26
+	var bubble := Node2D.new()
+	bubble.z_index = 30
+	bubble.draw.connect(func() -> void:
+		var extent := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size)
+		var box := Rect2(Vector2(-extent.x / 2 - 14, -extent.y - 14), extent + Vector2(28, 20))
+		bubble.draw_colored_polygon(PackedVector2Array([Vector2(-10, box.end.y - 2), Vector2(10, box.end.y - 2), Vector2(-14 * fighter.facing, box.end.y + 18)]), Color.WHITE)
+		bubble.draw_style_box(UiStyle.flat(Color.WHITE, 14), box)
+		bubble.draw_string(font, Vector2(-extent.x / 2, -12), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0.1, 0.08, 0.12)))
+	_actors.add_child(bubble)
+	var follow := func() -> void:
+		if is_instance_valid(fighter) and is_instance_valid(bubble):
+			bubble.global_position = fighter.aim_point(true) + Vector2(0, -60)
+			bubble.scale = Vector2.ONE / _camera.zoom.x
+	follow.call()
+	get_tree().process_frame.connect(follow)
+	var pop := bubble.create_tween()
+	pop.tween_interval(seconds)
+	pop.tween_property(bubble, "modulate:a", 0.0, 0.25)
+	pop.tween_callback(func() -> void:
+		get_tree().process_frame.disconnect(follow)
+		bubble.queue_free())
 
 static func _empty_stats() -> Dictionary:
 	return {"throws": 0, "hits": 0, "headshots": 0, "damage": 0, "longest": 0.0}
@@ -338,6 +401,9 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_hud.hide_tip()
+	_time_stop_left = 0
+	_hud.set_time_stop(false)
 	_launching = false
 	_finisher = {}
 	_end_slow_time()
@@ -408,11 +474,18 @@ func start_tournament(pick: FighterData) -> void:
 
 ## Adds to a side's special meter; says so when the player's fills up.
 func _add_charge(side: int, amount: float) -> void:
+	amount *= 1.0 + LEVEL_CHARGE * _level_of(fighters[side])
 	var was_full := _charge[side] >= 1.0
 	_charge[side] = minf(1.0, _charge[side] + amount)
 	fighters[side].charge = _charge[side]
+	if not was_full and _charge[side] >= 1.0:
+		Audio.play("voice_charge", -3.0, fighters[side].voice_pitch(), 0.0)
 	if not was_full and _charge[side] >= 1.0 and not fighters[side].is_ai:
 		_hud.announce("%s: SPECIAL READY!" % fighters[side].data.short_name.to_upper(), fighters[side].data.body_color.lightened(0.35))
+		if Save.tutorial_step == 2 and mode != Mode.PRACTICE and not autoplay:
+			Save.tutorial_step = 3
+			Save.save_progress()
+			_hud.show_tip("Your SPECIAL is ready! Tap the special button, then throw to unleash it.")
 
 
 ## The sideways push a fighter's throws feel: the turn's wind, plus a boomerang's
@@ -440,9 +513,12 @@ func _pull_fighter(target: Fighter, thrower: Fighter, amount: float) -> void:
 ## outward; obstacles in it are chipped.
 func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighter, part: StringName, collider: Object) -> void:
 	var radius := projectile.explode_radius
+	if projectile.get_meta("thunder", false):
+		_lightning(at)
 	Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
 	Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
 	Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Audio.play("boom", 0.0, 1.0, 0.1)
 	Audio.play("ground", 2.0, 0.45, 0.0)
 	Device.vibrate(90)
 	Audio.play("hit_body", -2.0, 0.6, 0.0)
@@ -461,7 +537,214 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		var obstacle := child as Obstacle
 		if obstacle != null and not obstacle.is_destroyed and (obstacle == collider or obstacle.rect.grow(radius * 0.5).has_point(at)):
 			obstacle.damage(2)
+	_blast_crater(at, radius)
 
+
+
+
+## Explosions near the ground blow a crater out of it; anyone standing in it drops in.
+func _blast_crater(at: Vector2, radius: float) -> void:
+	var ground := Terrain.height_at(at.x)
+	if at.y < ground - radius * 0.6:
+		return
+	var width := clampf(radius * 0.9, 60.0, 160.0)
+	Terrain.crater(at.x, width, clampf(radius * 0.3, 20.0, 50.0))
+	_arena.refresh_terrain()
+	Effects.burst(_actors, Vector2(at.x, ground), _current_dirt(), 30, 600.0, 120.0, 1.6)
+	for fighter in fighters:
+		var floor_y := Terrain.height_at(fighter.position.x)
+		if floor_y > fighter.position.y + 1.0:
+			fighter.create_tween().tween_property(fighter, "position:y", floor_y, 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+## The colour of earth thrown up by a blast.
+func _current_dirt() -> Color:
+	return current_map.ground_top.darkened(0.2) if current_map != null else Color(0.6, 0.5, 0.35)
+
+
+## The map's hazard: a red warning ring, then something falls from the sky onto it.
+func _drop_hazard() -> void:
+	var kind := &"rock"
+	match current_map.id if current_map != null else &"":
+		&"frozen":
+			kind = &"icicle"
+		&"lava":
+			kind = &"lava"
+		&"sky", &"neon":
+			kind = &"lightning"
+		&"pirate":
+			kind = &"cannonball"
+	var x: float
+	if rng.randf() < 0.35:
+		x = fighters[rng.randi() % 2].position.x + rng.randf_range(-60.0, 60.0)
+	else:
+		x = rng.randf_range(fighters[0].position.x, fighters[1].position.x)
+	var ground := Vector2(x, Terrain.height_at(x))
+	_hud.announce({&"icicle": "ICICLE!", &"lava": "LAVA BOMB!", &"lightning": "LIGHTNING!", &"cannonball": "CANNON FIRE!"}.get(kind, "ROCKFALL!"), Color(1.0, 0.45, 0.3))
+	var warning := Node2D.new()
+	warning.z_index = 5
+	warning.position = ground
+	warning.draw.connect(func() -> void:
+		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.02)
+		warning.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.3))
+		warning.draw_arc(Vector2.ZERO, HAZARD_RADIUS, 0.0, TAU, 32, Color(1.0, 0.2, 0.15, pulse), 6.0, true)
+		warning.draw_circle(Vector2.ZERO, HAZARD_RADIUS, Color(1.0, 0.2, 0.15, 0.15 * pulse), true, -1.0, true))
+	_actors.add_child(warning)
+	get_tree().process_frame.connect(warning.queue_redraw)
+	Audio.play("turn", 0.0, 0.6, 0.0)
+	var id := _match_id
+	await get_tree().create_timer(1.0, false).timeout
+	if id != _match_id:
+		return
+	warning.queue_free()
+	if kind == &"lightning":
+		_lightning(ground)
+	else:
+		var falling := Node2D.new()
+		falling.z_index = 20
+		falling.draw.connect(func() -> void:
+			match kind:
+				&"icicle":
+					falling.draw_colored_polygon(PackedVector2Array([Vector2(-18, -70), Vector2(18, -70), Vector2(0, 30)]), Color(0.8, 0.92, 1.0))
+					falling.draw_polyline(PackedVector2Array([Vector2(-18, -70), Vector2(0, 30), Vector2(18, -70), Vector2(-18, -70)]), Color(0.3, 0.45, 0.6), 3.0, true)
+				&"lava":
+					falling.draw_circle(Vector2.ZERO, 36.0, Color(1.0, 0.5, 0.1, 0.35), true, -1.0, true)
+					falling.draw_circle(Vector2.ZERO, 24.0, Color(0.25, 0.1, 0.08), true, -1.0, true)
+					falling.draw_circle(Vector2(-6, -6), 10.0, Color(1.0, 0.65, 0.2), true, -1.0, true)
+				&"cannonball":
+					falling.draw_circle(Vector2.ZERO, 22.0, Color(0.12, 0.12, 0.14), true, -1.0, true)
+					falling.draw_circle(Vector2(-7, -7), 6.0, Color(0.4, 0.4, 0.45), true, -1.0, true)
+				_:
+					falling.draw_colored_polygon(PackedVector2Array([Vector2(-30, -10), Vector2(-14, -30), Vector2(16, -28), Vector2(32, -4), Vector2(20, 24), Vector2(-20, 26)]), Color(0.55, 0.45, 0.38))
+					falling.draw_polyline(PackedVector2Array([Vector2(-30, -10), Vector2(-14, -30), Vector2(16, -28), Vector2(32, -4), Vector2(20, 24), Vector2(-20, 26), Vector2(-30, -10)]), Color(0.2, 0.15, 0.12), 3.0, true)
+			falling.draw_set_transform(Vector2.ZERO))
+		falling.position = ground + Vector2(rng.randf_range(-200.0, 200.0), -1400.0)
+		_actors.add_child(falling)
+		Audio.play("whoosh", 0.0, 0.5, 0.0)
+		var fall := falling.create_tween()
+		fall.tween_property(falling, "position", ground + Vector2(0, -20), 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		await fall.finished
+		if id != _match_id:
+			return
+		falling.queue_free()
+		Effects.burst(_actors, ground, Color(1.0, 0.55, 0.2) if kind == &"lava" else Color(0.85, 0.92, 1.0) if kind == &"icicle" else _current_dirt(), 40, 700.0, 120.0, 1.8)
+		Audio.play("ground", 3.0, 0.5, 0.0)
+		_camera.shake(0.8)
+	for fighter in fighters:
+		if fighter.is_knocked_out() or fighter.aim_point(false).distance_to(ground) > HAZARD_RADIUS + 50.0:
+			continue
+		fighter.take_hit(Rules.BODY, HAZARD_DAMAGE, Vector2(signf(fighter.position.x - x) * 500.0, -400.0))
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "-%d" % HAZARD_DAMAGE, Color(1.0, 0.45, 0.3), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		if kind == &"lava":
+			fighter.burn_turns = maxi(fighter.burn_turns, 1)
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle != null and not obstacle.is_destroyed and obstacle.rect.grow(HAZARD_RADIUS).has_point(ground):
+			obstacle.damage(2)
+	_blast_crater(ground, HAZARD_RADIUS * 1.2)
+	await get_tree().create_timer(0.6, false).timeout
+
+
+## Each map's battle music.
+static func _music_for(map: MapData) -> String:
+	match map.id if map != null else &"":
+		&"bamboo":
+			return "battle_east"
+		&"graveyard", &"lava":
+			return "battle_dark"
+		&"frozen", &"sky":
+			return "battle_bright"
+	return "battle"
+
+
+## A hit sounds like what hit: metal clangs, energy zaps, blades slice, soft things splat.
+static func _impact_sound(weapon: WeaponData) -> void:
+	if weapon == null:
+		return
+	match weapon.shape:
+		&"hammer", &"mjolnir", &"star_shield", &"iron_ball", &"axe", &"cleaver", &"batarang":
+			Audio.play("clang", -6.0, 1.0, 0.08)
+		&"ki", &"blue_orb", &"hadoken", &"quincy", &"nue", &"fire_arrow", &"gou_fireball":
+			Audio.play("zap", -6.0, 1.0, 0.08)
+		&"meat", &"web_ball", &"plunger":
+			Audio.play("splat", -6.0, 1.0, 0.08)
+		&"arrow", &"spear":
+			Audio.play("slice", -8.0, 1.2, 0.08)
+
+
+## First-match coaching: how to aim on the first turn, then wind and headshots.
+func _tutorial_tip() -> void:
+	if mode == Mode.PRACTICE or autoplay or Save.tutorial_step >= 2:
+		return
+	if Save.tutorial_step == 0:
+		_hud.show_tip("Drag back from anywhere to aim. Pull further for more power, then let go to throw!")
+	else:
+		_hud.show_tip("Watch the WIND at the top: it pushes your throw. Hit the head for big damage!")
+	Save.tutorial_step += 1
+	Save.save_progress()
+
+
+## Time stops: the world drains to grey-violet with a shockwave from the fighter.
+func _stop_time(fighter: Fighter) -> void:
+	_hud.set_time_stop(true)
+	_hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
+	Audio.play("zap", 0.0, 0.4, 0.0)
+	Audio.play("ko", -6.0, 0.5, 0.0)
+	_camera.shake(0.5)
+	var ring := Node2D.new()
+	ring.z_index = 25
+	ring.position = fighter.aim_point(false)
+	var size := {"r": 10.0}
+	ring.draw.connect(func() -> void:
+		ring.draw_arc(Vector2.ZERO, size["r"], 0.0, TAU, 64, Color(0.85, 0.75, 1.0, 0.8), 14.0, true)
+		ring.draw_circle(Vector2.ZERO, size["r"], Color(0.6, 0.45, 0.9, 0.15), true, -1.0, true))
+	_actors.add_child(ring)
+	var grow := ring.create_tween()
+	grow.tween_method(func(r: float) -> void:
+		size["r"] = r
+		ring.queue_redraw(), 10.0, 2600.0, 0.7).set_ease(Tween.EASE_OUT)
+	grow.parallel().tween_property(ring, "modulate:a", 0.0, 0.7)
+	grow.tween_callback(ring.queue_free)
+
+
+## Time moves again.
+func _resume_time() -> void:
+	_hud.set_time_stop(false)
+	_hud.announce("TIME RESUMES", Color(0.9, 0.9, 1.0))
+	Audio.play("whoosh", 0.0, 0.6, 0.0)
+
+
+## Dyo's special: stops time and throws a fan of knives that hang in the air, then
+## time moves again and they all fly at once.
+func _knife_storm(fighter: Fighter, angle: float, power: float) -> void:
+	var weapon := fighter.data.weapon
+	var id := _match_id
+	_stop_time(fighter)
+	var knives: Array[Projectile] = []
+	for i in KNIFE_STORM:
+		fighter.play_throw()
+		Audio.play("whoosh", -6.0, 1.4, 0.1)
+		var offset := (i - (KNIFE_STORM - 1) / 2.0) * 2.4
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power * rng.randf_range(0.96, 1.04), weapon.max_speed, fighter.facing), _wind_for(fighter))
+		projectile.target = fighters[1 - current]
+		projectile.set_meta("knifestorm", true)
+		_track(projectile)
+		knives.append(projectile)
+		await get_tree().create_timer(0.05, false).timeout
+		if id != _match_id:
+			return
+		for knife in knives:
+			if is_instance_valid(knife) and knife.flight_time > 0.12:
+				knife.frozen = true
+	await get_tree().create_timer(0.5, false).timeout
+	if id != _match_id:
+		return
+	for knife in knives:
+		if is_instance_valid(knife):
+			knife.frozen = false
+	_resume_time()
 
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
@@ -800,6 +1083,16 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 
 func _begin_turn() -> void:
 	var fighter := fighters[current]
+	# Burning (Fuga): the fire hurts at the start of their turn.
+	if fighter.burn_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
+		fighter.burn_turns -= 1
+		fighter.take_hit(Rules.BODY, BURN_DAMAGE, Vector2.ZERO)
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "BURN  -%d" % BURN_DAMAGE, Color(1.0, 0.55, 0.2), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, fighter.aim_point(false), Color(1.0, 0.5, 0.15), 20, 300.0, 180.0, 1.2)
+		Audio.play("whoosh", -4.0, 0.6, 0.0)
+		if fighter.is_knocked_out():
+			_end_match()
+			return
 	# Pin: a pinned fighter loses this turn.
 	if fighter.pinned:
 		fighter.pinned = false
@@ -821,6 +1114,13 @@ func _begin_turn() -> void:
 	if _turn_count > 0 and mode != Mode.PRACTICE:
 		_drift_obstacles()
 		_maybe_spawn_crate(CRATE_CHANCE)
+		if _turn_count % HAZARD_EVERY == HAZARD_EVERY - 1 and not _hud.time_stopped():
+			var hazard_id := _match_id
+			await _drop_hazard()
+			if hazard_id != _match_id or fighters[0].is_knocked_out() or fighters[1].is_knocked_out():
+				if hazard_id == _match_id:
+					_end_match()
+				return
 	_turn_count += 1
 	_turn_hit = false
 	if not fighter.is_ai:
@@ -831,6 +1131,7 @@ func _begin_turn() -> void:
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
+		_tutorial_tip()
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
 		return
@@ -932,6 +1233,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 
 
 func _throw(angle: float, power: float) -> void:
+	_hud.hide_tip()
 	state = State.FLYING
 	_hud.set_turn("")
 	_hud.set_special(null, 0.0, false)
@@ -956,15 +1258,28 @@ func _throw(angle: float, power: float) -> void:
 		if current == 0:
 			_specials_used += 1
 		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
+		Audio.play("voice_charge", -1.0, fighter.voice_pitch() * 1.1, 0.0)
 		Audio.play("win", -8.0, 1.6, 0.0)
 	if special == &"beam":
 		fighter.powered = false
 		_fire_beam(fighter, angle, special)
 		return
-	if special in [&"fuga", &"gou", &"rain", &"dogs", &"purple", &"shinku"]:
+	if special in [&"thunder", &"ricochet", &"batbombs"]:
+		fighter.powered = false
+		_hero_throw(fighter, special, angle, power)
+		return
+	if special in [&"fuga", &"gou", &"rain", &"dogs", &"purple", &"shinku", &"webyank"]:
 		fighter.powered = false
 		_new_special(fighter, special, angle, power)
 		return
+	if special == &"knifestorm":
+		fighter.powered = false
+		_knife_storm(fighter, angle, power)
+		return
+	if special == &"timestop":
+		fighter.powered = false
+		_time_stop_left = TIME_STOP_THROWS - 1
+		_stop_time(fighter)
 	if special == &"orb":
 		fighter.powered = false
 		_throw_orb(fighter, angle, power)
@@ -1007,6 +1322,11 @@ func _throw(angle: float, power: float) -> void:
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.hit_crate.connect(_on_projectile_hit_crate)
 		projectile.hit_target.connect(_on_practice_target_hit)
+		# Nue (Megu's shadow bird) bends a little toward the enemy.
+		if weapon.shape == &"nue":
+			projectile.homing_target = fighters[1 - current]
+			projectile.homing_range = 260.0
+			projectile.homing_turn = 2.2
 		# Blue drags the enemy toward it as it flies.
 		if weapon.shape == &"blue_orb":
 			projectile.set_meta("blue", true)
@@ -1029,6 +1349,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			_max_combo = maxi(_max_combo, _combo[side])
 		if _combo[side] >= 2:
 			_hud.announce("COMBO x%d!" % _combo[side], Color(1.0, 0.55, 0.9))
+			Audio.play("cheer", -10.0, 1.1, 0.1)
 	var combo: int = _combo[side] if side >= 0 else 0
 	var damage := Rules.damage_with_bonuses(projectile.weapon, part, projectile.flight_time, combo)
 	damage = roundi(damage * scale * (1.5 if projectile.get_meta("chop", false) else 1.0))
@@ -1045,6 +1366,9 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
+	# Levels from duplicate chest finds: a little more damage on your side.
+	if side >= 0:
+		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
 	if target.shielded:
 		target.shielded = false
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "SHIELD BLOCK!", Color(0.6, 0.85, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -1080,21 +1404,33 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	if projectile.flight_time >= Rules.SKY_SHOT_TIME and not _sky_shown:
 		_sky_shown = true
 		_hud.announce("SKY SHOT!", Color(0.5, 0.85, 1.0))
+	# Web Yank: dragged in and stuck fast for a turn.
+	if projectile.get_meta("webyank", false) and not target.is_knocked_out():
+		_pull_fighter(target, projectile.thrower, 380.0)
+		target.pinned = true
+		_hud.announce("WEBBED!", Color(0.95, 0.95, 1.0))
+	if projectile.get_meta("fuga", false) and not target.is_knocked_out():
+		target.burn_turns = BURN_TURNS
+		_hud.announce("BURNING!", Color(1.0, 0.5, 0.15))
 	if projectile.get_meta("pin", false) and not target.is_knocked_out():
 		target.pinned = true
 		_hud.announce("PINNED!", Color(0.75, 0.8, 0.95))
 	if was_healthy and target.health > 0 and target.health <= LAST_STAND_HEALTH:
 		_hud.announce("LAST STAND!", Color(1.0, 0.35, 0.3))
 
+	_impact_sound(projectile.weapon)
 	var inv_zoom := 1.0 / _camera.zoom.x
 	var view := _camera.visible_rect()
 	var at := projectile.global_position
 	match part:
 		Rules.HEAD:
 			Audio.play("hit_head")
+			Audio.play("cheer", -8.0, 1.0, 0.1)
 			Device.vibrate(60)
 			Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
+			if not target.is_knocked_out() and rng.randf() < 0.5:
+				_say(projectile.thrower as Fighter, Taunts.hit_line((projectile.thrower as Fighter).data.id, rng))
 			_camera.shake(0.7)
 			_slow_time(0.14, 0.1)
 		Rules.LEGS:
@@ -1114,6 +1450,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		Audio.play("splat", -8.0 + minf(damage, 60) * 0.1, randf_range(0.9, 1.2), 0.0)
 	if target.is_knocked_out():
 		Audio.play("ko", 0.0, 1.0, 0.0)
+		Audio.play("cheer", -2.0, 1.0, 0.0)
 		Audio.play("gore", -2.0, 1.0, 0.0)
 		Device.vibrate(140)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -150), "K.O.!", Color(1.0, 0.4, 0.3), 80, inv_zoom, view)
@@ -1316,7 +1653,13 @@ func _after_throw() -> void:
 		if fighter.is_knocked_out():
 			_end_match()
 			return
-	if _extra_throw:
+	if _time_stop_left > 0:
+		_time_stop_left -= 1
+		_hud.announce("TIME IS STOPPED  ·  %d MORE" % (_time_stop_left + 1), Color(0.8, 0.7, 1.0))
+	elif _hud.time_stopped():
+		_resume_time()
+		current = 1 - current
+	elif _extra_throw:
 		_extra_throw = false
 		_hud.announce("EXTRA THROW!", Color(1.0, 0.8, 0.25))
 	else:
@@ -1520,7 +1863,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.
@@ -1699,6 +2042,8 @@ func _new_special(fighter: Fighter, special: StringName, angle: float, power: fl
 			_licht_regen(fighter)
 		&"dogs":
 			_divine_dogs(fighter)
+		&"webyank":
+			_straight_shot(fighter, angle, &"web_ball", 26.0, Color(0.97, 0.97, 1.0), "webyank", false, 0.0, 1.8)
 
 
 ## Yuj: Sukuna takes over (tattoos and all), then looses a giant fire arrow that burns
@@ -1796,8 +2141,8 @@ func _licht_regen(fighter: Fighter) -> void:
 		projectile.launch(weapon, fighter, from, Vector2((aim.x - from.x) * 0.9, 1250.0), 0.0)
 		projectile.target = target
 		projectile.homing_target = _practice_target if mode == Mode.PRACTICE else target
-		projectile.homing_range = 500.0
-		projectile.homing_turn = 5.0
+		projectile.homing_range = 200.0
+		projectile.homing_turn = 2.5
 		projectile.set_meta("rain", true)
 		projectile.set_trail_color(weapon.color)
 		_track(projectile)
@@ -1816,6 +2161,17 @@ func _divine_dogs(fighter: Fighter) -> void:
 	var match_id := _match_id
 	var target := fighters[1 - current]
 	var goal_x: float = _practice_target.global_position.x if mode == Mode.PRACTICE and _practice_target != null and is_instance_valid(_practice_target) else target.global_position.x
+	# Obstacles standing on the ground stop the dogs: they maul the obstacle instead.
+	var blocker: Obstacle = null
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle == null or obstacle.is_destroyed or obstacle.kind == &"floating":
+			continue
+		var near_edge := obstacle.rect.position.x if fighter.facing > 0 else obstacle.rect.end.x
+		if (near_edge - fighter.global_position.x) * fighter.facing > 0.0 and (goal_x - near_edge) * fighter.facing > 0.0:
+			if blocker == null or absf(near_edge - fighter.global_position.x) < absf(goal_x - fighter.global_position.x):
+				blocker = obstacle
+				goal_x = near_edge - fighter.facing * 10.0
 	fighter.play_throw()
 	Audio.play("ko", -4.0, 1.4, 0.0)
 	_launching = true
@@ -1854,7 +2210,12 @@ func _divine_dogs(fighter: Fighter) -> void:
 		run.tween_callback(func() -> void:
 			if match_id != _match_id:
 				return
-			_dog_bite(fighter, target, wolf.position)
+			if blocker != null and is_instance_valid(blocker):
+				blocker.damage(1)
+				Effects.popup(_actors, wolf.position + Vector2(0, -80), "BLOCKED!", Color(0.85, 0.9, 1.0), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())
+				Audio.play("thunk", 0.0, 0.8, 0.0)
+			else:
+				_dog_bite(fighter, target, wolf.position)
 			var fade := wolf.create_tween()
 			fade.tween_property(wolf, "modulate:a", 0.0, 0.3)
 			fade.tween_callback(wolf.queue_free)
@@ -1884,3 +2245,60 @@ func _dog_bite(fighter: Fighter, target: Fighter, at: Vector2) -> void:
 	elif not target.is_knocked_out():
 		_on_projectile_hit(carrier, target, Rules.BODY, 1.0, Vector2(fighter.facing * 500.0, -300.0))
 	carrier.free()
+
+
+## The level of a fighter you control (the AI's fighters are never levelled).
+func _level_of(fighter: Fighter) -> int:
+	if fighter == null or fighter.is_ai or fighter.data == null:
+		return 0
+	return Save.fighter_level(String(fighter.data.id))
+
+
+## The heroes' thrown specials: God of Thunder, Shield Ricochet and Explosive Batarangs.
+func _hero_throw(fighter: Fighter, special: StringName, angle: float, power: float) -> void:
+	var weapon := fighter.data.weapon
+	fighter.play_throw()
+	Audio.play("whoosh", 0.0, 0.8, 0.0)
+	var count := 3 if special == &"batbombs" else 1
+	for i in count:
+		var offset := (i - (count - 1) / 2.0) * 6.0
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
+		projectile.target = fighters[1 - current]
+		match special:
+			&"thunder":
+				projectile.explode_radius = THUNDER_RADIUS
+				projectile.set_meta("thunder", true)
+				projectile.set_trail_color(Color(0.6, 0.8, 1.0))
+			&"ricochet":
+				projectile.bounces = 3
+				projectile.homing_target = fighters[1 - current]
+				projectile.homing_range = 420.0
+				projectile.homing_turn = 3.0
+				projectile.set_meta("ricochet", true)
+			&"batbombs":
+				projectile.explode_radius = BATBOMB_RADIUS
+				projectile.set_meta("batbomb", true)
+		_track(projectile)
+
+
+## Lightning from the sky onto `at` (God of Thunder): a jagged white-blue bolt.
+func _lightning(at: Vector2) -> void:
+	var bolt := Node2D.new()
+	bolt.z_index = 21
+	var points := PackedVector2Array([Vector2(at.x + rng.randf_range(-60, 60), at.y - 1400)])
+	for k in 12:
+		var t := (k + 1) / 12.0
+		points.append(Vector2(lerpf(points[0].x, at.x, t) + rng.randf_range(-40, 40) * (1.0 - t), lerpf(points[0].y, at.y, t)))
+	bolt.draw.connect(func() -> void:
+		bolt.draw_polyline(points, Color(0.6, 0.8, 1.0, 0.45), 26.0, true)
+		bolt.draw_polyline(points, Color(0.85, 0.95, 1.0), 9.0, true)
+		bolt.draw_polyline(points, Color.WHITE, 3.0, true))
+	_actors.add_child(bolt)
+	var fade := bolt.create_tween()
+	fade.tween_property(bolt, "modulate:a", 0.0, 0.45)
+	fade.tween_callback(bolt.queue_free)
+	Effects.burst(_actors, at, Color(0.7, 0.88, 1.0), 40, 700.0, 180.0, 1.6)
+	Audio.play("hit_head", 4.0, 0.35, 0.0)
+	_camera.shake(0.9)

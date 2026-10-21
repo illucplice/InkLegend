@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"bearing"
+display_name = "Star Finger Bearing"
+max_speed = 1450.0
+body_damage = 22
+head_damage = 40
+count = 1
+spin = 0.0
+sticks = false
+shape = &"bearing"
+size = 18.0
+color = Color(0.8, 0.82, 0.88, 1)
+gravity_scale = 0.85
+special = &"timestop"

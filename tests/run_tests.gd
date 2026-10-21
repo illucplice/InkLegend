@@ -253,19 +253,23 @@ func _test_progression(save: Node) -> void:
 
 
 func _test_chests_and_levels(save: Node) -> void:
+	# Every fighter in the game, so each rarity has someone to roll.
 	var roster: Array[FighterData] = []
-	for id: String in ["quotuk", "klakla", "pipmo", "fentuk", "bomba", "rango", "grak", "plopo", "gok", "egita"]:
-		roster.append(load("res://data/fighters/%s.tres" % id))
+	for file: String in DirAccess.get_files_at("res://data/fighters"):
+		if file.ends_with(".tres"):
+			roster.append(load("res://data/fighters/" + file))
 	# Odds: count rarities over many seeded rolls of each chest.
 	for kind: String in Chests.ORDER:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
-		var counts := {&"common": 0, &"rare": 0, &"legendary": 0}
+		var counts := {}
+		for rarity: StringName in Chests.RARITIES:
+			counts[rarity] = 0
 		for i in 4000:
 			counts[Chests.roll(kind, roster, rng).rarity] += 1
 		var odds: Array = Chests.KINDS[kind]["odds"]
 		var close := true
-		for r in 3:
+		for r in Chests.RARITIES.size():
 			close = close and absf(counts[Chests.RARITIES[r]] / 40.0 - float(odds[r])) < 3.0
 		_check(close, "%s chest rolls rarities at its odds %s (got %s)" % [kind, odds, counts.values()])
 	var repeat_a := RandomNumberGenerator.new()
@@ -282,13 +286,17 @@ func _test_chests_and_levels(save: Node) -> void:
 	var first := Chests.open("gold", roster, save, rng)
 	var fighter: FighterData = first["fighter"]
 	_check(first["new"] and save.is_unlocked(fighter) and save.coins == 4100, "a chest unlocks a new fighter and costs its price")
-	# Own everything, so the next chest must be a duplicate paid back in coins.
+	# Own everything, so the next chest must be a duplicate: it levels the fighter up.
 	for f in roster:
 		if not save.is_unlocked(f):
 			save.unlocked.append(String(f.id))
 	var dupe := Chests.open("wood", roster, save, rng)
-	var refund: int = Chests.DUPLICATE_COINS[(dupe["fighter"] as FighterData).rarity]
-	_check(not dupe["new"] and dupe["coins"] == refund and save.coins == 4100 - 150 + refund, "a duplicate turns into coins")
+	var dupe_id := String((dupe["fighter"] as FighterData).id)
+	_check(not dupe["new"] and dupe["level"] == 1 and save.fighter_level(dupe_id) == 1 and save.coins == 4100 - 150 + Chests.LEVEL_UP_COINS, "a duplicate levels the fighter up")
+	for f in roster:
+		save.fighter_levels[String(f.id)] = Chests.MAX_LEVEL
+	var maxed := Chests.open("wood", roster, save, rng)
+	_check(not maxed.is_empty() and maxed["coins"] == Chests.DUPLICATE_COINS[(maxed["fighter"] as FighterData).rarity], "a maxed fighter's duplicate turns into coins")
 	_check(save.unlocked.size() == roster.size(), "duplicates don't add a fighter twice")
 	for f in roster:
 		var r := f.rarity
@@ -481,7 +489,7 @@ func _test_practice_specials() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
-	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum"]:
+	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo"]:
 		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
 		game.start_practice(pick)
 		for frame in 300:

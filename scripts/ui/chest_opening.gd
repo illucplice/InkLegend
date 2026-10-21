@@ -84,7 +84,14 @@ func _build_card(result: Dictionary) -> PanelContainer:
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(fighter.display_name, 34, true))
 	stack.add_child(UiStyle.ink_label("%s  ·  ★ %s" % [fighter.weapon.display_name, fighter.special_name], 18))
-	var news := UiStyle.game_label("NEW FIGHTER!" if result["new"] else "DUPLICATE  +%d coins" % result["coins"], 30, true)
+	var text := "NEW FIGHTER!"
+	if not result["new"]:
+		var level := int(result.get("level", 0))
+		if level > 0 and int(result["coins"]) == Chests.LEVEL_UP_COINS:
+			text = "LEVEL UP!  Lv %d  ·  +%d coins" % [level, result["coins"]]
+		else:
+			text = "MAXED  +%d coins" % result["coins"]
+	var news := UiStyle.game_label(text, 28, true)
 	news.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	news.add_theme_color_override("font_color", Color(0.5, 1.0, 0.55) if result["new"] else Color(1.0, 0.85, 0.35))
 	stack.add_child(news)

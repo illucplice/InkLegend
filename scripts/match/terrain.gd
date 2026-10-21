@@ -73,3 +73,20 @@ static func profile(step: float = STEP) -> PackedVector2Array:
 		points.append(Vector2(x, height_at(x)))
 		x += step
 	return points
+
+
+## Blows a round bowl out of the ground at x (explosions). Never digs deeper than
+## MAX_DIG below y = 0, so nobody falls out of the world.
+const MAX_DIG := 220.0
+static func crater(x: float, radius: float, depth: float) -> void:
+	if _heights.is_empty():
+		var count := int(HALF_WIDTH * 2.0 / STEP) + 1
+		_heights.resize(count)
+		_heights.fill(0.0)
+	var first := maxi(0, int((x - radius + HALF_WIDTH) / STEP))
+	var last := mini(_heights.size() - 1, int((x + radius + HALF_WIDTH) / STEP) + 1)
+	for i in range(first, last + 1):
+		var u := (-HALF_WIDTH + i * STEP - x) / radius
+		if absf(u) >= 1.0:
+			continue
+		_heights[i] = minf(_heights[i] + depth * (1.0 - u * u), MAX_DIG)

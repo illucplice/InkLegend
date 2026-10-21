@@ -28,6 +28,8 @@ const KILL_RANGE := 4000.0
 const TRAIL_POINTS := 16
 
 var weapon: WeaponData
+## Time stop: hangs in the air, not moving, until let go.
+var frozen := false
 var thrower: Fighter
 ## Sideways push in px/s² (see Rules.MAX_WIND).
 var wind := 0.0
@@ -116,7 +118,7 @@ func current_velocity() -> Vector2:
 
 
 func _physics_process(delta: float) -> void:
-	if _done:
+	if _done or frozen:
 		return
 	_t += delta
 	flight_time += delta
@@ -389,6 +391,21 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_circle(Vector2.ZERO, s * 0.5, w.color, true, -1.0, true)
 			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.16), s * 0.16, w.color.lightened(0.4), true, -1.0, true)
 			canvas.draw_arc(Vector2.ZERO, s * 0.36, 0.3, 1.6, 8, w.color.darkened(0.3), 2.0, true)
+		&"bearing":
+			# A steel ball bearing, flicked so hard it streaks.
+			canvas.draw_line(Vector2(-s * 1.4, 0), Vector2.ZERO, Color(0.75, 0.6, 1.0, 0.35), s * 0.6, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 2.0, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5, w.color, true, -1.0, true)
+			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.16), s * 0.18, Color.WHITE, true, -1.0, true)
+		&"knife":
+			# A throwing knife: a long bright blade, a guard and a dark handle.
+			var blade := PackedVector2Array([Vector2(-s * 0.05, -s * 0.09), Vector2(s * 0.42, -s * 0.07), Vector2(s * 0.62, 0), Vector2(s * 0.42, s * 0.05), Vector2(-s * 0.05, s * 0.07)])
+			canvas.draw_colored_polygon(blade, w.color)
+			canvas.draw_polyline(PackedVector2Array([blade[0], blade[1], blade[2], blade[3], blade[4], blade[0]]), ink, 2.0, true)
+			canvas.draw_line(Vector2(0, -s * 0.03), Vector2(s * 0.5, -s * 0.01), Color.WHITE, 1.2, true)
+			canvas.draw_line(Vector2(-s * 0.05, -s * 0.18), Vector2(-s * 0.05, s * 0.18), ink, 4.0, true)
+			canvas.draw_line(Vector2(-s * 0.4, 0), Vector2(-s * 0.06, 0), Color(0.25, 0.15, 0.1), 6.0, true)
+			canvas.draw_circle(Vector2(-s * 0.42, 0), 4.0, ink, true, -1.0, true)
 		&"nue":
 			# Nue: a shadow bird with a white mask and spread wings.
 			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
@@ -435,6 +452,53 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 				canvas.draw_colored_polygon(PackedVector2Array([Vector2(x + s * 0.2, -h * 0.6), Vector2(x - s * 0.3, 0), Vector2(x + s * 0.2, h * 0.6)]), Color(1.0, 0.45 + k * 0.05, 0.1, 0.7))
 			canvas.draw_line(Vector2(-s * 0.4, 0), Vector2(s * 0.45, 0), Color(1.0, 0.85, 0.4), 5.0, true)
 			canvas.draw_colored_polygon(PackedVector2Array([Vector2(s * 0.7, 0), Vector2(s * 0.4, -s * 0.16), Vector2(s * 0.46, 0), Vector2(s * 0.4, s * 0.16)]), Color(1.0, 0.95, 0.7))
+		&"mjolnir":
+			# Mjolnir: a short wrapped handle with a strap, and a heavy brick of a head.
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.1, 0), ink, 7.0, true)
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.1, 0), Color(0.45, 0.3, 0.2), 4.0, true)
+			for k in 4:
+				var x := -s * 0.45 + k * s * 0.13
+				canvas.draw_line(Vector2(x, -3), Vector2(x + 4, 3), ink, 1.5, true)
+			canvas.draw_arc(Vector2(-s * 0.58, 4), 5.0, 0.0, TAU, 10, Color(0.45, 0.3, 0.2), 2.0, true)
+			var head := Rect2(Vector2(s * 0.08, -s * 0.32), Vector2(s * 0.5, s * 0.64))
+			var block := StyleBoxFlat.new()
+			block.bg_color = w.color
+			block.border_color = ink
+			block.set_border_width_all(3)
+			block.set_corner_radius_all(int(s * 0.06))
+			block.anti_aliasing = true
+			canvas.draw_style_box(block, head)
+			canvas.draw_line(head.position + Vector2(4, head.size.y * 0.5), head.end - Vector2(4, head.size.y * 0.5), w.color.darkened(0.25), 2.0)
+			canvas.draw_circle(head.get_center(), s * 0.08, w.color.lightened(0.3), true, -1.0, true)
+		&"star_shield":
+			# The star shield: red and white rings, a blue disc and a white star.
+			for k in 4:
+				var ring_color := Color(0.85, 0.15, 0.2) if k % 2 == 0 else Color(0.96, 0.96, 0.98)
+				canvas.draw_circle(Vector2.ZERO, s * (0.5 - k * 0.09), ring_color, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.18, Color(0.2, 0.35, 0.8), true, -1.0, true)
+			var star := PackedVector2Array()
+			for k in 10:
+				star.append(Vector2.from_angle(-PI / 2 + k * PI / 5.0) * s * (0.15 if k % 2 == 0 else 0.06))
+			canvas.draw_colored_polygon(star, Color.WHITE)
+			canvas.draw_arc(Vector2.ZERO, s * 0.5, 0.0, TAU, 32, ink, 2.5, true)
+		&"web_ball":
+			# A sticky ball of web with strands trailing behind.
+			for k in 5:
+				var a := PI + (k - 2) * 0.3
+				canvas.draw_line(Vector2.ZERO, Vector2.from_angle(a) * s * 1.1, Color(w.color, 0.7), 1.5, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42 + 1.5, Color(0.6, 0.62, 0.7), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42, w.color, true, -1.0, true)
+			for k in 3:
+				canvas.draw_arc(Vector2.ZERO, s * (0.14 + k * 0.1), 0.0, TAU, 12, Color(0.7, 0.72, 0.8), 1.0, true)
+			for k in 6:
+				canvas.draw_line(Vector2.ZERO, Vector2.from_angle(k * TAU / 6.0) * s * 0.42, Color(0.7, 0.72, 0.8), 1.0, true)
+		&"batarang":
+			# A batarang: a black bat silhouette with scalloped wings.
+			var wing := PackedVector2Array([Vector2(0, -s * 0.12), Vector2(s * 0.12, -s * 0.2), Vector2(s * 0.22, -s * 0.08), Vector2(s * 0.5, -s * 0.18), Vector2(s * 0.38, s * 0.02), Vector2(s * 0.28, -s * 0.02), Vector2(s * 0.2, s * 0.12), Vector2(0, s * 0.06), Vector2(-s * 0.2, s * 0.12), Vector2(-s * 0.28, -s * 0.02), Vector2(-s * 0.38, s * 0.02), Vector2(-s * 0.5, -s * 0.18), Vector2(-s * 0.22, -s * 0.08), Vector2(-s * 0.12, -s * 0.2)])
+			canvas.draw_colored_polygon(wing, w.color)
+			var rim := wing.duplicate()
+			rim.append(wing[0])
+			canvas.draw_polyline(rim, Color(0.55, 0.55, 0.6), 1.5, true)
 		&"crescent":
 			# Moon Fang: a crescent of dark energy with a blood-red rim.
 			var outer := PackedVector2Array()

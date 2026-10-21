@@ -45,6 +45,10 @@ var owned_trails: Array = ["white"]
 var trail := "white"
 ## fighter id -> {matches, wins, headshots, longest, damage}
 var fighter_stats := {}
+## Fighter levels from duplicate chest finds: id -> 1..Chests.MAX_LEVEL.
+var fighter_levels := {}
+## How far through the first-match tutorial tips (3 = all shown).
+var tutorial_step := 0
 var achievements: Array = []
 ## Running totals for achievements: smashed, crates, specials, and maps_won (ids).
 var counters := {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
@@ -115,6 +119,8 @@ func load_progress() -> void:
 	owned_trails = config.get_value("progress", "owned_trails", owned_trails)
 	trail = config.get_value("progress", "trail", trail)
 	fighter_stats = config.get_value("progress", "fighter_stats", fighter_stats)
+	fighter_levels = config.get_value("progress", "fighter_levels", fighter_levels)
+	tutorial_step = config.get_value("progress", "tutorial_step", tutorial_step)
 	achievements = config.get_value("progress", "achievements", achievements)
 	counters = config.get_value("progress", "counters", counters)
 	tournament = config.get_value("progress", "tournament", tournament)
@@ -132,6 +138,8 @@ func save_progress() -> void:
 	config.set_value("progress", "owned_trails", owned_trails)
 	config.set_value("progress", "trail", trail)
 	config.set_value("progress", "fighter_stats", fighter_stats)
+	config.set_value("progress", "fighter_levels", fighter_levels)
+	config.set_value("progress", "tutorial_step", tutorial_step)
 	config.set_value("progress", "achievements", achievements)
 	config.set_value("progress", "counters", counters)
 	config.set_value("progress", "tournament", tournament)
@@ -150,6 +158,8 @@ func reset_progress() -> void:
 	owned_trails = ["white"]
 	trail = "white"
 	fighter_stats = {}
+	fighter_levels = {}
+	tutorial_step = 0
 	achievements = []
 	counters = {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
 	tournament = {}
@@ -238,3 +248,8 @@ func _bring_over_old_save() -> void:
 		var source := old.path_join(file)
 		if not FileAccess.file_exists(target) and FileAccess.file_exists(source):
 			DirAccess.copy_absolute(source, target)
+
+
+## A fighter's level from duplicate chest finds (0 for one found once).
+func fighter_level(fighter_id: String) -> int:
+	return int(fighter_levels.get(fighter_id, 0))

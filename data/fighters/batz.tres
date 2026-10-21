@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/batarang.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"batz"
+display_name = "Batz"
+short_name = "Batz"
+body_color = Color(0.3, 0.3, 0.34, 1)
+accent_color = Color(0.95, 0.8, 0.2, 1)
+skin_color = Color(1, 0.84, 0.72, 1)
+cape_color = Color(0.3, 0.3, 0.34, 1)
+hair_color = Color(0.08, 0.08, 0.1, 1)
+weapon = ExtResource("2_weapon")
+style = &"bat"
+special_name = "Explosive Batarangs"
+special_description = "Three batarangs that blow up on whatever they touch."
+price = 600
+rarity = &"epic"

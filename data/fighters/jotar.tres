@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/bearing.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"jotar"
+display_name = "Jotar"
+short_name = "Jotar"
+body_color = Color(0.14, 0.14, 0.22, 1)
+accent_color = Color(0.95, 0.8, 0.3, 1)
+skin_color = Color(1, 0.84, 0.7, 1)
+cape_color = Color(0.14, 0.14, 0.22, 1)
+hair_color = Color(0.08, 0.08, 0.1, 1)
+style = &"stardust"
+special_name = "Time Stop"
+special_description = "Star Platina stops time: throw three times in a row while they stand frozen."
+price = 600
+rarity = &"legendary"

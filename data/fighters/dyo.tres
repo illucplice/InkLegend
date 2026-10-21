@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/knife.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"dyo"
+display_name = "Dyo"
+short_name = "Dyo"
+body_color = Color(0.96, 0.8, 0.22, 1)
+accent_color = Color(0.3, 0.62, 0.35, 1)
+skin_color = Color(1, 0.86, 0.74, 1)
+cape_color = Color(0.96, 0.8, 0.22, 1)
+hair_color = Color(0.98, 0.88, 0.5, 1)
+style = &"vampire"
+special_name = "Knife Storm"
+special_description = "The Warld stops time and hangs a wall of knives in the air, then they all strike at once."
+price = 600
+rarity = &"legendary"

@@ -17,3 +17,4 @@ unlocked_by_default = false
 style = &"knight"
 cape_color = Color(0.82, 0.18, 0.22, 1)
 hair_color = Color(0.95, 0.8, 0.4, 1)
+rarity = &"uncommon"
