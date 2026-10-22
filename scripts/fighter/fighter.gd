@@ -384,6 +384,8 @@ func _draw() -> void:
 
 	if _has_aura() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		_draw_aura(p)
+	if form == &"vollstandig" and not is_knocked_out():
+		_draw_light_wings(p)
 	if _gear2():
 		_draw_haki(p)
 
@@ -1562,3 +1564,25 @@ func _draw_ssj3_mane(r: float, color: Color) -> void:
 	for k in 3:
 		var x := -r * (0.9 + k * 0.4)
 		draw_line(Vector2(x, -r * 0.6), Vector2(x - r * 0.3, r * 2.8), color.darkened(0.2), 1.5, true)
+
+
+## Uryo's Vollstandig: great wings of light spread behind him and a star-shaped halo
+## floats over his head.
+func _draw_light_wings(p: Dictionary) -> void:
+	var root: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.25)
+	var beat := sin(_time * 3.0) * 0.08
+	var glow := Color(0.8, 0.92, 1.0)
+	for wing: float in [-1.0, 1.0]:
+		for feather in 6:
+			var a := -PI / 2 + wing * (0.35 + feather * 0.2 + beat)
+			var length := 70.0 + feather * 14.0 - (feather * feather) * 1.5
+			var tip := root + Vector2.from_angle(a) * length
+			var side := Vector2.from_angle(a + PI / 2) * 9.0
+			draw_colored_polygon(PackedVector2Array([root + side * 0.4, tip, root + Vector2.from_angle(a) * length * 0.5 - side, root - side * 0.4]), Color(glow, 0.35 + 0.08 * feather))
+			draw_line(root, tip, Color(1, 1, 1, 0.8), 1.5, true)
+	var halo: Vector2 = (p[&"head"] as Vector2) + Vector2(0, -32)
+	var star := PackedVector2Array()
+	for k in 10:
+		star.append(halo + Vector2.from_angle(-PI / 2 + _time + k * PI / 5.0) * (14.0 if k % 2 == 0 else 6.0))
+	draw_colored_polygon(star, Color(glow, 0.85))
+	draw_arc(halo, 18.0, 0.0, TAU, 24, Color(1, 1, 1, 0.6), 2.0, true)

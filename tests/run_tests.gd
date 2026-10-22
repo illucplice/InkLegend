@@ -30,6 +30,7 @@ func _initialize() -> void:
 	await _test_homing_and_balance()
 	await _test_practice_specials()
 	await _test_fatalities()
+	await _test_practice_fatality()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -616,3 +617,29 @@ func _test_shadow_boss() -> void:
 	Terrain.crater(0.0, 100.0, 40.0)
 	_check(Terrain.height_at(0.0) > crater_before, "a blast digs a crater")
 	Terrain._heights = saved
+
+
+## Target Practice can play your fatality on a dummy and then carry on.
+func _test_practice_fatality() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.start_practice(load("res://data/fighters/aizon.tres"))
+	for frame in 300:
+		if game.state == game.State.PLAYER_AIM:
+			break
+		await process_frame
+	_check(game._hud._fatality_button.visible, "practice shows the Test Fatality button")
+	var stars_before: int = game._practice["stars"]
+	game._test_fatality()
+	_check(game.state != game.State.PLAYER_AIM, "the fatality test takes over from aiming")
+	Engine.time_scale = 4.0
+	for frame in 3000:
+		if game.state == game.State.PLAYER_AIM:
+			break
+		await process_frame
+	Engine.time_scale = 1.0
+	_check(game.state == game.State.PLAYER_AIM, "practice carries on after a fatality test")
+	_check(game._practice["stars"] == stars_before and game._practice_target != null and game._practice_target.visible, "the practice run is just as it was")
+	game.queue_free()
+	await process_frame

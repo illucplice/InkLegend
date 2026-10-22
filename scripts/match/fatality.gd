@@ -2259,6 +2259,7 @@ func _explosion_magic() -> void:
 		if not await _wait(0.35):
 			return
 	hud.announce("EXPLOSION!", Color(1.0, 0.4, 0.2))
+	_bubble(func() -> Vector2: return Vector2(float(mage["x"]), Terrain.height_at(float(mage["x"])) - 150.0), "EXPLOSION!!", 1.2)
 	Audio.play("voice_charge", 4.0, 1.5, 0.0)
 	if not await _wait(0.3):
 		return

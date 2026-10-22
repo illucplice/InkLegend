@@ -112,7 +112,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "icelance": 0.75, "elephant": 1.5}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "icelance": 0.75, "elephant": 1.5, "voll": 1.35}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -220,9 +220,16 @@ var _extra_throw := false
 var _special_this_turn := false
 ## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
 var _lucky := [0, 0]
+var _empowered := [0, 0]
 const LUCKY_THROWS := 2
 const ICE_LANCES := 3
+## Uryo's Vollstandig: empowered throws, the heal, and how hard the arrows hit.
+const VOLL_THROWS := 3
+const VOLL_HEAL := 15
+const VOLL_RADIUS := 90.0
 const ELEPHANT_RADIUS := 150.0
+## Who stands in for the enemy when you test a fatality in Target Practice.
+const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
 var _time_stop_left := 0
 ## Who stopped time, the throws hanging short of the enemy, and their hit marks.
@@ -307,6 +314,7 @@ func _ready() -> void:
 		Save.save_progress()
 		go_to_menu())
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
+	_hud.fatality_test_requested.connect(_test_fatality)
 	go_to_menu()
 
 
@@ -359,6 +367,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
 	_special_used = [false, false]
 	_lucky = [0, 0]
+	_empowered = [0, 0]
 	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
@@ -425,6 +434,7 @@ static func _empty_stats() -> Dictionary:
 func _clear_match() -> void:
 	_match_id += 1
 	_lucky = [0, 0]
+	_empowered = [0, 0]
 	_hud.hide_tip()
 	_clear_time_stop()
 	_launching = false
@@ -961,6 +971,18 @@ func _lucky_shot(fighter: Fighter) -> Dictionary:
 	else:
 		aim_at = fighters[1 - current].aim_point(false)
 	return AiAimer.solve(fighter.throw_origin(), aim_at, weapon.max_speed, fighter.facing, 40.0, [], _wind_for(fighter), Rules.GRAVITY * weapon.gravity_scale)
+
+
+## Uryo's special: Vollstandig. Wings of light, a little healing, and his next few
+## arrows explode where they hit.
+func _vollstandig(fighter: Fighter) -> void:
+	fighter.form = &"vollstandig"
+	fighter.heal(VOLL_HEAL)
+	_empowered[current] = VOLL_THROWS
+	_hud.announce("VOLLSTANDIG!", Color(0.75, 0.9, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "+%d" % VOLL_HEAL, Color(0.5, 1.0, 0.6), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.8, 0.92, 1.0), 50, 600.0, 180.0, 1.8)
+	Audio.play("voice_charge", 0.0, fighter.voice_pitch() * 1.1, 0.0)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1007,6 +1029,47 @@ func start_practice(pick: FighterData) -> void:
 	_begin_turn()
 
 
+
+
+## Target Practice: plays your fighter's fatality on a dummy, then puts practice back
+## just as it was.
+func _test_fatality() -> void:
+	if mode != Mode.PRACTICE or state != State.PLAYER_AIM or fighters.is_empty():
+		return
+	var id := _match_id
+	var winner := fighters[0]
+	state = State.GAME_OVER
+	_aim.finish()
+	_hud.set_special(null, 0.0, false)
+	_hud.set_turn("")
+	_hud.set_fatality_test_enabled(false)
+	var target_shown := _practice_target != null and _practice_target.visible
+	if _practice_target != null:
+		_practice_target.visible = false
+	var dummy := _spawn_fighter(FATALITY_DUMMY, winner.position.x + 520.0, -1, true)
+	await get_tree().create_timer(0.3, false).timeout
+	if id != _match_id:
+		return
+	_end_slow_time()
+	var fatality := Fatality.new()
+	fatality.setup(winner, dummy, _camera, _hud, Save.gore)
+	_actors.add_child(fatality)
+	fatality.play(true)
+	if not fatality.is_done():
+		await fatality.finished
+	if id != _match_id:
+		return
+	fatality.queue_free()
+	dummy.queue_free()
+	winner._celebrating = false
+	winner.facing = 1
+	winner.position = Vector2(-700.0, Terrain.height_at(-700.0))
+	winner.reset_physics_interpolation()
+	if _practice_target != null:
+		_practice_target.visible = target_shown
+	_hud.set_fatality_test_enabled(true)
+	_camera.snap()
+	_begin_turn()
 func _practice_wind() -> float:
 	var index: int = _practice["index"]
 	if index < 3:
@@ -1510,6 +1573,8 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_ice_lances(fighter, angle)
 		return
+	if special == &"vollstandig":
+		_vollstandig(fighter)
 	if special == &"blessing":
 		_bless(fighter)
 	if special == &"illusion":
@@ -1586,6 +1651,10 @@ func _throw(angle: float, power: float) -> void:
 			projectile.set_meta("blue", true)
 		if _lucky[current] > 0:
 			_make_lucky(projectile)
+		if _empowered[current] > 0:
+			projectile.explode_radius = VOLL_RADIUS
+			projectile.set_meta("voll", true)
+			projectile.set_trail_color(Color(0.75, 0.9, 1.0))
 		if _hud.time_stopped() and fighter == _stopper:
 			projectile.stop_short = true
 			projectile.set_meta("timestop", true)
@@ -1597,6 +1666,10 @@ func _throw(angle: float, power: float) -> void:
 	fighter.powered = false
 	if _lucky[current] > 0:
 		_lucky[current] -= 1
+	if _empowered[current] > 0:
+		_empowered[current] -= 1
+		if _empowered[current] == 0:
+			fighter.form = &""
 
 
 ## scale (bomb blasts fall off with distance) and push (the blast direction) are

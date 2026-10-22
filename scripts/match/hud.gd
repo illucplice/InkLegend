@@ -19,6 +19,8 @@ signal give_up_requested
 signal special_toggled(armed: bool)
 signal menu_requested
 signal pause_changed(paused: bool)
+## Target Practice: play your fighter's fatality on a dummy.
+signal fatality_test_requested
 
 const INK := UiStyle.INK
 const PAPER := UiStyle.PAPER
@@ -57,6 +59,8 @@ var _hint: Label
 var _tip: PanelContainer
 var _time_stop: ColorRect
 var _pause_button: Button
+var _fatality_button: Button
+var _practice_on := false
 var _intro: VsIntro
 
 # Screens
@@ -236,6 +240,23 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 ## Target Practice has no opponent, so hide the right-hand plate.
 func set_practice(on: bool) -> void:
 	_plates[1].visible = not on
+	_practice_on = on
+	_sync_fatality_button()
+	if _fatality_button != null:
+		_fatality_button.disabled = false
+
+
+## The Test Fatality button shows in Target Practice, whenever the pause button does.
+func _sync_fatality_button() -> void:
+	if _fatality_button != null:
+		_fatality_button.visible = _practice_on and _pause_button.visible
+		# Keep the controls hint clear of the button.
+		_hint.offset_right = -370.0 if _practice_on else -100.0
+		_hint.offset_top = -66.0 if _practice_on else -44.0
+
+
+func set_fatality_test_enabled(on: bool) -> void:
+	_fatality_button.disabled = not on
 
 
 func set_wind(wind: float) -> void:
@@ -549,6 +570,20 @@ void fragment() {
 	_pause_button.offset_bottom = -16
 	_pause_button.pressed.connect(_set_paused.bind(true))
 	add_child(_pause_button)
+
+	# Target Practice only: try your fatality on a dummy whenever you like.
+	_fatality_button = _icon_button(&"sword", "Test Fatality", UiStyle.RED, Vector2(250, 68), 22)
+	_fatality_button.theme = UiStyle.theme()
+	_fatality_button.focus_mode = Control.FOCUS_NONE
+	_fatality_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	_fatality_button.offset_left = -354
+	_fatality_button.offset_top = -84
+	_fatality_button.offset_right = -104
+	_fatality_button.offset_bottom = -16
+	_fatality_button.pressed.connect(func() -> void: fatality_test_requested.emit())
+	_fatality_button.hide()
+	add_child(_fatality_button)
+	_pause_button.visibility_changed.connect(_sync_fatality_button)
 
 	_special_button = _icon_button(&"star", "Special", UiStyle.PURPLE, Vector2(230, 68), 22)
 	_special_button.theme = UiStyle.theme()
