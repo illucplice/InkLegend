@@ -17,5 +17,5 @@ hair_color = Color(0.4, 0.26, 0.15, 1)
 style = &"adventurer"
 special_name = "Party Blessing"
 special_description = "Lalatna guards him with a shield, and Aqwa's blessing makes this throw and the next one lucky: they find the enemy wherever you aim."
-price = 500
-rarity = &"epic"
+price = 600
+rarity = &"legendary"

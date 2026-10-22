@@ -519,6 +519,9 @@ func _test_practice_specials() -> void:
 		game._on_player_throw(angle, power)
 		_check(game._special_used[0], "%s used the special in practice" % id)
 		for frame in 900:
+			# Subaro's icefall waits for presses: press for it.
+			if not game._icefall.is_empty():
+				game._drop_icefall()
 			if game.state == game.State.PLAYER_AIM:
 				break
 			await process_frame
@@ -660,6 +663,7 @@ func _test_aizon_evolves() -> void:
 	_check(not aizon.evolved, "Aizon has not evolved at 70 health")
 	aizon.take_hit(Rules.BODY, 35, Vector2.ZERO)
 	_check(aizon.evolved, "Aizon evolves once he drops to 40 health or less")
+	_check(aizon.data.weapon.shape == &"dark_hado" and aizon.data.base_id() == &"aizon", "his basic becomes the dark Hado sphere")
 	var other: Fighter = game.fighters[1]
 	other.take_hit(Rules.BODY, 70, Vector2.ZERO)
 	_check(not other.evolved, "only Aizon evolves")

@@ -237,7 +237,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai"]
+	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado"]
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -1656,8 +1656,9 @@ const POSES := {
 	&"back_turned": {&"felbow": Vector2(13, -72), &"fhand": Vector2(-6, -75), &"belbow": Vector2(-10, -72), &"bhand": Vector2(11, -77)},
 	&"peace": {&"felbow": Vector2(16, -88), &"fhand": Vector2(11, -108), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56)},
 	&"hand_sign": {&"felbow": Vector2(13, -70), &"fhand": Vector2(15, -82), &"belbow": Vector2(4, -70), &"bhand": Vector2(12, -84)},
-	&"wryyy": {&"neck": Vector2(-10, -86), &"head": Vector2(-18, -100), &"felbow": Vector2(11, -90), &"fhand": Vector2(23, -105),
-		&"belbow": Vector2(-19, -88), &"bhand": Vector2(-31, -101), &"bknee": Vector2(-10, -24), &"bfoot": Vector2(-18, -2), &"fknee": Vector2(12, -24), &"ffoot": Vector2(18, -2)},
+	&"wryyy": {&"hip": Vector2(-2, -42), &"neck": Vector2(-20, -76), &"head": Vector2(-34, -84),
+		&"fknee": Vector2(14, -54), &"ffoot": Vector2(8, -28), &"bknee": Vector2(-6, -22), &"bfoot": Vector2(-12, -2),
+		&"felbow": Vector2(2, -64), &"fhand": Vector2(15, -60), &"belbow": Vector2(-26, -98), &"bhand": Vector2(-11, -114)},
 	&"carry": {&"neck": Vector2(7, -86), &"head": Vector2(10, -101), &"belbow": Vector2(-10, -66), &"bhand": Vector2(-17, -57),
 		&"felbow": Vector2(-3, -66), &"fhand": Vector2(-12, -59)},
 	&"slick_back": {&"felbow": Vector2(15, -104), &"fhand": Vector2(0, -119), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
@@ -1676,7 +1677,7 @@ const VICTORY := {
 	&"megu": [&"hand_sign", &"arms_crossed"], &"goj": [&"peace", &"hand_out"], &"ryo": [&"bow", &"fist_up"],
 	&"akum": [&"arms_crossed", &"back_turned"], &"thundr": [&"fist_up", &"kneel"], &"capt": [&"hands_hips", &"thumbs_up"],
 	&"spydr": [&"kneel", &"point"], &"batz": [&"arms_crossed", &"kneel"], &"jotar": [&"point", &"back_turned"],
-	&"dyo": [&"wryyy", &"arms_crossed"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
+	&"dyo": [&"arms_crossed", &"wryyy"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
 	&"aizon": [&"slick_back", &"hand_out"],
 }
 

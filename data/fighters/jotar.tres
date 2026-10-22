@@ -16,6 +16,6 @@ cape_color = Color(0.14, 0.14, 0.22, 1)
 hair_color = Color(0.08, 0.08, 0.1, 1)
 style = &"stardust"
 special_name = "Time Stop"
-special_description = "Star Platina stops time: throw three times in a row while they stand frozen."
+special_description = "Star Platina stops time as soon as you use it. Your next throw of Iggi hangs just short of them, then hits 1.5x harder when time moves again. Iggi's bites make them bleed."
 price = 600
 rarity = &"legendary"

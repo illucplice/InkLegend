@@ -112,7 +112,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "icelance": 0.75, "elephant": 1.5, "voll": 1.35}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "timestop": 1.5}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -149,10 +149,11 @@ const LOCAL_WIND := 0.8
 const THROW_SOUNDS := {
 	&"hammer": ["whoosh", 0.75],
 	&"pebble": ["sling", 1.0],
-	&"bearing": ["whoosh", 1.6],
+	&"iggi": ["whoosh", 1.2],
 	&"knife": ["whoosh", 1.4],
 	&"minya": ["zap", 1.4],
 	&"byakurai": ["zap", 1.8],
+	&"dark_hado": ["zap", 0.9],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -221,15 +222,24 @@ var _special_this_turn := false
 ## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
 var _lucky := [0, 0]
 var _empowered := [0, 0]
+## The icefall target while it sweeps (empty when not in use).
+var _icefall := {}
 ## Aizon and the enemy while Kyoka Suigetsu has them in each other's places.
 var _swapped: Array = []
 const LUCKY_THROWS := 2
-const ICE_LANCES := 3
+
+## Subaro's Emilla icefall: the target circle's size, sweep speed, and how long you get.
+const ICEFALL_RADIUS := 85.0
+const ICEFALL_SPEED := 650.0
+const ICEFALL_TIME := 6.0
+const ICEFALL_DROPS := 3
 ## Uryo's Vollstandig: empowered throws, the heal, and how hard the arrows hit.
 const VOLL_THROWS := 3
 const VOLL_HEAL := 15
 const VOLL_RADIUS := 90.0
 const ELEPHANT_RADIUS := 150.0
+## Specials that happen as soon as they're used instead of riding on a throw.
+const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop"]
 ## How close an enemy throw gets to Aizon before Kyoka Suigetsu swaps them.
 const ILLUSION_TRIGGER := 160.0
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
@@ -243,7 +253,7 @@ var _time_stop_left := 0
 var _stopper: Fighter
 var _held: Array[Projectile] = []
 var _marks: Array[Node2D] = []
-const TIME_STOP_THROWS := 3
+const TIME_STOP_THROWS := 1
 const KNIFE_STORM := 7
 ## Target Practice progress: index, attempt, stars, and whether this throw hit.
 var _practice := {}
@@ -441,6 +451,9 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	if not _icefall.is_empty() and is_instance_valid(_icefall.get("marker")):
+		(_icefall["marker"] as Node2D).queue_free()
+	_icefall = {}
 	_lucky = [0, 0]
 	_empowered = [0, 0]
 	_hud.hide_tip()
@@ -558,9 +571,14 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		_lightning(at)
 	if projectile.get_meta("elephant", false):
 		_elephant_drop(at)
-	Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
-	Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
-	Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	if projectile.get_meta("icefall", false):
+		Effects.burst(_actors, at, Color(0.8, 0.94, 1.0), 60, 800.0, 180.0, 1.8)
+		Effects.burst(_actors, at, Color.WHITE, 26, 400.0, 180.0, 1.4)
+		Effects.popup(_actors, at + Vector2(0, -50), "SHATTER!", Color(0.7, 0.9, 1.0), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	else:
+		Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
+		Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
+		Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Audio.play("boom", 0.0, 1.0, 0.1)
 	Audio.play("ground", 2.0, 0.45, 0.0)
 	Device.vibrate(90)
@@ -820,6 +838,17 @@ func _release_held() -> void:
 	state = State.FLYING
 	var held := _held.duplicate()
 	_held.clear()
+	# Kyoka Suigetsu waited out the stopped time: now they trade places, and every
+	# throw hanging in front of Aizon finds its own thrower.
+	for fighter in fighters:
+		if not fighter.illusion or fighter.is_knocked_out():
+			continue
+		var incoming := held.filter(func(p: Projectile) -> bool: return is_instance_valid(p) and p.thrower != null and p.thrower != fighter)
+		if incoming.is_empty():
+			continue
+		_swap_places(fighter, incoming[0].thrower, incoming[0])
+		for projectile: Projectile in incoming.slice(1):
+			_turn_on_thrower(projectile, fighter, projectile.thrower)
 	for projectile: Projectile in held:
 		if not is_instance_valid(projectile):
 			continue
@@ -887,39 +916,6 @@ func _make_lucky(projectile: Projectile) -> void:
 	projectile.set_trail_color(Color(1.0, 0.88, 0.35))
 	projectile.set_meta("lucky", true)
 	Effects.popup(_actors, fighters[current].aim_point(true) + Vector2(0, -70), "LUCKY!", Color(1.0, 0.88, 0.35), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
-
-
-## Subaro's special: Emilla fires ice lances dead straight, one after another. The
-## first that hits freezes them in place for a turn.
-func _ice_lances(fighter: Fighter, angle: float) -> void:
-	_cameo(fighter, &"emilla", 95.0, "My name is Emilla. Just Emilla.", 0.0)
-	var lance := fighter.data.weapon.duplicate() as WeaponData
-	lance.shape = &"ice_lance"
-	lance.gravity_scale = 0.0
-	lance.max_speed = 1700.0
-	lance.size = 80.0
-	lance.color = Color(0.75, 0.92, 1.0)
-	lance.sticks = true
-	var id := _match_id
-	_launching = true
-	Audio.play("zap", -2.0, 0.7, 0.0)
-	for i in ICE_LANCES:
-		fighter.play_throw()
-		Audio.play("whoosh", -4.0, 1.3, 0.1)
-		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
-		_actors.add_child(projectile)
-		projectile.launch(lance, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + (i - 1) * 1.2, 1.0, lance.max_speed, fighter.facing), 0.0)
-		projectile.target = fighters[1 - current]
-		projectile.set_trail_color(Color(0.75, 0.92, 1.0))
-		projectile.set_meta("icelance", true)
-		projectile.set_meta("freeze", true)
-		_track(projectile)
-		await get_tree().create_timer(0.14, false).timeout
-		if id != _match_id:
-			return
-	_launching = false
-	if _in_flight.is_empty() and state == State.FLYING:
-		_after_throw()
 
 
 ## Kyoka Suigetsu breaks: Aizon's image shatters like glass.
@@ -1114,7 +1110,8 @@ func _say_at(at: Vector2, text: String, seconds: float) -> void:
 ## Kyoka Suigetsu: as an enemy throw closes in on Aizon, the illusion breaks. He was
 ## never there: the thrower is standing in his place, and takes their own hit.
 func _watch_illusion() -> void:
-	if state != State.FLYING:
+	# In stopped time it waits: the swap comes the moment time moves again.
+	if state != State.FLYING or _hud.time_stopped():
 		return
 	for fighter in fighters:
 		if not fighter.illusion or fighter.is_knocked_out():
@@ -1175,16 +1172,20 @@ func _swap_places(aizon: Fighter, foe: Fighter, projectile: Projectile) -> void:
 	_shatter_illusion(aizon)
 	_steal_buffs(aizon, foe)
 	_trade_places(aizon, foe)
-	# The throw now flies at the thrower; it no longer knows to miss them.
+	_turn_on_thrower(projectile, aizon, foe)
+	Effects.burst(_actors, spot + Vector2(0, -60), Color(0.9, 0.95, 1.0), 50, 700.0, 180.0, 1.6)
+	_slow_time(0.45, 0.25)
+
+
+
+## The throw now flies at its own thrower; it no longer knows to miss them.
+func _turn_on_thrower(projectile: Projectile, aizon: Fighter, foe: Fighter) -> void:
 	projectile._exclude.clear()
 	projectile._exclude.append_array(aizon.get_hitbox_rids())
 	projectile.set_meta("mirrored", true)
 	projectile.homing_target = foe
 	projectile.homing_range = 400.0
 	projectile.homing_turn = 12.0
-	Effects.burst(_actors, spot + Vector2(0, -60), Color(0.9, 0.95, 1.0), 50, 700.0, 180.0, 1.6)
-	_slow_time(0.45, 0.25)
-
 
 ## Puts them back where they really stood once the hit has settled.
 func _unswap() -> void:
@@ -1216,6 +1217,17 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
 		return
 	fighter.evolved = true
+	# His basic changes with him: a sphere of violet-black reishi that bursts.
+	var evolved_data := fighter.data.duplicate() as FighterData
+	var hado := fighter.data.weapon.duplicate() as WeaponData
+	hado.shape = &"dark_hado"
+	hado.display_name = "Hado: Kurohitsugi Sphere"
+	hado.size = 52.0
+	hado.color = Color(0.6, 0.35, 0.95)
+	hado.explode_radius = 70.0
+	hado.gravity_scale = 0.5
+	evolved_data.weapon = hado
+	fighter.data = evolved_data
 	fighter.power_up(2.0)
 	_hud.announce("AIZON EVOLVES!", Color(0.85, 0.7, 1.0))
 	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "POWER x1.5", Color(0.85, 0.7, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -1223,6 +1235,124 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 500.0, 180.0, 1.8)
 	Audio.play("voice_charge", 2.0, fighter.voice_pitch(), 0.0)
 	_camera.shake(0.6)
+
+
+## Subaro's special: a red target circle sweeps back and forth over the ground. Press
+## (click, tap or Space) and Emilla drops a great icicle from the sky onto it.
+func _start_icefall(fighter: Fighter) -> void:
+	_launching = true
+	_cameo(fighter, &"emilla", 95.0, "Leave it to me, Subaro!", 0.0)
+	var foe_x := _icefall_target_x()
+	var near := fighter.position.x + fighter.facing * 160.0
+	var far := foe_x + fighter.facing * 320.0
+	var lo := minf(near, far)
+	var hi := maxf(near, far)
+	var error: float = [140.0, 80.0, 40.0, 20.0][clampi(_last_difficulty, 0, 3)]
+	_icefall = {"fighter": fighter, "x": near, "dir": float(fighter.facing), "lo": lo, "hi": hi, "time": 0.0,
+		"ai_at": foe_x + rng.randf_range(-error, error), "error": error, "id": _match_id, "left": ICEFALL_DROPS, "cooldown": 0.0}
+	var marker := Node2D.new()
+	marker.z_index = 6
+	marker.draw.connect(func() -> void:
+		var pulse := 0.7 + 0.3 * sin(Time.get_ticks_msec() * 0.015)
+		marker.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.3))
+		marker.draw_circle(Vector2.ZERO, ICEFALL_RADIUS, Color(1.0, 0.15, 0.2, 0.2 * pulse), true, -1.0, true)
+		marker.draw_arc(Vector2.ZERO, ICEFALL_RADIUS, 0.0, TAU, 40, Color(1.0, 0.2, 0.25, pulse), 7.0, true)
+		marker.draw_arc(Vector2.ZERO, ICEFALL_RADIUS * 0.45, 0.0, TAU, 24, Color(1.0, 0.2, 0.25, pulse), 4.0, true)
+		marker.draw_set_transform(Vector2.ZERO)
+		marker.draw_line(Vector2(0, -260), Vector2(0, -12), Color(1.0, 0.3, 0.35, 0.35 * pulse), 3.0, true))
+	_actors.add_child(marker)
+	_icefall["marker"] = marker
+	if not fighter.is_ai:
+		_hud.show_tip("Tap, click or press Space when the red circle is on them! (%d icicles)" % ICEFALL_DROPS)
+
+
+## Where the icicle should land to hit: the enemy, or the target in practice.
+func _icefall_target_x() -> float:
+	if mode == Mode.PRACTICE and _practice_target != null:
+		return _practice_target.global_position.x
+	return fighters[1 - current].position.x
+
+
+func _process_icefall(delta: float) -> void:
+	if _icefall.is_empty():
+		return
+	if int(_icefall["id"]) != _match_id:
+		_icefall = {}
+		return
+	var x: float = _icefall["x"]
+	var dir: float = _icefall["dir"]
+	x += dir * ICEFALL_SPEED * delta
+	if x > float(_icefall["hi"]):
+		x = _icefall["hi"]
+		_icefall["dir"] = -1.0
+	elif x < float(_icefall["lo"]):
+		x = _icefall["lo"]
+		_icefall["dir"] = 1.0
+	_icefall["x"] = x
+	_icefall["time"] = float(_icefall["time"]) + delta
+	var marker: Node2D = _icefall["marker"]
+	marker.position = Vector2(x, Terrain.height_at(x))
+	marker.queue_redraw()
+	var fighter: Fighter = _icefall["fighter"]
+	_icefall["cooldown"] = maxf(0.0, float(_icefall["cooldown"]) - delta)
+	var ai_ready := fighter.is_ai and float(_icefall["cooldown"]) <= 0.0 and absf(x - float(_icefall["ai_at"])) < ICEFALL_SPEED * delta * 1.5
+	if ai_ready:
+		_drop_icefall()
+	elif float(_icefall["time"]) > ICEFALL_TIME:
+		if int(_icefall["left"]) == ICEFALL_DROPS:
+			_drop_icefall()
+		_end_icefall()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _icefall.is_empty() or (_icefall["fighter"] as Fighter).is_ai:
+		return
+	var pressed: bool = (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event.is_action_pressed("ui_accept")
+	if pressed:
+		get_viewport().set_input_as_handled()
+		_drop_icefall()
+
+
+## Emilla's icicle comes straight down out of the sky onto the circle.
+func _drop_icefall() -> void:
+	if _icefall.is_empty() or int(_icefall["left"]) <= 0:
+		return
+	var fighter: Fighter = _icefall["fighter"]
+	var x: float = _icefall["x"]
+	_icefall["left"] = int(_icefall["left"]) - 1
+	_icefall["cooldown"] = 0.35
+	_icefall["ai_at"] = _icefall_target_x() + rng.randf_range(-float(_icefall["error"]), float(_icefall["error"]))
+	var ice := fighter.data.weapon.duplicate() as WeaponData
+	ice.shape = &"ice_lance"
+	ice.gravity_scale = 0.0
+	ice.size = 150.0
+	ice.sticks = false
+	ice.color = Color(0.75, 0.92, 1.0)
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(ice, fighter, Vector2(x, Terrain.height_at(x) - 1300.0), Vector2(0, 2400.0), 0.0)
+	projectile.target = fighters[1 - current]
+	projectile.explode_radius = ICEFALL_RADIUS
+	projectile.pierce = true
+	projectile.set_trail_color(Color(0.75, 0.92, 1.0))
+	projectile.set_meta("icefall", true)
+	projectile.set_meta("freeze", true)
+	_track(projectile)
+	Audio.play("whoosh", 2.0, 0.6, 0.0)
+	if int(_icefall["left"]) <= 0:
+		_end_icefall()
+
+
+## The circle goes; once the icicles have all landed the turn moves on.
+func _end_icefall() -> void:
+	if _icefall.is_empty():
+		return
+	(_icefall["marker"] as Node2D).queue_free()
+	_icefall = {}
+	_hud.hide_tip()
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1695,6 +1825,7 @@ func _begin_turn() -> void:
 
 
 func _process(delta: float) -> void:
+	_process_icefall(delta)
 	# 1v1 turn timer: throw whatever is aimed when time runs out.
 	if state != State.PLAYER_AIM or _turn_timer < 0.0:
 		return
@@ -1742,6 +1873,9 @@ func _start_cinematic(projectile: Projectile) -> void:
 
 func _on_special_toggled(armed: bool) -> void:
 	if state == State.PLAYER_AIM and _charge[current] >= 1.0:
+		if armed and fighters[current].data.weapon.special in INSTANT_SPECIALS + [&"icefall"]:
+			_use_special_now(fighters[current])
+			return
 		_special_armed = armed
 		var data := fighters[current].data
 		# The beam fires in a straight line, so the aim guide straightens and can point down.
@@ -1752,6 +1886,57 @@ func _on_special_toggled(armed: bool) -> void:
 			Audio.play("win", -10.0, 1.8, 0.0)
 			_hud.announce("%s ARMED!" % data.special_name.to_upper(), data.body_color.lightened(0.35))
 
+
+
+## Spends the special: the meter empties and everyone hears about it.
+func _consume_special(fighter: Fighter) -> void:
+	_special_used[current] = true
+	_special_this_turn = true
+	_charge[current] = 0.0
+	fighter.charge = 0.0
+	if current == 0:
+		_specials_used += 1
+	_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
+	Audio.play("voice_charge", -1.0, fighter.voice_pitch() * 1.1, 0.0)
+	Audio.play("win", -8.0, 1.6, 0.0)
+
+
+## Specials that aren't aimed (a power-up, time stop, an illusion) take effect the
+## moment they're used; the throw that follows is an ordinary one.
+func _apply_instant_special(fighter: Fighter, special: StringName) -> void:
+	match special:
+		&"vollstandig":
+			_vollstandig(fighter)
+		&"blessing":
+			_bless(fighter)
+		&"illusion":
+			fighter.illusion = true
+			_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
+			Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
+		&"timestop":
+			_time_stop_left = TIME_STOP_THROWS - 1
+			_stopper = fighter
+			_stop_time(fighter)
+
+
+## A player pressing the special button for one of those specials: it happens now.
+## Subaro's icefall takes the whole turn; the rest leave you to aim and throw.
+func _use_special_now(fighter: Fighter) -> void:
+	var special := fighter.data.weapon.special
+	_special_armed = false
+	_consume_special(fighter)
+	_hud.set_special(null, 0.0, false)
+	if special == &"icefall":
+		_aim.finish()
+		_turn_timer = -1.0
+		_hud.set_timer(-1)
+		_hud.set_turn("")
+		state = State.FLYING
+		_start_icefall(fighter)
+		return
+	_apply_instant_special(fighter, special)
+	_aim.set_special("", fighter.data.body_color)
+	_aim.full_guide = _hud.time_stopped() and fighter == _stopper
 
 func _on_player_throw(angle: float, power: float) -> void:
 	if state == State.FINISHER:
@@ -1786,15 +1971,7 @@ func _throw(angle: float, power: float) -> void:
 	var spread := weapon.spread_deg
 	var special := weapon.special if _special_armed else &""
 	if special != &"":
-		_special_used[current] = true
-		_special_this_turn = true
-		_charge[current] = 0.0
-		fighter.charge = 0.0
-		if current == 0:
-			_specials_used += 1
-		_hud.announce("%s: %s!" % [fighter.data.short_name.to_upper(), fighter.data.special_name.to_upper()], fighter.data.body_color.lightened(0.3))
-		Audio.play("voice_charge", -1.0, fighter.voice_pitch() * 1.1, 0.0)
-		Audio.play("win", -8.0, 1.6, 0.0)
+		_consume_special(fighter)
 	if special == &"beam":
 		fighter.powered = false
 		_fire_beam(fighter, angle, special)
@@ -1811,23 +1988,12 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_knife_storm(fighter, angle, power)
 		return
-	if special == &"icelance":
+	if special == &"icefall":
 		fighter.powered = false
-		_ice_lances(fighter, angle)
+		_start_icefall(fighter)
 		return
-	if special == &"vollstandig":
-		_vollstandig(fighter)
-	if special == &"blessing":
-		_bless(fighter)
-	if special == &"illusion":
-		fighter.illusion = true
-		_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
-		Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
-	if special == &"timestop":
-		fighter.powered = false
-		_time_stop_left = TIME_STOP_THROWS - 1
-		_stopper = fighter
-		_stop_time(fighter)
+	if special in INSTANT_SPECIALS:
+		_apply_instant_special(fighter, special)
 	if special == &"orb":
 		fighter.powered = false
 		_throw_orb(fighter, angle, power)
@@ -1965,7 +2131,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icelance", false) and not mirrored:
+	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icefall", false) and not mirrored:
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -1997,8 +2163,11 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_pull_fighter(target, projectile.thrower, 380.0)
 		target.pinned = true
 		_hud.announce("WEBBED!", Color(0.95, 0.95, 1.0))
-	if projectile.weapon != null and projectile.weapon.shape == &"knife" and not target.is_knocked_out():
+	if projectile.weapon != null and projectile.weapon.shape in [&"knife", &"iggi"] and not target.is_knocked_out():
 		target.bleed_turns = BLEED_TURNS
+		if projectile.weapon.shape == &"iggi":
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -95), "CHOMP!", Color(1.0, 0.9, 0.85), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+			Audio.play("crunch", -4.0, 1.4, 0.05)
 	if projectile.get_meta("freeze", false) and not target.is_knocked_out() and not target.pinned:
 		target.pinned = true
 		_hud.announce("FROZEN!", Color(0.7, 0.9, 1.0))
@@ -2479,7 +2648,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"icelance"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.

@@ -400,6 +400,28 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_circle(Vector2.ZERO, s * 0.5, w.color, true, -1.0, true)
 			canvas.draw_circle(Vector2(-s * 0.15, -s * 0.16), s * 0.16, w.color.lightened(0.4), true, -1.0, true)
 			canvas.draw_arc(Vector2.ZERO, s * 0.36, 0.3, 1.6, 8, w.color.darkened(0.3), 2.0, true)
+		&"iggi":
+			# Iggi, a stubby black-and-white terrier, flying jaws first with his bat ears back.
+			var white := Color(0.96, 0.95, 0.92)
+			var black := Color(0.1, 0.09, 0.11)
+			for leg: float in [-0.25, 0.2]:
+				canvas.draw_line(Vector2(s * leg, s * 0.15), Vector2(s * leg - s * 0.18, s * 0.4), black, 4.0, true)
+			canvas.draw_line(Vector2(-s * 0.42, -s * 0.05), Vector2(-s * 0.6, -s * 0.2), black, 4.0, true)
+			canvas.draw_set_transform_matrix(xf * Transform2D(0.0, Vector2(1.0, 0.62), 0.0, Vector2.ZERO))
+			canvas.draw_circle(Vector2.ZERO, s * 0.46, ink, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42, black, true, -1.0, true)
+			canvas.draw_circle(Vector2(s * 0.05, s * 0.12), s * 0.26, white, true, -1.0, true)
+			canvas.draw_set_transform_matrix(xf)
+			var head := Vector2(s * 0.5, -s * 0.12)
+			canvas.draw_circle(head, s * 0.27, ink, true, -1.0, true)
+			canvas.draw_circle(head, s * 0.24, black, true, -1.0, true)
+			canvas.draw_circle(head + Vector2(s * 0.08, s * 0.06), s * 0.14, white, true, -1.0, true)
+			for ear: float in [-1.0, 1.0]:
+				var root := head + Vector2(-s * 0.08, -s * 0.16 + ear * s * 0.02)
+				canvas.draw_colored_polygon(PackedVector2Array([root, root + Vector2(-s * 0.32, -s * 0.12 + ear * s * 0.1), root + Vector2(-s * 0.04, s * 0.06)]), black)
+			canvas.draw_circle(head + Vector2(s * 0.24, s * 0.02), s * 0.05, ink, true, -1.0, true)
+			canvas.draw_line(head + Vector2(s * 0.12, s * 0.14), head + Vector2(s * 0.24, s * 0.12), Color(0.85, 0.2, 0.25), 2.0, true)
+			canvas.draw_circle(head + Vector2(s * 0.04, -s * 0.06), s * 0.04, Color.WHITE, true, -1.0, true)
 		&"bearing":
 			# A steel ball bearing, flicked so hard it streaks.
 			canvas.draw_line(Vector2(-s * 1.4, 0), Vector2.ZERO, Color(0.75, 0.6, 1.0, 0.35), s * 0.6, true)
@@ -438,6 +460,14 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_line(Vector2(-s * 0.55, 0), Vector2(s * 0.55, 0), Color.WHITE, 2.0, true)
 			for k in 3:
 				canvas.draw_line(Vector2(-s * 0.3 + k * s * 0.25, -s * 0.08), Vector2(-s * 0.2 + k * s * 0.25, 0), Color(1, 1, 1, 0.7), 1.2, true)
+		&"dark_hado":
+			# Evolved Aizon's Hado: a sphere of violet-black reishi wreathed in flame.
+			for k in 6:
+				var a := k * TAU / 6.0
+				canvas.draw_circle(Vector2.from_angle(a) * s * 0.28 + Vector2(-s * 0.1, 0), s * 0.22, Color(w.color, 0.35), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.42, Color(0.08, 0.03, 0.12), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.42, 0.0, TAU, 24, w.color, 3.0, true)
+			canvas.draw_circle(Vector2(-s * 0.08, -s * 0.08), s * 0.14, Color(0.85, 0.7, 1.0), true, -1.0, true)
 		&"nue":
 			# Nue: a shadow bird with a white mask and spread wings.
 			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
@@ -611,7 +641,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai":
+		&"minya", &"byakurai", &"dark_hado":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))

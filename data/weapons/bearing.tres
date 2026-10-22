@@ -5,15 +5,15 @@
 [resource]
 script = ExtResource("1_script")
 id = &"bearing"
-display_name = "Star Finger Bearing"
+display_name = "Iggi"
 max_speed = 1450.0
-body_damage = 22
-head_damage = 40
+body_damage = 18
+head_damage = 34
 count = 1
 spin = 0.0
 sticks = false
-shape = &"bearing"
-size = 18.0
+shape = &"iggi"
+size = 34.0
 color = Color(0.8, 0.82, 0.88, 1)
-gravity_scale = 0.85
+gravity_scale = 1.0
 special = &"timestop"
