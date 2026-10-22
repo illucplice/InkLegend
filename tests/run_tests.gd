@@ -19,6 +19,7 @@ func _initialize() -> void:
 	_test_ai_sharpens()
 	_test_obstacles()
 	_test_terrain()
+	_test_shadow_boss()
 	_test_wind_solver()
 	_test_destructible_obstacles()
 	_test_progression(root.get_node("Save"))
@@ -460,7 +461,8 @@ func _test_homing_and_balance() -> void:
 		fist.gravity_scale = 0.0
 		var projectile: Projectile = game.PROJECTILE_SCENE.instantiate()
 		game._actors.add_child(projectile)
-		projectile.launch(fist, thrower, Vector2(-200, -330), Vector2(900, 0))
+		# Just over their head, whatever height the (random) ground puts them at.
+		projectile.launch(fist, thrower, Vector2(-200, target.position.y - 170.0), Vector2(900, 0))
 		if homing:
 			projectile.homing_target = target
 			projectile.homing_range = game.BARRAGE_HOMING_RANGE
@@ -489,7 +491,7 @@ func _test_practice_specials() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
-	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo"]:
+	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon"]:
 		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
 		game.start_practice(pick)
 		for frame in 300:
@@ -600,3 +602,17 @@ func _test_terrain() -> void:
 	_check(all_good, "fighters stand on flat plateaus above a smooth valley")
 	Terrain.flat()
 	_check(Terrain.height_at(123.0) == 0.0, "flat ground is at y = 0")
+
+
+## The tournament boss is a shadow copy; it must still use the original's fatality.
+func _test_shadow_boss() -> void:
+	var controller: GDScript = load("res://scripts/match/match_controller.gd")
+	var dyo: FighterData = load("res://data/fighters/dyo.tres")
+	var shadow: FighterData = controller._shadow_of(dyo)
+	_check(shadow.id == &"shadow_dyo", "the boss copy has its own id")
+	_check(shadow.base_id() == &"dyo", "the boss copy finishes like the original")
+	var saved := Terrain._heights.duplicate()
+	var crater_before := Terrain.height_at(0.0)
+	Terrain.crater(0.0, 100.0, 40.0)
+	_check(Terrain.height_at(0.0) > crater_before, "a blast digs a crater")
+	Terrain._heights = saved

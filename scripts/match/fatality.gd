@@ -22,7 +22,8 @@ const NAMES := {
 	&"gok": "THROUGH AND THROUGH!", &"egita": "OBLITERATED!", &"lufi": "RED HAWK!", &"ichi": "MUGETSU!",
 	&"uryo": "SPRENGER!", &"yuj": "DISMANTLED!", &"megu": "MAHORAGA!", &"goj": "INFINITY!", &"ryo": "METSU HADOKEN!", &"akum": "SHUN GOKU SATSU!",
 	&"thundr": "STRUCK DOWN!", &"capt": "SHIELD SLICED!", &"spydr": "WEB SMASHED!", &"batz": "ROADKILL!",
-	&"jotar": "ORA ORA ORA!", &"dyo": "ROAD ROLLER!",
+	&"jotar": "ORA ORA ORA!", &"dyo": "WRYYY!",
+	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!",
 }
 
 var _screamed := false
@@ -79,7 +80,7 @@ func _run(intro: bool) -> void:
 	Audio.play("voice_laugh", 0.0, winner.voice_pitch(), 0.0)
 	if not await _wait(0.6 if intro else 0.35):
 		return
-	var id := winner.data.id
+	var id := winner.data.base_id()
 	match id:
 		&"quotuk":
 			await _pancake()
@@ -129,12 +130,20 @@ func _run(intro: bool) -> void:
 			await _ora_rush()
 		&"dyo":
 			await _road_roller()
+		&"kazma":
+			await _explosion_magic()
+		&"subaro":
+			await _return_by_death()
+		&"aizon":
+			await _kurohitsugi()
 		_:
 			await _kaboom()
 	if _done:
 		return
 	hud.announce(NAMES.get(id, "FINISHED!"), Color(1.0, 0.3, 0.25))
-	winner.celebrate()
+	# Subaro is in no state to celebrate.
+	if id != &"subaro":
+		winner.celebrate()
 	if not await _wait(1.6):
 		return
 	_finish()
@@ -154,6 +163,7 @@ func _finish() -> void:
 		winner.form = &""
 		winner.stand_out = 0.0
 		winner.stand_barrage = false
+		winner._dazed = false
 		winner.global_position.y = Terrain.height_at(winner.global_position.x)
 		winner.aiming = false
 	finished.emit()
@@ -522,11 +532,32 @@ func _head_sucker() -> void:
 	Audio.play("hit_head", 0.0, 1.4, 0.0)
 
 
-## Gok: powers up in a blaze of gold, dashes in and drives a Dragon Fist through them.
-## A huge golden dragon tears out of the body and spirals up into the sky.
+## Gok: goes Super Saiyan 3, dashes in and drives a Dragon Fist straight through them.
+## A huge golden dragon tears out of the body and races off sideways, carrying him.
 func _vaporize() -> void:
 	var side := _toward_loser()
 	winner.power_up(5.0)
+	# Super Saiyan 3: the hair floods down his back, the ground shakes and lightning
+	# crackles round him.
+	hud.announce("SUPER SAIYAN 3!", Color(1.0, 0.85, 0.3))
+	winner.form = &"ssj3"
+	Audio.play("voice_charge", 2.0, winner.voice_pitch() * 0.9, 0.0)
+	var sparks := _prop(func(canvas: Node2D) -> void:
+		var c := winner.aim_point(false)
+		for k in 3:
+			var points := PackedVector2Array([c + Vector2(randf_range(-60, 60), randf_range(-90, -40))])
+			for j in 4:
+				points.append(points[j] + Vector2(randf_range(-22, 22), randf_range(10, 30)))
+			canvas.draw_polyline(points, Color(0.75, 0.9, 1.0), 3.0, true))
+	sparks.z_index = 12
+	get_tree().process_frame.connect(sparks.queue_redraw)
+	for quake in 6:
+		Effects.burst(self, winner.aim_point(false), Color(1.0, 0.85, 0.3), 20, 500.0, 40.0, 1.3)
+		Effects.burst(self, Vector2(winner.global_position.x, Terrain.height_at(winner.global_position.x)), Color(0.85, 0.78, 0.72, 0.9), 10, 300.0, 60.0, 1.0)
+		camera.shake(0.35)
+		if not await _wait(0.15):
+			return
+	sparks.queue_free()
 	hud.announce("DRAGON FIST!", Color(1.0, 0.82, 0.25))
 	# Power-up: gold sparks rising off him, a flare of light.
 	for flare in 5:
@@ -554,15 +585,15 @@ func _vaporize() -> void:
 	_impact(at, 1.0)
 	_flash_ring(at, Color(1.0, 0.9, 0.5), 520.0)
 	Effects.burst(self, at, Color(1.0, 0.92, 0.5), 60, 1000.0, 180.0, 2.4)
-	_hide_loser_and_explode(at - Vector2(side * 10.0, -40.0), 1200.0, -2.6)
+	_hide_loser_and_explode(at - Vector2(side * 60.0, 0.0), 1300.0, -0.35)
 	# Punch in close on the uppercut, in slow motion, as he rises through them.
 	var close := PackedVector2Array([at + Vector2(-110, -150), at + Vector2(110, 70)])
 	camera.focus_on(func() -> PackedVector2Array: return close, 30.0, 2.8)
 	_slowmo(0.3, 0.7)
 	winner.aiming = true
-	winner.aim_angle = 85.0
+	winner.aim_angle = 0.0
 	winner.aim_power = 1.0
-	await _move_winner(Vector2(at.x - side * 10.0, -110.0), 0.4, 0.0)
+	await _move_winner(Vector2(at.x + side * 40.0, at.y + 40.0), 0.4, 0.0)
 	if _done:
 		return
 	_flash_ring(at, Color(1.0, 0.85, 0.35), 380.0)
@@ -582,7 +613,7 @@ func _vaporize() -> void:
 			# The last point rides exactly at t, so the dragon grows smoothly.
 			var u := minf(i / float(length), float(state["t"]))
 			var turn := u * TAU * 1.6
-			path.append(at + Vector2(side * sin(turn) * (70.0 + u * 120.0), -u * 1050.0))
+			path.append(at + Vector2(side * u * 1500.0, -absf(sin(turn)) * (30.0 + u * 70.0) - u * 160.0))
 			# Wider where the spiral swings toward the camera.
 			widths.append(lerpf(20.0, 54.0, minf(1.0, u * 3.0)) * (0.8 + 0.25 * cos(turn)))
 		for i in path.size() - 1:
@@ -635,16 +666,16 @@ func _vaporize() -> void:
 		dragon.queue_redraw()
 		# He rides up with it, just behind the head, fist still raised.
 		var u := maxf(0.0, t - 0.1)
-		var on_path := at + Vector2(side * sin(u * TAU * 1.6) * (70.0 + u * 120.0), -u * 1050.0) + Vector2(0, 90)
+		var on_path := at + Vector2(side * u * 1500.0, -absf(sin(u * TAU * 1.6)) * (30.0 + u * 70.0) - u * 160.0) + Vector2(-side * 60.0, 50.0)
 		winner.global_position = launch.lerp(on_path, minf(1.0, t * 4.0)),  0.0, 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	rise.tween_interval(1.0)
 	rise.tween_property(dragon, "modulate:a", 0.0, 0.5)
-	_frame_around(Vector2(at.x, 0.0), 440.0, 1100.0)
+	_frame_around(Vector2(at.x + side * 650.0, at.y - 60.0), 900.0, 520.0)
 	await rise.finished
 	if _done:
 		return
 	winner.aiming = false
-	await _move_winner(Vector2(at.x + side * 60.0, 0.0), 0.8, 0.0)
+	await _move_winner(Vector2(at.x + side * 1300.0, 0.0), 0.6, 0.0)
 
 
 ## A bright ring that expands and fades (shockwaves).
@@ -661,10 +692,21 @@ func _flash_ring(at: Vector2, color: Color, radius: float) -> void:
 	grow.tween_callback(node.queue_free)
 
 
-## Egita: rises above them and fires a Final Flash straight down.
+## Egita: turns Majin, rises above them and fires a Final Flash straight down.
 func _obliterate() -> void:
 	var side := _toward_loser()
 	winner.power_up(4.0)
+	# Majin: Babidi's mark burns onto his forehead in a flash of dark red.
+	winner.form = &"majin"
+	hud.announce("MAJIN EGITA!", Color(0.95, 0.75, 0.2))
+	_wash(Color(0.3, 0.0, 0.06), 0.45, 0.08, 0.35, 0.3)
+	Audio.play("voice_laugh", 2.0, winner.voice_pitch() * 0.85, 0.0)
+	for pulse in 3:
+		Effects.burst(self, winner.aim_point(false), Color(0.15, 0.02, 0.05, 0.9), 24, 500.0, 180.0, 1.4)
+		Effects.burst(self, winner.aim_point(true), Color(1.0, 0.85, 0.3), 16, 400.0, 180.0, 1.2)
+		camera.shake(0.4)
+		if not await _wait(0.18):
+			return
 	var above := Vector2(loser.global_position.x - side * 60.0, loser.global_position.y - 430.0)
 	_frame_around(loser.global_position, 320.0, 620.0)
 	Audio.play("whoosh", 0.0, 0.4, 0.0)
@@ -695,7 +737,7 @@ func _obliterate() -> void:
 	var target := loser.global_position + Vector2(side * 40.0, 30.0)
 	var beam := Beam.new()
 	beam.setup(hands, hands + (target - hands) * 1.25, Color(1.0, 0.88, 0.3))
-	beam.width_scale = 3.2
+	beam.width_scale = 5.5
 	add_child(beam)
 	await beam.fired
 	if _done:
@@ -1198,6 +1240,9 @@ func _malevolent_shrine() -> void:
 func _mahoraga() -> void:
 	var side := _toward_loser()
 	winner.power_up(6.0)
+	_say_line("With this treasure, I summon...", 1.4)
+	if not await _wait(1.0):
+		return
 	hud.announce("I SUMMON... MAHORAGA!", Color(0.85, 0.85, 0.95))
 	# He rises out of the shadow right beside the enemy.
 	var spot := Vector2(loser.global_position.x - side * 170.0, Terrain.height_at(loser.global_position.x - side * 170.0))
@@ -1207,7 +1252,7 @@ func _mahoraga() -> void:
 		canvas.draw_set_transform(Vector2.ZERO))
 	shadow.z_index = -1
 	_wash(Color(0.03, 0.02, 0.06), 0.4, 0.5, 3.6, 0.8, 2)
-	var pose := {"rise": 0.0, "wheel": 0.0, "arm": -2.2}
+	var pose := {"rise": 0.0, "wheel": 0.0, "arm": -2.2, "glow": 0.0}
 	var body := Color(0.93, 0.92, 0.9)
 	var shade := Color(0.76, 0.75, 0.74)
 	var giant := _prop(func(canvas: Node2D) -> void:
@@ -1281,6 +1326,9 @@ func _mahoraga() -> void:
 		# The wheel behind the head, its eight spokes tipped with knobs.
 		var hub := Vector2(40, -470)
 		var turn: float = pose["wheel"]
+		var glow: float = pose["glow"]
+		if glow > 0.0:
+			canvas.draw_circle(hub, 95.0 * glow, Color(1.0, 0.97, 0.8, 0.35 * glow), true, -1.0, true)
 		canvas.draw_arc(hub, 54.0, 0.0, TAU, 32, INK, 8.0, true)
 		canvas.draw_arc(hub, 54.0, 0.0, TAU, 32, Color(0.32, 0.32, 0.36), 4.0, true)
 		for k in 8:
@@ -1302,15 +1350,21 @@ func _mahoraga() -> void:
 	await emerge.finished
 	if _done:
 		return
-	# Ka-chunk: the wheel turns an eighth.
-	var wheel := create_tween()
-	wheel.tween_method(func(a: float) -> void:
-		pose["wheel"] = a
-		giant.queue_redraw(), 0.0, TAU / 8.0, 0.4).set_trans(Tween.TRANS_BACK)
-	Audio.play("thunk", 3.0, 0.4, 0.0)
-	await wheel.finished
-	if _done:
-		return
+	# Ka-chunk, ka-chunk, ka-chunk: the wheel turns as it adapts, flaring each time.
+	for turn in 3:
+		var wheel := create_tween()
+		wheel.tween_method(func(a: float) -> void:
+			pose["wheel"] = a
+			giant.queue_redraw(), turn * TAU / 8.0, (turn + 1) * TAU / 8.0, 0.3).set_trans(Tween.TRANS_BACK)
+		wheel.parallel().tween_method(func(g: float) -> void: pose["glow"] = g, 1.0, 0.0, 0.45)
+		Audio.play("thunk", 3.0, 0.4 + turn * 0.05, 0.0)
+		camera.shake(0.25)
+		loser._tilt_velocity += 3.0 * side
+		await wheel.finished
+		if _done:
+			return
+		if not await _wait(0.15):
+			return
 	if not await _wait(0.3):
 		return
 	# The blade comes down.
@@ -1325,6 +1379,16 @@ func _mahoraga() -> void:
 	var b := loser.body_points()
 	_hide_loser()
 	Audio.play("hit_head", 5.0, 0.35, 0.0)
+	# A white crescent where the blade passed.
+	var arc_at := loser.aim_point(false)
+	var slash := _prop(func(canvas: Node2D) -> void:
+		canvas.draw_arc(arc_at + Vector2(-side * 60.0, -40.0), 150.0, -PI * 0.15 if side > 0 else PI * 0.55, PI * 0.6 if side > 0 else PI * 1.15, 24, Color(1, 1, 1, 0.9), 14.0, true)
+		canvas.draw_arc(arc_at + Vector2(-side * 60.0, -40.0), 150.0, -PI * 0.15 if side > 0 else PI * 0.55, PI * 0.6 if side > 0 else PI * 1.15, 24, Color(1.0, 0.8, 0.8, 0.4), 34.0, true))
+	slash.z_index = 12
+	var slash_fade := slash.create_tween()
+	slash_fade.tween_property(slash, "modulate:a", 0.0, 0.5)
+	slash_fade.tween_callback(slash.queue_free)
+	_wash(Color.WHITE, 0.6, 0.03, 0.05, 0.3, 18)
 	_impact(loser.global_position, 1.0)
 	var head: Vector2 = b[&"head"]
 	for half_side: float in [-1.0, 1.0]:
@@ -1341,6 +1405,13 @@ func _mahoraga() -> void:
 	_spray(loser.global_position + Vector2(0, -60), Vector2.RIGHT, 40, 700.0, 0.5)
 	if not await _wait(1.0):
 		return
+	# It roars before sinking back into the shadow.
+	Audio.play("ko", 6.0, 0.25, 0.0)
+	for k in 5:
+		camera.shake(0.4)
+		Effects.burst(self, Vector2(spot.x + randf_range(-160, 160), spot.y), Color(0.85, 0.78, 0.72, 0.9), 10, 300.0, 60.0, 1.0)
+		if not await _wait(0.1):
+			return
 	var sink := create_tween()
 	sink.tween_method(func(r: float) -> void:
 		pose["rise"] = r
@@ -1819,74 +1890,107 @@ func _run_over(side: float) -> void:
 	_spray(loser.aim_point(false), Vector2(side, -0.4), 70, 1000.0, 0.6)
 
 
-## Jotar: Star Platina steps out and buries them in a barrage, ORA ORA ORA, then one
-## last punch sends them flying apart.
+## Jotar: walks in slowly, menacing, and Star Platina steps out. A barrage of fists
+## drives them back, ORA ORA ORA, then a last punch blows them apart. He turns away.
 func _ora_rush() -> void:
 	var side := _toward_loser()
-	winner.power_up(6.0)
+	var menace := _menace(Color(0.6, 0.4, 0.95))
+	_frame_around(loser.global_position - Vector2(side * 120.0, 0), 380.0, 440.0)
+	_say_line("Yare yare...", 1.2)
+	await _move_winner(Vector2(loser.global_position.x - side * 105.0, 0.0), 1.1, 0.0)
+	if _done:
+		return
+	menace.queue_free()
 	hud.announce("STAR PLATINA!", Color(0.7, 0.5, 1.0))
-	await _move_winner(Vector2(loser.global_position.x - side * 70.0, 0.0), 0.5, 0.0)
+	winner.power_up(6.0)
+	_flash_ring(winner.aim_point(false), Color(0.7, 0.5, 1.0, 0.8), 420.0)
+	Audio.play("zap", -2.0, 0.6, 0.0)
+	_frame_around(loser.global_position - Vector2(side * 50.0, 0), 250.0, 360.0)
+	if not await _wait(0.35):
+		return
+	await _stand_barrage("ORA", Color(0.75, 0.55, 1.0), 28)
 	if _done:
 		return
-	_frame_around(loser.global_position, 300.0, 420.0)
-	await _stand_barrage("ORA", Color(0.75, 0.55, 1.0), 24)
-	if _done:
+	# A beat of silence, then the last blow.
+	winner.stand_barrage = false
+	if not await _wait(0.25):
 		return
-	_final_punch(side, "ORA!", Color(0.75, 0.55, 1.0))
-	if not await _wait(0.6):
+	_slowmo(0.25, 0.35)
+	_final_punch(side, "ORAAA!", Color(0.75, 0.55, 1.0))
+	_flash_ring(loser.aim_point(false), Color(1.0, 1.0, 1.0, 0.9), 300.0)
+	if not await _wait(0.9):
 		return
 	_put_stand_away()
+	winner.facing = -winner.facing
+	winner.reset_physics_interpolation()
+	_say_line("Good grief.", 1.4)
+	await _wait(1.0)
 
 
-## Dyo: stops time, hammers them with MUDA MUDA, hangs a ring of knives round them and
-## drops a road roller on top. Then time moves again and every knife lands.
+## Dyo: stops time, appears beside them in an instant, and The Warld hammers them,
+## MUDA MUDA. A ring of knives hangs round them, then he rides a road roller down on
+## top and pounds it into the ground. Time moves again: the knives land, it blows up.
 func _road_roller() -> void:
 	var side := _toward_loser()
 	winner.power_up(9.0)
-	hud.announce("THE WARLD!  TIME STOP!", Color(1.0, 0.85, 0.3))
+	hud.announce("THE WARLD!", Color(1.0, 0.85, 0.3))
 	Audio.play("zap", 0.0, 0.4, 0.0)
 	Audio.play("ko", -4.0, 0.5, 0.0)
-	var stop := _wash(Color(0.4, 0.28, 0.65), 0.45, 0.2, 60.0, 0.3, 8)
-	await _move_winner(Vector2(loser.global_position.x - side * 70.0, 0.0), 0.4, 0.0)
-	if _done:
-		return
+	# Time stops: a dome of inverted colour bursts out, and the world goes grey-violet.
+	_flash_ring(winner.aim_point(false), Color(0.95, 0.85, 0.3, 0.9), 900.0)
+	_flash_ring(winner.aim_point(false), Color(0.35, 0.2, 0.6, 0.7), 1200.0)
+	var stop := _wash(Color(0.35, 0.22, 0.6), 0.5, 0.3, 60.0, 0.3, 8)
 	_frame_around(loser.global_position, 360.0, 520.0)
-	await _stand_barrage("MUDA", Color(1.0, 0.85, 0.3), 16)
+	if not await _wait(0.6):
+		return
+	hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
+	# In stopped time he is simply there beside them.
+	_afterimage()
+	_place_winner(loser.global_position.x - side * 105.0)
+	_sfx("whoosh", 0.0, 1.6)
+	_say_line("MUDA MUDA MUDA!", 1.0)
+	if not await _wait(0.3):
+		return
+	await _stand_barrage("MUDA", Color(1.0, 0.85, 0.3), 20)
 	if _done:
 		return
 	winner.stand_barrage = false
-	# Knives thrown from every side, hanging still in the stopped time.
+	# A ring of knives, every one pointing in, hanging still.
 	var centre := loser.aim_point(false)
 	var knives: Array[Node2D] = []
-	for k in 12:
-		var a := -PI + k * PI / 11.0
+	for k in 14:
+		var a := k * TAU / 14.0
 		var knife := _weapon_prop(winner.data.weapon, 1.0)
 		knife.global_position = winner.throw_origin()
 		knife.rotation = a + PI
 		knife.z_index = 14
 		knives.append(knife)
-		var spot := centre + Vector2.from_angle(a) * 150.0
-		knife.create_tween().tween_property(knife, "global_position", spot, 0.12)
-		_sfx("whoosh", -4.0, 1.5)
-		if not await _wait(0.05):
+		knife.create_tween().tween_property(knife, "global_position", centre + Vector2.from_angle(a) * 130.0, 0.1)
+		winner.play_throw()
+		_sfx("whoosh", -6.0, 1.6)
+		if not await _wait(0.04):
 			return
-	if not await _wait(0.3):
+	_say_line("You thought it was over?", 1.1)
+	if not await _wait(0.5):
 		return
-	# Leaps high, and the road roller comes down.
+	# Up, and down again on a road roller.
 	var ground_x := loser.global_position.x
 	var ground := Terrain.height_at(ground_x)
-	await _move_winner(Vector2(ground_x - side * 40.0, ground - 520.0), 0.45, 0.0)
+	await _move_winner(Vector2(ground_x - side * 30.0, ground - 900.0), 0.45, 0.0)
 	if _done:
 		return
-	hud.announce("ROAD ROLLER!", Color(1.0, 0.75, 0.2))
 	var roller := _prop(func(canvas: Node2D) -> void: _draw_road_roller(canvas))
 	roller.z_index = 12
-	roller.position = Vector2(ground_x, ground - 1400.0)
-	roller.rotation = side * -0.35
+	roller.position = Vector2(ground_x, ground - 900.0)
+	roller.rotation = side * -0.4
 	roller.scale = Vector2(side, 1.0)
+	var ride := func() -> void:
+		if is_instance_valid(roller) and is_instance_valid(winner):
+			winner.global_position = roller.position + Vector2(-side * 86.0, -218.0)
+	get_tree().process_frame.connect(ride)
 	var drop := roller.create_tween()
-	drop.tween_property(roller, "position:y", ground, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	drop.parallel().tween_property(roller, "rotation", 0.0, 0.35)
+	drop.tween_property(roller, "position:y", ground, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	drop.parallel().tween_property(roller, "rotation", 0.0, 0.45)
 	await drop.finished
 	if _done:
 		return
@@ -1899,39 +2003,94 @@ func _road_roller() -> void:
 		_gib(flat, Vector2(randf_range(-500, 500), randf_range(-200, -60)), randf_range(-4, 4), 1.4, part[1] * 0.5)
 	_spray(Vector2(ground_x, ground - 10.0), Vector2.UP, 80, 900.0, 1.6)
 	_spray(Vector2(ground_x, ground - 10.0), Vector2(side, -0.2), 40, 900.0, 0.5)
-	_impact(Vector2(ground_x, ground), 1.3)
+	_impact(Vector2(ground_x, ground), 1.4)
 	_sfx("crunch", 6.0, 0.6)
-	_place_winner(ground_x)
-	winner.global_position.y = ground - 190.0
-	winner.reset_physics_interpolation()
-	# Pounding the roller from on top.
+	# He pounds the roller deeper into the ground, MUDA MUDA.
+	winner.stand_out = 1.0
 	winner.stand_barrage = true
-	for hit in 8:
-		roller.position.y = ground + (6.0 if hit % 2 == 0 else 0.0)
-		Effects.popup(self, Vector2(ground_x + randf_range(-90, 90), ground - randf_range(220, 300)), "MUDA", Color(1.0, 0.85, 0.3), 40, 1.0 / camera.zoom.x, camera.visible_rect())
+	for hit in 12:
+		roller.position.y = ground + minf(hit * 1.5, 14.0) + (5.0 if hit % 2 == 0 else 0.0)
+		Effects.popup(self, Vector2(ground_x + randf_range(-110, 110), ground - randf_range(240, 340)), "MUDA", Color(1.0, 0.85, 0.3), 36 + hit * 2, 1.0 / camera.zoom.x, camera.visible_rect())
 		_sfx("punch", 0.0, randf_range(0.8, 1.2))
-		camera.shake(0.4)
-		if not await _wait(0.1):
+		Effects.burst(self, Vector2(ground_x + randf_range(-140, 140), ground), Color(0.85, 0.78, 0.72, 0.9), 6, 300.0, 60.0, 1.0)
+		camera.shake(0.45)
+		if not await _wait(0.08):
 			return
 	winner.stand_barrage = false
-	if not await _wait(0.3):
+	get_tree().process_frame.disconnect(ride)
+	# He hops off, and time moves again: every knife flies home and the roller blows.
+	await _move_winner(Vector2(ground_x - side * 240.0, 0.0), 0.4, 0.0)
+	if _done:
 		return
-	# Time moves again: every knife flies home, and the roller blows up.
+	_say_line("Time moves again.", 1.0)
+	if not await _wait(0.4):
+		return
 	stop.queue_free()
 	hud.announce("TIME RESUMES", Color(0.95, 0.95, 1.0))
 	for knife in knives:
-		knife.create_tween().tween_property(knife, "global_position", Vector2(ground_x + randf_range(-60, 60), ground - randf_range(10, 80)), 0.15)
+		knife.create_tween().tween_property(knife, "global_position", Vector2(ground_x + randf_range(-70, 70), ground - randf_range(20, 110)), 0.12)
 	_sfx("slice", 4.0, 1.1)
-	if not await _wait(0.2):
+	if not await _wait(0.18):
 		return
 	Audio.play("boom", 4.0, 0.8, 0.0)
-	Effects.burst(self, Vector2(ground_x, ground - 60.0), Color(1.0, 0.6, 0.2), 70, 1000.0, 180.0, 2.6)
-	_impact(Vector2(ground_x, ground), 1.2)
+	Effects.burst(self, Vector2(ground_x, ground - 60.0), Color(1.0, 0.6, 0.2), 80, 1100.0, 180.0, 2.8)
+	Effects.burst(self, Vector2(ground_x, ground - 60.0), Color(0.2, 0.18, 0.2, 0.9), 40, 500.0, 180.0, 2.4)
+	_flash_ring(Vector2(ground_x, ground - 60.0), Color(1.0, 0.8, 0.4, 0.9), 500.0)
+	_impact(Vector2(ground_x, ground), 1.3)
+	_scorch(ground_x, 260.0)
 	roller.queue_free()
 	for knife in knives:
 		knife.queue_free()
-	await _move_winner(Vector2(ground_x - side * 160.0, 0.0), 0.5, 0.0)
 	_put_stand_away()
+	Audio.play("voice_laugh", 2.0, winner.voice_pitch() * 0.9, 0.0)
+	await _wait(0.8)
+
+
+## Purple menace letters drifting up around the winner as he walks in.
+func _menace(color: Color) -> Node2D:
+	var start := Time.get_ticks_msec()
+	var node := _prop(func(canvas: Node2D) -> void:
+		var t := (Time.get_ticks_msec() - start) / 1000.0
+		var font := ThemeDB.fallback_font
+		for k in 6:
+			var rise := fmod(t * 0.5 + k / 6.0, 1.0)
+			var at := winner.global_position + Vector2((-1.0 if k % 2 == 0 else 1.0) * (60.0 + (k % 3) * 22.0), -60.0 - rise * 160.0)
+			canvas.draw_string_outline(font, at, "GO", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, 8, Color(0.08, 0.05, 0.12, 1.0 - rise))
+			canvas.draw_string(font, at, "GO", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, Color(color, 1.0 - rise)))
+	node.z_index = 15
+	get_tree().process_frame.connect(node.queue_redraw)
+	return node
+
+
+## A ghost of the winner left where he stood.
+func _afterimage() -> void:
+	var at := winner.global_position
+	var ghost := _prop(func(canvas: Node2D) -> void:
+		canvas.draw_circle(at + Vector2(0, -95), 15.0, Color(1.0, 0.85, 0.3, 0.5), true, -1.0, true)
+		canvas.draw_line(at + Vector2(0, -80), at + Vector2(0, -40), Color(1.0, 0.85, 0.3, 0.5), 8.0, true)
+		canvas.draw_line(at + Vector2(0, -40), at + Vector2(-10, 0), Color(1.0, 0.85, 0.3, 0.5), 6.0, true)
+		canvas.draw_line(at + Vector2(0, -40), at + Vector2(10, 0), Color(1.0, 0.85, 0.3, 0.5), 6.0, true))
+	var fade := ghost.create_tween()
+	fade.tween_property(ghost, "modulate:a", 0.0, 0.5)
+	fade.tween_callback(ghost.queue_free)
+
+
+## The winner says a line, in a speech bubble over his head.
+func _say_line(text: String, seconds: float) -> void:
+	var font := ThemeDB.fallback_font
+	var bubble := _prop(func(canvas: Node2D) -> void:
+		var extent := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 26)
+		var top := winner.aim_point(true) + Vector2(0, -80)
+		var box := Rect2(top + Vector2(-extent.x / 2 - 14, -extent.y - 10), extent + Vector2(28, 20))
+		canvas.draw_colored_polygon(PackedVector2Array([top + Vector2(-10, 8), top + Vector2(10, 8), top + Vector2(0, 26)]), Color.WHITE)
+		canvas.draw_style_box(UiStyle.flat(Color.WHITE, 14), box)
+		canvas.draw_string(font, top + Vector2(-extent.x / 2, -8), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.1, 0.08, 0.12)))
+	bubble.z_index = 30
+	get_tree().process_frame.connect(bubble.queue_redraw)
+	var life := bubble.create_tween()
+	life.tween_interval(seconds)
+	life.tween_property(bubble, "modulate:a", 0.0, 0.25)
+	life.tween_callback(bubble.queue_free)
 
 
 ## The stand comes out and punches non-stop, shouting `word` with each blow.
@@ -1948,6 +2107,8 @@ func _stand_barrage(word: String, color: Color, hits: int) -> void:
 		_sfx("punch" if hit % 2 == 0 else "hit_body", -2.0, randf_range(0.85, 1.25))
 		loser._flash = 1.0
 		loser._tilt_velocity += 4.0 if hit % 2 == 0 else -4.0
+		loser.global_position.x += side * 2.5
+		loser.reset_physics_interpolation()
 		_spray(spot, Vector2(side, -0.5), 4, 400.0, 0.8)
 		if hit % 3 == 0:
 			camera.shake(0.35)
@@ -1972,23 +2133,454 @@ func _put_stand_away() -> void:
 		winner.create_tween().tween_property(winner, "stand_out", 0.0, 0.4)
 
 
-## A yellow road roller: a heavy front drum, an engine body and a little cab.
+## A road roller, side on: a heavy steel drum in a striped yoke up front, a long
+## engine body with vents and an exhaust stack, an open cab on posts, and a big
+## treaded rear wheel. (0, 0) is the ground under it; +x is the drum end.
 func _draw_road_roller(canvas: Node2D) -> void:
-	var yellow := Color(0.98, 0.74, 0.15)
-	var body := PackedVector2Array([Vector2(-150, -24), Vector2(-150, -140), Vector2(10, -140), Vector2(40, -100), Vector2(40, -24)])
+	var yellow := Color(0.96, 0.72, 0.12)
+	var deep := yellow.darkened(0.3)
+	var steel := Color(0.5, 0.52, 0.56)
+	# Engine body, rounded at the back, with a darker lower skirt.
+	var body := PackedVector2Array([Vector2(-170, -40), Vector2(-176, -70), Vector2(-170, -112), Vector2(-150, -126), Vector2(20, -126), Vector2(34, -112), Vector2(34, -40)])
 	canvas.draw_colored_polygon(body, yellow)
-	canvas.draw_polyline(PackedVector2Array([body[0], body[1], body[2], body[3], body[4], body[0]]), INK, 4.0, true)
-	var cab := PackedVector2Array([Vector2(-130, -140), Vector2(-130, -200), Vector2(-50, -200), Vector2(-40, -140)])
-	canvas.draw_colored_polygon(cab, yellow.darkened(0.1))
-	canvas.draw_polyline(PackedVector2Array([cab[0], cab[1], cab[2], cab[3]]), INK, 4.0, true)
-	canvas.draw_colored_polygon(PackedVector2Array([Vector2(-120, -150), Vector2(-120, -190), Vector2(-62, -190), Vector2(-54, -150)]), Color(0.55, 0.75, 0.9))
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(-140, -70), "ROAD ROLLER", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, INK)
-	canvas.draw_circle(Vector2(90, -62), 62.0, INK, true, -1.0, true)
-	canvas.draw_circle(Vector2(90, -62), 56.0, Color(0.35, 0.35, 0.38), true, -1.0, true)
-	canvas.draw_line(Vector2(40, -62), Vector2(90, -62), INK, 8.0, true)
-	canvas.draw_circle(Vector2(90, -62), 14.0, yellow, true, -1.0, true)
-	canvas.draw_circle(Vector2(-110, -30), 30.0, INK, true, -1.0, true)
-	canvas.draw_circle(Vector2(-110, -30), 12.0, Color(0.5, 0.5, 0.55), true, -1.0, true)
+	canvas.draw_colored_polygon(PackedVector2Array([Vector2(-170, -40), Vector2(-172, -58), Vector2(34, -58), Vector2(34, -40)]), deep)
+	var rim := body.duplicate()
+	rim.append(body[0])
+	canvas.draw_polyline(rim, INK, 4.0, true)
+	canvas.draw_line(Vector2(-174, -92), Vector2(30, -92), deep, 3.0, true)
+	for k in 6:
+		var x := -150.0 + k * 14.0
+		canvas.draw_line(Vector2(x, -118), Vector2(x, -98), Color(0.25, 0.2, 0.1), 4.0, true)
+	for k in 8:
+		canvas.draw_circle(Vector2(-160 + k * 25.0, -50), 2.5, Color(0.3, 0.22, 0.08), true, -1.0, true)
+	# Scuffs and grime.
+	for spot: Vector2 in [Vector2(-120, -70), Vector2(-40, -104), Vector2(10, -66)]:
+		canvas.draw_circle(spot, 9.0, Color(0.45, 0.32, 0.1, 0.35), true, -1.0, true)
+	# Exhaust stack.
+	canvas.draw_rect(Rect2(-40, -168, 10, 42), Color(0.18, 0.18, 0.2))
+	canvas.draw_rect(Rect2(-43, -172, 16, 8), Color(0.1, 0.1, 0.12))
+	# The cab: a roof on two posts over a seat and a wheel, with tinted glass.
+	canvas.draw_colored_polygon(PackedVector2Array([Vector2(-126, -126), Vector2(-126, -206), Vector2(-46, -206), Vector2(-46, -126)]), Color(0.45, 0.62, 0.72, 0.55))
+	for post: float in [-126.0, -50.0]:
+		canvas.draw_rect(Rect2(post, -210, 6, 84), Color(0.15, 0.15, 0.17))
+	canvas.draw_rect(Rect2(-136, -218, 100, 12), yellow)
+	canvas.draw_rect(Rect2(-136, -218, 100, 12), INK, false, 3.0)
+	canvas.draw_rect(Rect2(-112, -150, 26, 24), Color(0.2, 0.2, 0.22))
+	canvas.draw_line(Vector2(-70, -160), Vector2(-58, -140), Color(0.15, 0.15, 0.17), 4.0, true)
+	canvas.draw_line(Vector2(-78, -164), Vector2(-62, -158), Color(0.15, 0.15, 0.17), 4.0, true)
+	# The yoke holding the drum, with hazard stripes.
+	var yoke := PackedVector2Array([Vector2(30, -112), Vector2(96, -112), Vector2(118, -78), Vector2(96, -78), Vector2(80, -96), Vector2(30, -96)])
+	canvas.draw_colored_polygon(yoke, Color(0.12, 0.12, 0.14))
+	for k in 4:
+		var x := 36.0 + k * 16.0
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(x, -112), Vector2(x + 8, -112), Vector2(x + 2, -96), Vector2(x - 6, -96)]), yellow)
+	# The drum: a heavy steel cylinder seen end on, shaded, with a bolted hub.
+	var drum := Vector2(110, -64)
+	canvas.draw_circle(drum, 66.0, INK, true, -1.0, true)
+	canvas.draw_circle(drum, 61.0, steel.darkened(0.25), true, -1.0, true)
+	canvas.draw_circle(drum + Vector2(-6, -6), 52.0, steel, true, -1.0, true)
+	canvas.draw_arc(drum, 56.0, PI * 1.1, PI * 1.6, 12, steel.lightened(0.45), 5.0, true)
+	canvas.draw_circle(drum, 22.0, Color(0.15, 0.15, 0.17), true, -1.0, true)
+	canvas.draw_circle(drum, 12.0, yellow, true, -1.0, true)
+	for k in 6:
+		canvas.draw_circle(drum + Vector2.from_angle(k * TAU / 6.0) * 17.0, 2.5, steel.lightened(0.3), true, -1.0, true)
+	# The rear wheel: a fat tyre with tread and a yellow rim.
+	var wheel := Vector2(-128, -42)
+	canvas.draw_circle(wheel, 44.0, Color(0.08, 0.08, 0.09), true, -1.0, true)
+	for k in 14:
+		var a := k * TAU / 14.0
+		canvas.draw_line(wheel + Vector2.from_angle(a) * 36.0, wheel + Vector2.from_angle(a) * 44.0, Color(0.2, 0.2, 0.22), 4.0, true)
+	canvas.draw_circle(wheel, 24.0, deep, true, -1.0, true)
+	canvas.draw_circle(wheel, 10.0, Color(0.15, 0.15, 0.17), true, -1.0, true)
+
+
+## Kazma: Megumyn walks up beside him, chants, stacks magic circles over them and casts
+## EXPLOSION. Then she drops flat on her face, out of mana, as usual.
+func _explosion_magic() -> void:
+	var side := _toward_loser()
+	var target := loser.aim_point(false)
+	var ground := Terrain.height_at(loser.global_position.x)
+	# Megumyn: witch hat, red robe, a staff with a red orb.
+	var mage := {"x": winner.global_position.x - side * 260.0, "lying": 0.0, "staff": 0.0}
+	var megumyn := _prop(func(canvas: Node2D) -> void:
+		var x: float = mage["x"]
+		var foot := Vector2(x, Terrain.height_at(x))
+		var fall: float = mage["lying"]
+		canvas.draw_set_transform(foot, side * fall * PI * 0.5, Vector2(side, 1.0))
+		canvas.draw_line(Vector2(-6, 0), Vector2(0, -34), INK, 4.0, true)
+		canvas.draw_line(Vector2(6, 0), Vector2(0, -34), INK, 4.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-14, -28), Vector2(14, -28), Vector2(8, -68), Vector2(-8, -68)]), Color(0.75, 0.12, 0.15))
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-12, -60), Vector2(12, -60), Vector2(9, -70), Vector2(-9, -70)]), Color(0.15, 0.12, 0.14))
+		canvas.draw_circle(Vector2(0, -82), 12.0, Color(1, 0.86, 0.75), true, -1.0, true)
+		canvas.draw_arc(Vector2(0, -82), 12.0, 0.0, TAU, 16, INK, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-14, -80), Vector2(-6, -94), Vector2(10, -92), Vector2(13, -80), Vector2(4, -86)]), Color(0.15, 0.1, 0.1))
+		canvas.draw_line(Vector2(2, -84), Vector2(12, -80), INK, 3.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-24, -90), Vector2(24, -90), Vector2(4, -132), Vector2(-2, -128)]), Color(0.12, 0.1, 0.12))
+		canvas.draw_line(Vector2(-22, -91), Vector2(22, -91), Color(0.95, 0.75, 0.25), 3.0, true)
+		var lift: float = mage["staff"]
+		var top := Vector2(22, -96 - lift * 40.0)
+		canvas.draw_line(Vector2(14, -40), top, Color(0.45, 0.3, 0.18), 4.0, true)
+		canvas.draw_circle(top, 7.0, Color(0.95, 0.2, 0.15), true, -1.0, true)
+		canvas.draw_circle(top, 7.0 + lift * 10.0, Color(1.0, 0.4, 0.2, 0.3 * lift), true, -1.0, true)
+		canvas.draw_set_transform(Vector2.ZERO))
+	get_tree().process_frame.connect(megumyn.queue_redraw)
+	megumyn.z_index = 6
+	_frame_around(Vector2((winner.global_position.x + loser.global_position.x) / 2.0, ground), absf(loser.global_position.x - winner.global_position.x) * 0.5 + 300.0, 760.0)
+	var walk := create_tween()
+	walk.tween_method(func(x: float) -> void: mage["x"] = x, float(mage["x"]), winner.global_position.x + side * 40.0, 0.9)
+	_say_line("Megumyn, now!", 1.0)
+	await walk.finished
+	if _done:
+		return
+	_bubble(func() -> Vector2: return Vector2(float(mage["x"]), Terrain.height_at(float(mage["x"])) - 150.0), "Darkness blacker than black...", 1.6)
+	create_tween().tween_method(func(t: float) -> void: mage["staff"] = t, 0.0, 1.0, 0.6)
+	# Magic circles stacking up over them, turning.
+	var circles := {"n": 0.0}
+	var start := Time.get_ticks_msec()
+	var rings := _prop(func(canvas: Node2D) -> void:
+		var spin := (Time.get_ticks_msec() - start) / 1000.0
+		for k in int(circles["n"]):
+			var c := Vector2(target.x, ground - 200.0 - k * 120.0)
+			var r := 150.0 - k * 22.0
+			canvas.draw_set_transform(c, 0.0, Vector2(1.0, 0.28))
+			canvas.draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(1.0, 0.35, 0.2, 0.9), 5.0, true)
+			canvas.draw_arc(Vector2.ZERO, r * 0.8, 0.0, TAU, 48, Color(1.0, 0.6, 0.3, 0.8), 3.0, true)
+			for p in 5:
+				var a := spin * (1.0 if k % 2 == 0 else -1.0) + p * TAU / 5.0
+				var b := a + TAU * 2.0 / 5.0
+				canvas.draw_line(Vector2.from_angle(a) * r * 0.8, Vector2.from_angle(b) * r * 0.8, Color(1.0, 0.5, 0.25, 0.8), 2.5, true)
+			canvas.draw_set_transform(Vector2.ZERO))
+	rings.z_index = 8
+	get_tree().process_frame.connect(rings.queue_redraw)
+	for k in 4:
+		circles["n"] = k + 1
+		_sfx("zap", -4.0, 0.6 + k * 0.15)
+		camera.shake(0.15 + k * 0.08)
+		if not await _wait(0.35):
+			return
+	hud.announce("EXPLOSION!", Color(1.0, 0.4, 0.2))
+	Audio.play("voice_charge", 4.0, 1.5, 0.0)
+	if not await _wait(0.3):
+		return
+	rings.queue_free()
+	# The blast: a white flash, a pillar of fire from the sky, and a rising fireball.
+	_wash(Color.WHITE, 0.95, 0.04, 0.12, 0.5, 18)
+	var pillar := {"t": 0.0}
+	var blast := _prop(func(canvas: Node2D) -> void:
+		var t: float = pillar["t"]
+		var width := 140.0 + t * 260.0
+		canvas.draw_rect(Rect2(target.x - width * 0.5, ground - 1600.0, width, 1600.0), Color(1.0, 0.6, 0.25, 0.5 * (1.0 - t)))
+		canvas.draw_rect(Rect2(target.x - width * 0.2, ground - 1600.0, width * 0.4, 1600.0), Color(1.0, 0.95, 0.8, 0.8 * (1.0 - t)))
+		for k in 4:
+			canvas.draw_circle(Vector2(target.x, ground - 80.0 - t * 300.0 - k * 60.0), (120.0 + t * 260.0) * (1.0 - k * 0.18), Color(1.0, 0.45 + k * 0.1, 0.15, 0.45 * (1.0 - t)), true, -1.0, true))
+	blast.z_index = 11
+	var grow := create_tween()
+	grow.tween_method(func(t: float) -> void:
+		pillar["t"] = t
+		blast.queue_redraw(), 0.0, 1.0, 1.4)
+	Audio.play("boom", 6.0, 0.6, 0.0)
+	Audio.play("boom", 4.0, 0.45, 0.0)
+	_impact(Vector2(target.x, ground), 1.6)
+	_flash_ring(Vector2(target.x, ground - 60.0), Color(1.0, 0.7, 0.3), 900.0)
+	Effects.burst(self, target, Color(1.0, 0.55, 0.2), 90, 1300.0, 180.0, 3.0)
+	_hide_loser_and_explode(target + Vector2(0, 40), 1600.0, -1.6)
+	_scorch(target.x, 340.0)
+	await grow.finished
+	if _done:
+		return
+	blast.queue_free()
+	# Out of mana: she topples flat on her face.
+	create_tween().tween_method(func(t: float) -> void:
+		mage["lying"] = t
+		mage["staff"] = 1.0 - t, 0.0, 1.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_sfx("thunk", 0.0, 1.0)
+	_bubble(func() -> Vector2: return Vector2(float(mage["x"]), Terrain.height_at(float(mage["x"])) - 60.0), "...I can't move.", 1.4)
+	if not await _wait(0.8):
+		return
+	_say_line("Every single time...", 1.2)
+	await _wait(1.0)
+
+
+## Subaro: the world goes dark and the Witch's shadow rises. Black hands pour up out of
+## the ground and crush them, whispering "I love you". Then Return by Death: the clock
+## spins backwards and Subaro gasps awake.
+func _return_by_death() -> void:
+	var target := loser.aim_point(false)
+	var ground := Terrain.height_at(loser.global_position.x)
+	_frame_around(Vector2(target.x, ground), 380.0, 560.0)
+	hud.announce("THE WITCH'S SCENT...", Color(0.7, 0.45, 0.85))
+	var dark := _wash(Color(0.05, 0.0, 0.08), 0.75, 0.6, 60.0, 0.4, 8)
+	for tick in 4:
+		Audio.play("tick", 0.0, 0.5, 0.0)
+		if not await _wait(0.3):
+			return
+	# Satela: a tall shadow with long pale hair standing behind them.
+	var witch := {"a": 0.0}
+	var start := Time.get_ticks_msec()
+	var shadow := _prop(func(canvas: Node2D) -> void:
+		var a: float = witch["a"]
+		var t := (Time.get_ticks_msec() - start) / 1000.0
+		var base := Vector2(target.x - _toward_loser() * -120.0, ground)
+		canvas.draw_colored_polygon(PackedVector2Array([base + Vector2(-50, 0), base + Vector2(50, 0), base + Vector2(30, -230), base + Vector2(-30, -230)]), Color(0.02, 0.0, 0.04, a))
+		canvas.draw_circle(base + Vector2(0, -260), 34.0, Color(0.02, 0.0, 0.04, a), true, -1.0, true)
+		for k in 7:
+			var x := -36.0 + k * 12.0
+			canvas.draw_line(base + Vector2(x * 0.6, -290), base + Vector2(x + sin(t * 2.0 + k) * 8.0, -120), Color(0.85, 0.85, 0.95, a * 0.7), 3.0, true)
+		canvas.draw_circle(base + Vector2(-10, -262), 4.0, Color(0.75, 0.3, 0.95, a), true, -1.0, true)
+		canvas.draw_circle(base + Vector2(10, -262), 4.0, Color(0.75, 0.3, 0.95, a), true, -1.0, true))
+	shadow.z_index = 9
+	get_tree().process_frame.connect(shadow.queue_redraw)
+	create_tween().tween_method(func(a: float) -> void: witch["a"] = a, 0.0, 0.95, 0.8)
+	# Shadow hands rise from the ground all around them.
+	var hands := {"t": 0.0, "grip": 0.0}
+	var reach := _prop(func(canvas: Node2D) -> void:
+		var t: float = hands["t"]
+		var grip: float = hands["grip"]
+		for k in 9:
+			var root := Vector2(target.x + (k - 4) * 34.0, ground + 10.0)
+			var tip := root.lerp(target + Vector2((k - 4) * 6.0 * (1.0 - grip), (k % 3 - 1) * 30.0), t)
+			var bend := (root + tip) / 2.0 + Vector2(sin(k * 1.7 + t * 6.0) * 30.0, 0)
+			var arm := PackedVector2Array()
+			for i in 9:
+				var u := i / 8.0
+				arm.append(root.lerp(bend, u).lerp(bend.lerp(tip, u), u))
+			canvas.draw_polyline(arm, Color(0.02, 0.0, 0.03, 0.95), 14.0 - k % 3 * 2.0, true)
+			for f in 4:
+				canvas.draw_line(tip, tip + Vector2.from_angle(-PI / 2 + (f - 1.5) * 0.5 + grip * 0.8) * 16.0, Color(0.02, 0.0, 0.03, 0.95), 4.0, true))
+	reach.z_index = 10
+	var rise := create_tween()
+	rise.tween_method(func(t: float) -> void:
+		hands["t"] = t
+		reach.queue_redraw(), 0.0, 1.0, 0.8).set_trans(Tween.TRANS_SINE)
+	Audio.play("whoosh", 0.0, 0.4, 0.0)
+	# "I love you", whispered over and over.
+	var words := _prop(func(canvas: Node2D) -> void:
+		var t := (Time.get_ticks_msec() - start) / 1000.0
+		var font := ThemeDB.fallback_font
+		for k in 6:
+			var drift := fmod(t * 0.25 + k / 6.0, 1.0)
+			var at := target + Vector2(sin(k * 2.3) * 220.0, -260.0 + k * 50.0 - drift * 60.0)
+			canvas.draw_string(font, at, "I love you", HORIZONTAL_ALIGNMENT_CENTER, -1, 22, Color(0.8, 0.5, 0.95, 0.8 * sin(drift * PI))))
+	words.z_index = 12
+	get_tree().process_frame.connect(words.queue_redraw)
+	await rise.finished
+	if _done:
+		return
+	# They squeeze.
+	var squeeze := create_tween()
+	squeeze.tween_method(func(g: float) -> void:
+		hands["grip"] = g
+		reach.queue_redraw(), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	for k in 4:
+		loser._tilt_velocity += 5.0 if k % 2 == 0 else -5.0
+		loser._flash = 1.0
+		_sfx("crunch", -2.0 + k, 0.8 + k * 0.05)
+		if not await _wait(0.12):
+			return
+	var b := loser.body_points()
+	_hide_loser()
+	for part: Array in _parts(b):
+		_gib(part[0], Vector2(randf_range(-300, 300), randf_range(-500, -150)), randf_range(-10, 10), 1.3, part[1])
+	_spray(target, Vector2.UP, 80, 800.0, 1.6)
+	camera.shake(0.9)
+	if not await _wait(0.8):
+		return
+	# Return by Death: a clock face spins backwards, everything flashes white.
+	reach.queue_free()
+	words.queue_free()
+	shadow.queue_free()
+	hud.announce("RETURN BY DEATH", Color(0.8, 0.6, 1.0))
+	var clock := {"t": 0.0}
+	var face := _prop(func(canvas: Node2D) -> void:
+		var t: float = clock["t"]
+		var c := camera.visible_rect().get_center()
+		canvas.draw_circle(c, 220.0, Color(0.1, 0.05, 0.15, 0.6), true, -1.0, true)
+		canvas.draw_arc(c, 220.0, 0.0, TAU, 64, Color(0.8, 0.6, 1.0, 0.9), 6.0, true)
+		for k in 12:
+			var a := k * TAU / 12.0
+			canvas.draw_line(c + Vector2.from_angle(a) * 190.0, c + Vector2.from_angle(a) * 212.0, Color(0.8, 0.6, 1.0), 4.0, true)
+		canvas.draw_line(c, c + Vector2.from_angle(-PI / 2 - t * TAU * 3.0) * 170.0, Color.WHITE, 6.0, true)
+		canvas.draw_line(c, c + Vector2.from_angle(-PI / 2 - t * TAU * 0.6) * 110.0, Color.WHITE, 9.0, true))
+	face.z_index = 20
+	var rewind := create_tween()
+	rewind.tween_method(func(t: float) -> void:
+		clock["t"] = t
+		face.queue_redraw(), 0.0, 1.0, 1.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	for tick in 8:
+		Audio.play("tick", -2.0, 1.4 - tick * 0.08, 0.0)
+		if not await _wait(0.14):
+			return
+	await rewind.finished
+	if _done:
+		return
+	_wash(Color.WHITE, 1.0, 0.05, 0.15, 0.5, 22)
+	face.queue_free()
+	dark.queue_free()
+	# He remembers dying. He always remembers: he doubles over, shaking and screaming.
+	if not await _wait(0.4):
+		return
+	winner._dazed = true
+	Audio.play("voice_die", 4.0, winner.voice_pitch(), 0.0)
+	_frame_around(winner.global_position, 260.0, 380.0)
+	var start_agony := Time.get_ticks_msec()
+	var agony := _prop(func(canvas: Node2D) -> void:
+		var t := (Time.get_ticks_msec() - start_agony) / 1000.0
+		var head := winner.aim_point(true)
+		var font := ThemeDB.fallback_font
+		var jitter := Vector2(randf_range(-4, 4), randf_range(-4, 4))
+		canvas.draw_string_outline(font, head + Vector2(-90, -70) + jitter, "AAAAAAGH!", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, 10, Color(0.1, 0.05, 0.12))
+		canvas.draw_string(font, head + Vector2(-90, -70) + jitter, "AAAAAAGH!", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Color(0.85, 0.75, 1.0))
+		for k in 6:
+			var fall := fmod(t * 1.6 + k / 6.0, 1.0)
+			var eye := head + Vector2(winner.facing * (4.0 + (k % 2) * 6.0), 2.0)
+			canvas.draw_circle(eye + Vector2(winner.facing * fall * 10.0, fall * 60.0), 3.0 * (1.0 - fall * 0.5), Color(0.55, 0.8, 1.0, 1.0 - fall), true, -1.0, true))
+	agony.z_index = 25
+	get_tree().process_frame.connect(agony.queue_redraw)
+	for k in 14:
+		winner._tilt_velocity += 6.0 if k % 2 == 0 else -6.0
+		camera.shake(0.18)
+		if not await _wait(0.12):
+			return
+	agony.queue_free()
+	_say_line("...I'll do it again. As many times as it takes.", 1.8)
+	await _wait(1.6)
+	winner._dazed = false
+
+
+## Aizon: Hado #90 Kurohitsugi seals them in a black coffin and runs it through with
+## spears of darkness. Then Hado #99 Goryutenmetsu: two great beasts of violet flame
+## burst from the ground and devour what is left.
+func _kurohitsugi() -> void:
+	var side := _toward_loser()
+	var target := loser.aim_point(false)
+	var ground := Terrain.height_at(loser.global_position.x)
+	_frame_around(Vector2(target.x - side * 120.0, ground), 420.0, 480.0)
+	_say_line("Overflowing with turbidity...", 1.4)
+	hud.announce("HADO #90  KUROHITSUGI", Color(0.6, 0.35, 0.95))
+	winner.power_up(5.0)
+	# The coffin: black walls close in from the sides and top, edged in violet.
+	var coffin := {"t": 0.0}
+	var box := Rect2(target.x - 75.0, ground - 175.0, 150.0, 175.0)
+	var walls := _prop(func(canvas: Node2D) -> void:
+		var t: float = coffin["t"]
+		var spread := (1.0 - t) * 260.0
+		var violet := Color(0.6, 0.3, 0.95)
+		for wall: Rect2 in [Rect2(box.position.x - spread, box.position.y, box.size.x * 0.5, box.size.y), Rect2(box.get_center().x + spread, box.position.y, box.size.x * 0.5, box.size.y), Rect2(box.position.x, box.position.y - spread, box.size.x, 14.0)]:
+			canvas.draw_rect(wall, Color(0.04, 0.02, 0.06))
+			canvas.draw_rect(wall, violet, false, 3.0)
+		if t >= 1.0:
+			for k in 6:
+				var y := box.position.y + 20.0 + k * 22.0
+				canvas.draw_line(Vector2(box.position.x + 6.0, y), Vector2(box.end.x - 6.0, y + 6.0), Color(violet, 0.5), 2.0, true))
+	walls.z_index = 10
+	var close := create_tween()
+	close.tween_method(func(t: float) -> void:
+		coffin["t"] = t
+		walls.queue_redraw(), 0.0, 1.0, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	Audio.play("whoosh", 0.0, 0.4, 0.0)
+	await close.finished
+	if _done:
+		return
+	_sfx("thunk", 4.0, 0.6)
+	camera.shake(0.5)
+	# Spears of darkness driven through the coffin from every side.
+	var spears := []
+	var lances := _prop(func(canvas: Node2D) -> void:
+		for spear: Array in spears:
+			canvas.draw_line(spear[0], spear[1], Color(0.04, 0.02, 0.06), 9.0, true)
+			canvas.draw_line(spear[0], spear[1], Color(0.6, 0.3, 0.95, 0.6), 3.0, true))
+	lances.z_index = 11
+	for k in 10:
+		var a := randf_range(0.0, TAU)
+		var through := box.get_center() + Vector2(randf_range(-30, 30), randf_range(-50, 50))
+		spears.append([through + Vector2.from_angle(a) * 260.0, through - Vector2.from_angle(a) * 120.0])
+		lances.queue_redraw()
+		_spray(through, -Vector2.from_angle(a), 14, 600.0, 0.5)
+		_sfx("slice", 0.0, randf_range(0.9, 1.2))
+		camera.shake(0.25)
+		if not await _wait(0.08):
+			return
+	if not await _wait(0.4):
+		return
+	# The coffin crumbles to reveal what is left.
+	walls.queue_free()
+	lances.queue_free()
+	Effects.burst(self, box.get_center(), Color(0.06, 0.03, 0.08, 0.95), 50, 600.0, 180.0, 1.8)
+	_sfx("crunch", 4.0, 0.7)
+	if not await _wait(0.5):
+		return
+	hud.announce("HADO #99  GORYUTENMETSU", Color(0.85, 0.4, 1.0))
+	_frame_around(Vector2(target.x, ground), 520.0, 700.0)
+	# Two beasts of violet flame rise from the ground either side and snap shut.
+	var beasts := {"rise": 0.0, "bite": 0.0}
+	var maws := _prop(func(canvas: Node2D) -> void:
+		var rise: float = beasts["rise"]
+		var bite: float = beasts["bite"]
+		for dir: float in [-1.0, 1.0]:
+			var root := Vector2(target.x + dir * 260.0, ground + 40.0)
+			var head := Vector2(target.x + dir * lerpf(200.0, 40.0, bite), lerpf(ground + 40.0, target.y - 120.0, rise) + bite * 80.0)
+			var neck := PackedVector2Array()
+			for i in 12:
+				var u := i / 11.0
+				neck.append(root.lerp(head, u) + Vector2(dir * sin(u * PI) * 90.0, 0))
+			canvas.draw_polyline(neck, Color(0.55, 0.2, 0.9, 0.35), 90.0, true)
+			canvas.draw_polyline(neck, Color(0.6, 0.3, 0.95), 50.0, true)
+			canvas.draw_polyline(neck, Color(0.9, 0.75, 1.0), 16.0, true)
+			var facing_in := Vector2(-dir, 0)
+			var jaw_open := (1.0 - bite) * 0.6
+			for jaw: float in [-1.0, 1.0]:
+				var tip := head + facing_in.rotated(jaw * jaw_open) * 110.0
+				canvas.draw_colored_polygon(PackedVector2Array([head + Vector2(0, jaw * 30.0), tip, head + facing_in * 40.0]), Color(0.6, 0.3, 0.95))
+				canvas.draw_polyline(PackedVector2Array([head + Vector2(0, jaw * 30.0), tip, head + facing_in * 40.0]), Color(0.95, 0.85, 1.0), 3.0, true)
+			canvas.draw_circle(head + Vector2(0, -26), 8.0, Color(1.0, 0.9, 0.4), true, -1.0, true))
+	maws.z_index = 11
+	var surge := create_tween()
+	surge.tween_method(func(t: float) -> void:
+		beasts["rise"] = t
+		maws.queue_redraw(), 0.0, 1.0, 0.8).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	Audio.play("boom", 2.0, 0.5, 0.0)
+	_impact(Vector2(target.x, ground), 1.0)
+	await surge.finished
+	if _done:
+		return
+	var snap := create_tween()
+	snap.tween_method(func(t: float) -> void:
+		beasts["bite"] = t
+		maws.queue_redraw(), 0.0, 1.0, 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await snap.finished
+	if _done:
+		return
+	Audio.play("boom", 6.0, 0.7, 0.0)
+	_wash(Color(0.6, 0.3, 0.95), 0.6, 0.05, 0.2, 0.5, 18)
+	_flash_ring(target, Color(0.85, 0.6, 1.0), 800.0)
+	Effects.burst(self, target, Color(0.7, 0.4, 1.0), 90, 1200.0, 180.0, 2.8)
+	_hide_loser_and_explode(target, 1500.0, -1.2)
+	_impact(target, 1.4)
+	var fade := maws.create_tween()
+	fade.tween_property(maws, "modulate:a", 0.0, 0.6)
+	fade.tween_callback(maws.queue_free)
+	if not await _wait(0.8):
+		return
+	_say_line("Do not use strong words.", 1.4)
+	await _wait(1.0)
+
+
+## A speech bubble that follows `at()` (anyone's head), for `seconds`.
+func _bubble(at: Callable, text: String, seconds: float) -> void:
+	var font := ThemeDB.fallback_font
+	var bubble := _prop(func(canvas: Node2D) -> void:
+		var extent := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 26)
+		var top: Vector2 = at.call()
+		var box := Rect2(top + Vector2(-extent.x / 2 - 14, -extent.y - 10), extent + Vector2(28, 20))
+		canvas.draw_colored_polygon(PackedVector2Array([top + Vector2(-10, 8), top + Vector2(10, 8), top + Vector2(0, 26)]), Color.WHITE)
+		canvas.draw_style_box(UiStyle.flat(Color.WHITE, 14), box)
+		canvas.draw_string(font, top + Vector2(-extent.x / 2, -8), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.1, 0.08, 0.12)))
+	bubble.z_index = 30
+	get_tree().process_frame.connect(bubble.queue_redraw)
+	var life := bubble.create_tween()
+	life.tween_interval(seconds)
+	life.tween_property(bubble, "modulate:a", 0.0, 0.25)
+	life.tween_callback(bubble.queue_free)
 
 
 ## Moves the winner to `to` over `seconds`, hopping `arc` px high on the way.

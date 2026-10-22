@@ -45,6 +45,9 @@ const ROSTER := [
 	preload("res://data/fighters/batz.tres"),
 	preload("res://data/fighters/jotar.tres"),
 	preload("res://data/fighters/dyo.tres"),
+	preload("res://data/fighters/kazma.tres"),
+	preload("res://data/fighters/subaro.tres"),
+	preload("res://data/fighters/aizon.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -98,18 +101,18 @@ const ORB_RAISE_TIME := 0.9
 ## Gum Barrage: fists thrown, seconds between them, random aim wobble (degrees), the
 ## damage each does compared with a thrown weapon, and how close (px) a fist must get
 ## before it homes in and how fast it can turn (rad/s).
-const BARRAGE_FISTS := 5
+const BARRAGE_FISTS := 3
 const BARRAGE_GAP := 0.09
 const BARRAGE_SPREAD := 3.0
 const BARRAGE_MULTIPLIER := 0.4
-const BARRAGE_HOMING_RANGE := 320.0
-const BARRAGE_HOMING_TURN := 5.0
+const BARRAGE_HOMING_RANGE := 220.0
+const BARRAGE_HOMING_TURN := 3.0
 ## Moon Fang: speed, size and damage multiplier of the crescent.
 const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "icelance": 0.75, "elephant": 1.5}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -120,6 +123,12 @@ const THUNDER_RADIUS := 170.0
 const BATBOMB_RADIUS := 110.0
 const BURN_TURNS := 3
 const BURN_DAMAGE := 6
+const BLEED_TURNS := 3
+const BLEED_DAMAGE := 3
+## Egita's homing ki, and the burst of Gok's ki blasts.
+const KI_HOMING_RANGE := 180.0
+const KI_HOMING_TURN := 2.4
+const KI_BURST_RADIUS := 90.0
 const RAIN_ARROWS := 6
 const RAIN_SPREAD := 80.0
 ## Hollow Purple: blast radius, and how close (px) and fast (px/s at point blank) it drags the enemy.
@@ -142,6 +151,8 @@ const THROW_SOUNDS := {
 	&"pebble": ["sling", 1.0],
 	&"bearing": ["whoosh", 1.6],
 	&"knife": ["whoosh", 1.4],
+	&"minya": ["zap", 1.4],
+	&"byakurai": ["zap", 1.8],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -205,10 +216,21 @@ var _gap := 1500.0
 var _crate: Crate
 var _turn_count := 0
 var _extra_throw := false
+## The current throw is a special: a knockout from it goes straight to the fatality.
+var _special_this_turn := false
+## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
+var _lucky := [0, 0]
+const LUCKY_THROWS := 2
+const ICE_LANCES := 3
+const ELEPHANT_RADIUS := 150.0
 ## Jotar's time stop: throws left before time moves again.
 var _time_stop_left := 0
+## Who stopped time, the throws hanging short of the enemy, and their hit marks.
+var _stopper: Fighter
+var _held: Array[Projectile] = []
+var _marks: Array[Node2D] = []
 const TIME_STOP_THROWS := 3
-const KNIFE_STORM := 9
+const KNIFE_STORM := 7
 ## Target Practice progress: index, attempt, stars, and whether this throw hit.
 var _practice := {}
 var _practice_target: PracticeTarget
@@ -336,6 +358,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 
 	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
 	_special_used = [false, false]
+	_lucky = [0, 0]
 	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
@@ -355,11 +378,11 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 		await _hud.play_intro(left, right, names)
 		if match_id != _match_id:
 			return
-		_say(fighters[0], Taunts.intro_line(left.id, rng), 1.3)
+		_say(fighters[0], Taunts.intro_line(left.base_id(), rng), 1.3)
 		await get_tree().create_timer(1.2, false).timeout
 		if match_id != _match_id:
 			return
-		_say(fighters[1], Taunts.intro_line(right.id, rng), 1.3)
+		_say(fighters[1], Taunts.intro_line(right.base_id(), rng), 1.3)
 		await get_tree().create_timer(1.3, false).timeout
 		if match_id != _match_id:
 			return
@@ -401,9 +424,9 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_lucky = [0, 0]
 	_hud.hide_tip()
-	_time_stop_left = 0
-	_hud.set_time_stop(false)
+	_clear_time_stop()
 	_launching = false
 	_finisher = {}
 	_end_slow_time()
@@ -515,6 +538,8 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 	var radius := projectile.explode_radius
 	if projectile.get_meta("thunder", false):
 		_lightning(at)
+	if projectile.get_meta("elephant", false):
+		_elephant_drop(at)
 	Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
 	Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
 	Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -714,38 +739,228 @@ func _resume_time() -> void:
 	Audio.play("whoosh", 0.0, 0.6, 0.0)
 
 
-## Dyo's special: stops time and throws a fan of knives that hang in the air, then
-## time moves again and they all fly at once.
+## Dyo's special: stops time and throws a fan of knives. Each one stops dead just
+## before it would hit and hangs there; when time moves again they all strike at once.
 func _knife_storm(fighter: Fighter, angle: float, power: float) -> void:
 	var weapon := fighter.data.weapon
 	var id := _match_id
+	_stopper = fighter
 	_stop_time(fighter)
-	var knives: Array[Projectile] = []
+	_launching = true
 	for i in KNIFE_STORM:
 		fighter.play_throw()
 		Audio.play("whoosh", -6.0, 1.4, 0.1)
-		var offset := (i - (KNIFE_STORM - 1) / 2.0) * 2.4
+		var offset := (i - (KNIFE_STORM - 1) / 2.0) * 2.0
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 		_actors.add_child(projectile)
-		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power * rng.randf_range(0.96, 1.04), weapon.max_speed, fighter.facing), _wind_for(fighter))
+		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power * rng.randf_range(0.97, 1.03), weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
 		projectile.set_meta("knifestorm", true)
+		projectile.stop_short = true
+		projectile.stopped_short.connect(_on_stopped_short)
 		_track(projectile)
-		knives.append(projectile)
-		await get_tree().create_timer(0.05, false).timeout
+		await get_tree().create_timer(0.06, false).timeout
 		if id != _match_id:
 			return
-		for knife in knives:
-			if is_instance_valid(knife) and knife.flight_time > 0.12:
-				knife.frozen = true
-	await get_tree().create_timer(0.5, false).timeout
-	if id != _match_id:
-		return
-	for knife in knives:
-		if is_instance_valid(knife):
-			knife.frozen = false
-	_resume_time()
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
 
+
+
+## Time stop: a throw stopped just short of the enemy. It hangs there with a mark on
+## the spot it will hit, and counts as landed so the next stopped-time throw can go.
+func _on_stopped_short(projectile: Projectile, at: Vector2) -> void:
+	_in_flight.erase(projectile)
+	_held.append(projectile)
+	Audio.play("tick", 0.0, 0.7, 0.0)
+	var mark := Node2D.new()
+	mark.z_index = 26
+	mark.position = at
+	mark.draw.connect(func() -> void:
+		var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.012)
+		var red := Color(1.0, 0.2, 0.25, pulse)
+		mark.draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 24, red, 3.0, true)
+		mark.draw_arc(Vector2.ZERO, 6.0, 0.0, TAU, 12, red, 2.0, true)
+		for k in 4:
+			var dir := Vector2.from_angle(k * PI / 2.0)
+			mark.draw_line(dir * 10.0, dir * 24.0, red, 3.0, true))
+	_actors.add_child(mark)
+	get_tree().process_frame.connect(mark.queue_redraw)
+	_marks.append(mark)
+	if _in_flight.is_empty() and not _launching and state == State.FLYING:
+		_after_throw()
+
+
+## Time moves again: every held throw carries on and hits, then the turn passes.
+func _release_held() -> void:
+	_special_this_turn = true
+	for mark in _marks:
+		if is_instance_valid(mark):
+			mark.queue_free()
+	_marks.clear()
+	state = State.FLYING
+	var held := _held.duplicate()
+	_held.clear()
+	for projectile: Projectile in held:
+		if not is_instance_valid(projectile):
+			continue
+		projectile.stop_short = false
+		projectile.frozen = false
+		_in_flight.append(projectile)
+	if _in_flight.is_empty():
+		_after_throw()
+
+
+## Clears time stop when a match is torn down.
+func _clear_time_stop() -> void:
+	_time_stop_left = 0
+	_stopper = null
+	_held.clear()
+	for mark in _marks:
+		if is_instance_valid(mark):
+			mark.queue_free()
+	_marks.clear()
+	_hud.set_time_stop(false)
+
+
+## Gok's ki blasts burst where they land: a flash, a ring of light and sparks.
+func _ki_burst(projectile: Projectile) -> void:
+	if projectile.weapon == null or projectile.weapon.id != &"ki_blast":
+		return
+	var at := projectile.global_position
+	var glow := projectile.weapon.color.lightened(0.3)
+	Effects.burst(_actors, at, glow, 34, 620.0, 180.0, 1.5)
+	Effects.burst(_actors, at, Color.WHITE, 14, 300.0, 180.0, 1.0)
+	var ring := Node2D.new()
+	ring.z_index = 20
+	ring.position = at
+	var size := {"r": 8.0}
+	ring.draw.connect(func() -> void:
+		ring.draw_circle(Vector2.ZERO, size["r"] * 0.6, Color(1.0, 1.0, 1.0, 0.5), true, -1.0, true)
+		ring.draw_arc(Vector2.ZERO, size["r"], 0.0, TAU, 32, glow, 8.0, true))
+	_actors.add_child(ring)
+	var grow := ring.create_tween()
+	grow.tween_method(func(r: float) -> void:
+		size["r"] = r
+		ring.queue_redraw(), 8.0, KI_BURST_RADIUS, 0.25).set_ease(Tween.EASE_OUT)
+	grow.parallel().tween_property(ring, "modulate:a", 0.0, 0.3)
+	grow.tween_callback(ring.queue_free)
+	Audio.play("zap", -4.0, 0.9, 0.08)
+	_camera.shake(0.25)
+
+
+## Kazma's special: Lalatna throws a shield over him, and Aqwa's blessing makes this
+## throw and the next lucky.
+func _bless(fighter: Fighter) -> void:
+	fighter.shielded = true
+	_lucky[current] = LUCKY_THROWS
+	_hud.announce("LALATNA'S GUARD + AQWA'S BLESSING!", Color(0.6, 0.85, 1.0))
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.85, 1.0), 30, 500.0, 180.0, 1.4)
+	Effects.burst(_actors, fighter.aim_point(true) + Vector2(0, -40), Color(1.0, 0.9, 0.45), 24, 300.0, 180.0, 1.6)
+	Audio.play("win", -6.0, 1.4, 0.0)
+
+
+## A lucky throw: it slips past every obstacle (its path was already set straight into
+## the enemy by _lucky_shot). Kazma's arrows hit softer to make up for it.
+func _make_lucky(projectile: Projectile) -> void:
+	projectile.pierce = true
+	projectile.set_trail_color(Color(1.0, 0.88, 0.35))
+	projectile.set_meta("lucky", true)
+	Effects.popup(_actors, fighters[current].aim_point(true) + Vector2(0, -70), "LUCKY!", Color(1.0, 0.88, 0.35), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+
+
+## Subaro's special: Emilla fires ice lances dead straight, one after another. The
+## first that hits freezes them in place for a turn.
+func _ice_lances(fighter: Fighter, angle: float) -> void:
+	var lance := fighter.data.weapon.duplicate() as WeaponData
+	lance.shape = &"ice_lance"
+	lance.gravity_scale = 0.0
+	lance.max_speed = 1700.0
+	lance.size = 80.0
+	lance.color = Color(0.75, 0.92, 1.0)
+	lance.sticks = true
+	var id := _match_id
+	_launching = true
+	Audio.play("zap", -2.0, 0.7, 0.0)
+	for i in ICE_LANCES:
+		fighter.play_throw()
+		Audio.play("whoosh", -4.0, 1.3, 0.1)
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(lance, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + (i - 1) * 1.2, 1.0, lance.max_speed, fighter.facing), 0.0)
+		projectile.target = fighters[1 - current]
+		projectile.set_trail_color(Color(0.75, 0.92, 1.0))
+		projectile.set_meta("icelance", true)
+		projectile.set_meta("freeze", true)
+		_track(projectile)
+		await get_tree().create_timer(0.14, false).timeout
+		if id != _match_id:
+			return
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
+
+
+## Kyoka Suigetsu breaks: Aizon's image shatters like glass.
+func _shatter_illusion(fighter: Fighter) -> void:
+	fighter.illusion = false
+	_hud.announce("KYOKA SUIGETSU!", Color(0.75, 0.55, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "AN ILLUSION!", Color(0.85, 0.75, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.9, 0.95, 1.0), 40, 600.0, 180.0, 1.4)
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 20, 400.0, 180.0, 1.2)
+	Audio.play("clang", 0.0, 1.6, 0.0)
+
+
+## Max Elephant: the shikigami drops out of the sky where Megu's throw landed and
+## crashes down in a burst of water.
+func _elephant_drop(at: Vector2) -> void:
+	var ground := Terrain.height_at(at.x)
+	var beast := Node2D.new()
+	beast.z_index = 20
+	beast.draw.connect(func() -> void:
+		var body := Color(0.86, 0.86, 0.9)
+		var ink := Color(0.08, 0.07, 0.1)
+		for leg: float in [-70.0, -30.0, 30.0, 70.0]:
+			beast.draw_rect(Rect2(leg - 16.0, -70.0, 32.0, 70.0), ink)
+			beast.draw_rect(Rect2(leg - 12.0, -70.0, 24.0, 66.0), body.darkened(0.08))
+		beast.draw_set_transform(Vector2(0, -120), 0.0, Vector2(1.0, 0.68))
+		beast.draw_circle(Vector2.ZERO, 112.0, ink, true, -1.0, true)
+		beast.draw_circle(Vector2.ZERO, 106.0, body, true, -1.0, true)
+		beast.draw_set_transform(Vector2.ZERO)
+		for k in 3:
+			beast.draw_arc(Vector2(-20 + k * 20.0, -120), 60.0 - k * 12.0, 0.6, 2.5, 10, ink, 3.0, true)
+		beast.draw_circle(Vector2(96, -150), 46.0, ink, true, -1.0, true)
+		beast.draw_circle(Vector2(96, -150), 41.0, body, true, -1.0, true)
+		beast.draw_colored_polygon(PackedVector2Array([Vector2(70, -190), Vector2(20, -170), Vector2(30, -110), Vector2(70, -120)]), body.darkened(0.12))
+		beast.draw_polyline(PackedVector2Array([Vector2(126, -140), Vector2(146, -100), Vector2(150, -50), Vector2(140, -20)]), ink, 22.0, true)
+		beast.draw_polyline(PackedVector2Array([Vector2(126, -140), Vector2(146, -100), Vector2(150, -50), Vector2(140, -20)]), body, 16.0, true)
+		beast.draw_polyline(PackedVector2Array([Vector2(118, -128), Vector2(150, -116), Vector2(166, -130)]), Color(0.97, 0.95, 0.88), 6.0, true)
+		beast.draw_circle(Vector2(108, -162), 5.0, ink, true, -1.0, true))
+	beast.position = Vector2(at.x, ground - 900.0)
+	beast.scale = Vector2(0.8, 0.8)
+	_actors.add_child(beast)
+	var fall := beast.create_tween()
+	fall.tween_property(beast, "position:y", ground, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	fall.tween_callback(func() -> void:
+		Effects.burst(_actors, Vector2(at.x, ground - 20.0), Color(0.45, 0.7, 1.0), 60, 900.0, 120.0, 2.0)
+		Effects.burst(_actors, Vector2(at.x, ground - 20.0), Color(0.85, 0.95, 1.0), 30, 500.0, 120.0, 1.6)
+		Audio.play("ground", 4.0, 0.4, 0.0)
+		_camera.shake(0.9))
+	fall.tween_interval(0.5)
+	fall.tween_property(beast, "modulate:a", 0.0, 0.4)
+	fall.tween_callback(beast.queue_free)
+
+
+## Aqwa's luck: whatever was aimed, the throw takes the path that lands on the target.
+func _lucky_shot(fighter: Fighter) -> Dictionary:
+	var weapon := fighter.data.weapon
+	var aim_at: Vector2
+	if mode == Mode.PRACTICE and _practice_target != null:
+		aim_at = _practice_target.global_position
+	else:
+		aim_at = fighters[1 - current].aim_point(false)
+	return AiAimer.solve(fighter.throw_origin(), aim_at, weapon.max_speed, fighter.facing, 40.0, [], _wind_for(fighter), Rules.GRAVITY * weapon.gravity_scale)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1083,6 +1298,11 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 
 func _begin_turn() -> void:
 	var fighter := fighters[current]
+	_special_this_turn = false
+	# Kyoka Suigetsu lasts until his own next turn.
+	if fighter.illusion:
+		fighter.illusion = false
+		fighter.form = &""
 	# Burning (Fuga): the fire hurts at the start of their turn.
 	if fighter.burn_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
 		fighter.burn_turns -= 1
@@ -1090,6 +1310,15 @@ func _begin_turn() -> void:
 		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "BURN  -%d" % BURN_DAMAGE, Color(1.0, 0.55, 0.2), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, fighter.aim_point(false), Color(1.0, 0.5, 0.15), 20, 300.0, 180.0, 1.2)
 		Audio.play("whoosh", -4.0, 0.6, 0.0)
+		if fighter.is_knocked_out():
+			_end_match()
+			return
+	# Bleeding (Dyo's knives): a little blood lost at the start of their turn.
+	if fighter.bleed_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
+		fighter.bleed_turns -= 1
+		fighter.take_hit(Rules.BODY, BLEED_DAMAGE, Vector2.ZERO)
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "BLEED  -%d" % BLEED_DAMAGE, Color(0.9, 0.15, 0.2), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, fighter.aim_point(false), Color(0.7, 0.02, 0.05), 16, 260.0, 180.0, 1.0)
 		if fighter.is_knocked_out():
 			_end_match()
 			return
@@ -1253,6 +1482,7 @@ func _throw(angle: float, power: float) -> void:
 	var special := weapon.special if _special_armed else &""
 	if special != &"":
 		_special_used[current] = true
+		_special_this_turn = true
 		_charge[current] = 0.0
 		fighter.charge = 0.0
 		if current == 0:
@@ -1276,9 +1506,21 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_knife_storm(fighter, angle, power)
 		return
+	if special == &"icelance":
+		fighter.powered = false
+		_ice_lances(fighter, angle)
+		return
+	if special == &"blessing":
+		_bless(fighter)
+	if special == &"illusion":
+		fighter.illusion = true
+		fighter.form = &"hogyoku"
+		_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
+		Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
 	if special == &"timestop":
 		fighter.powered = false
 		_time_stop_left = TIME_STOP_THROWS - 1
+		_stopper = fighter
 		_stop_time(fighter)
 	if special == &"orb":
 		fighter.powered = false
@@ -1292,6 +1534,10 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_moon_fang(fighter, angle)
 		return
+	if _lucky[current] > 0:
+		var shot := _lucky_shot(fighter)
+		angle = shot["angle"]
+		power = shot["power"]
 	match special:
 		&"lucky":
 			count = 5
@@ -1313,6 +1559,9 @@ func _throw(angle: float, power: float) -> void:
 			projectile.bounces = 1
 		if special == &"pin":
 			projectile.set_meta("pin", true)
+		if special == &"elephant":
+			projectile.explode_radius = ELEPHANT_RADIUS
+			projectile.set_meta("elephant", true)
 		if special == &"bigboom":
 			projectile.explode_radius *= 1.6
 		if special == &"chop" or special == &"suck":
@@ -1327,22 +1576,41 @@ func _throw(angle: float, power: float) -> void:
 			projectile.homing_target = fighters[1 - current]
 			projectile.homing_range = 260.0
 			projectile.homing_turn = 2.2
+		# Egita's ki curves in on the enemy once it gets close.
+		if weapon.id == &"ki_orb":
+			projectile.homing_target = fighters[1 - current]
+			projectile.homing_range = KI_HOMING_RANGE
+			projectile.homing_turn = KI_HOMING_TURN
 		# Blue drags the enemy toward it as it flies.
 		if weapon.shape == &"blue_orb":
 			projectile.set_meta("blue", true)
+		if _lucky[current] > 0:
+			_make_lucky(projectile)
+		if _hud.time_stopped() and fighter == _stopper:
+			projectile.stop_short = true
+			projectile.set_meta("timestop", true)
+			projectile.stopped_short.connect(_on_stopped_short)
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
 		_in_flight.append(projectile)
 	fighter.powered = false
+	if _lucky[current] > 0:
+		_lucky[current] -= 1
 
 
 ## scale (bomb blasts fall off with distance) and push (the blast direction) are
 ## only used by explosions.
 func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName, scale: float = 1.0, push: Vector2 = Vector2.ZERO) -> void:
+	# Kyoka Suigetsu: the one they hit was never him. They were standing in his place.
+	var mirrored := false
+	if target.illusion and projectile.thrower != null and projectile.thrower != target:
+		_shatter_illusion(target)
+		target = projectile.thrower
+		mirrored = true
 	var side := fighters.find(projectile.thrower)
 	# Combo counts turns in a row with at least one hit.
-	if side >= 0 and not _turn_hit:
+	if side >= 0 and not _turn_hit and not mirrored:
 		_turn_hit = true
 		_combo[side] += 1
 		if side == 0:
@@ -1377,7 +1645,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false):
+	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icelance", false) and not mirrored:
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -1409,6 +1677,12 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_pull_fighter(target, projectile.thrower, 380.0)
 		target.pinned = true
 		_hud.announce("WEBBED!", Color(0.95, 0.95, 1.0))
+	if projectile.weapon != null and projectile.weapon.shape == &"knife" and not target.is_knocked_out():
+		target.bleed_turns = BLEED_TURNS
+	if projectile.get_meta("freeze", false) and not target.is_knocked_out() and not target.pinned:
+		target.pinned = true
+		_hud.announce("FROZEN!", Color(0.7, 0.9, 1.0))
+		Effects.burst(_actors, target.aim_point(false), Color(0.8, 0.95, 1.0), 30, 400.0, 180.0, 1.4)
 	if projectile.get_meta("fuga", false) and not target.is_knocked_out():
 		target.burn_turns = BURN_TURNS
 		_hud.announce("BURNING!", Color(1.0, 0.5, 0.15))
@@ -1419,6 +1693,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_hud.announce("LAST STAND!", Color(1.0, 0.35, 0.3))
 
 	_impact_sound(projectile.weapon)
+	_ki_burst(projectile)
 	var inv_zoom := 1.0 / _camera.zoom.x
 	var view := _camera.visible_rect()
 	var at := projectile.global_position
@@ -1430,7 +1705,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
 			if not target.is_knocked_out() and rng.randf() < 0.5:
-				_say(projectile.thrower as Fighter, Taunts.hit_line((projectile.thrower as Fighter).data.id, rng))
+				_say(projectile.thrower as Fighter, Taunts.hit_line((projectile.thrower as Fighter).data.base_id(), rng))
 			_camera.shake(0.7)
 			_slow_time(0.14, 0.1)
 		Rules.LEGS:
@@ -1461,6 +1736,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void:
 	var weapon := projectile.weapon
 	var at := projectile.global_position
+	_ki_burst(projectile)
 	if projectile.bounces > 0:
 		Effects.popup(_actors, at + Vector2(0, -40), "SHOCKWAVE!", Color(1.0, 0.8, 0.35), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, at, Color(1.0, 0.85, 0.4, 0.95), 18, 420.0, 70.0, 1.1)
@@ -1630,7 +1906,7 @@ func _after_throw() -> void:
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
-		if _throw_closest < CLOSE_CALL_DISTANCE:
+		if _throw_closest < CLOSE_CALL_DISTANCE and _held.is_empty():
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
 	if mode == Mode.PRACTICE:
 		var practice_id := _match_id
@@ -1658,6 +1934,9 @@ func _after_throw() -> void:
 		_hud.announce("TIME IS STOPPED  ·  %d MORE" % (_time_stop_left + 1), Color(0.8, 0.7, 1.0))
 	elif _hud.time_stopped():
 		_resume_time()
+		if not _held.is_empty():
+			_release_held()
+			return
 		current = 1 - current
 	elif _extra_throw:
 		_extra_throw = false
@@ -1687,10 +1966,22 @@ func _end_match() -> void:
 	# The winner gets one finishing throw at the dazed loser. A hit earns the fatality
 	# (tap skips it); a miss goes straight to the result.
 	var fatality_id := _match_id
-	var landed := await _finisher_throw(winner, loser)
+	var landed := false
+	if _special_this_turn and winner == fighters[current]:
+		# Knocked out by a special: that counts as the finisher.
+		loser.stand_dazed()
+		_hud.announce("SPECIAL FINISH!", Color(0.95, 0.15, 0.18))
+		Audio.play("ko", -2.0, 0.7, 0.0)
+		await get_tree().create_timer(FINISHER_DELAY, false).timeout
+		landed = fatality_id == _match_id
+	else:
+		landed = await _finisher_throw(winner, loser)
 	if fatality_id != _match_id:
 		return
 	if landed:
+		# A hit's brief slow-motion may still be running; end it so the fatality
+		# doesn't take the slowed speed as normal and leave the game slow after.
+		_end_slow_time()
 		var fatality := Fatality.new()
 		fatality.setup(winner, loser, _camera, _hud, Save.gore)
 		_actors.add_child(fatality)
@@ -1863,7 +2154,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"icelance"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.

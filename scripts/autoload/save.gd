@@ -5,7 +5,7 @@ extends Node
 
 const PATH := "user://settings.cfg"
 const PROGRESS_PATH := "user://progress.cfg"
-const STARTING_FIGHTERS := ["quotuk", "klakla"]
+const STARTING_FIGHTERS := ["quotuk", "klakla",]
 
 ## Ink colours for your stickman and trail colours for your throws: id -> [name, colour, price].
 const INKS := {

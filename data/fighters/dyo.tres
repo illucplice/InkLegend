@@ -16,6 +16,6 @@ cape_color = Color(0.96, 0.8, 0.22, 1)
 hair_color = Color(0.98, 0.88, 0.5, 1)
 style = &"vampire"
 special_name = "Knife Storm"
-special_description = "The Warld stops time and hangs a wall of knives in the air, then they all strike at once."
+special_description = "The Warld stops time and hangs a wall of knives in the air, then they all strike at once. Knife hits make them bleed for 3 turns."
 price = 600
 rarity = &"legendary"

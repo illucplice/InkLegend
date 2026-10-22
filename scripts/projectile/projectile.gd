@@ -18,6 +18,8 @@ signal hit_target(projectile: Projectile, target: PracticeTarget)
 signal hit_crate(projectile: Projectile, crate: Crate)
 ## Moon Fang: cut through an obstacle and kept going.
 signal pierced(projectile: Projectile, obstacle: Obstacle)
+## Time stop: it stopped just short of a fighter at `at` and hangs there.
+signal stopped_short(projectile: Projectile, at: Vector2)
 
 const INK := Color(0.12, 0.1, 0.14)
 ## Ground and obstacles (1), hitboxes (2), crates (4), practice targets (8).
@@ -30,6 +32,8 @@ const TRAIL_POINTS := 16
 var weapon: WeaponData
 ## Time stop: hangs in the air, not moving, until let go.
 var frozen := false
+## Stops just before it would hit a fighter (Jotar's time stop) instead of hitting.
+var stop_short := false
 var thrower: Fighter
 ## Sideways push in px/s² (see Rules.MAX_WIND).
 var wind := 0.0
@@ -158,6 +162,11 @@ func _physics_process(delta: float) -> void:
 	if pierce and obstacle != null:
 		_exclude.append(obstacle.get_rid())
 		pierced.emit(self, obstacle)
+		return
+	if stop_short and hit["collider"] is Hitbox:
+		global_position = (hit["position"] as Vector2) - (next - global_position).normalized() * 26.0
+		frozen = true
+		stopped_short.emit(self, hit["position"])
 		return
 	global_position = hit["position"]
 	var box := hit["collider"] as Hitbox
@@ -406,6 +415,29 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_line(Vector2(-s * 0.05, -s * 0.18), Vector2(-s * 0.05, s * 0.18), ink, 4.0, true)
 			canvas.draw_line(Vector2(-s * 0.4, 0), Vector2(-s * 0.06, 0), Color(0.25, 0.15, 0.1), 6.0, true)
 			canvas.draw_circle(Vector2(-s * 0.42, 0), 4.0, ink, true, -1.0, true)
+		&"minya":
+			# Beatris's Minya: a cluster of violet crystal shards.
+			for k in 3:
+				var off := Vector2(-k * s * 0.22, (k - 1) * s * 0.18)
+				var shard := PackedVector2Array([off + Vector2(s * 0.55, 0), off + Vector2(0, -s * 0.13), off + Vector2(-s * 0.3, 0), off + Vector2(0, s * 0.13)])
+				canvas.draw_colored_polygon(shard, w.color.lightened(0.1 * k))
+				canvas.draw_polyline(PackedVector2Array([shard[0], shard[1], shard[2], shard[3], shard[0]]), ink, 2.0, true)
+				canvas.draw_line(off + Vector2(-s * 0.2, 0), off + Vector2(s * 0.45, 0), Color(1, 1, 1, 0.6), 1.5, true)
+		&"byakurai":
+			# Hado #4: a jagged bolt of white lightning.
+			var bolt := PackedVector2Array([Vector2(-s * 0.7, 0), Vector2(-s * 0.4, -s * 0.12), Vector2(-s * 0.15, s * 0.1), Vector2(s * 0.15, -s * 0.1), Vector2(s * 0.35, s * 0.06), Vector2(s * 0.6, 0)])
+			canvas.draw_polyline(bolt, Color(w.color, 0.35), s * 0.35, true)
+			canvas.draw_polyline(bolt, w.color, s * 0.14, true)
+			canvas.draw_polyline(bolt, Color.WHITE, s * 0.06, true)
+			canvas.draw_circle(Vector2(s * 0.6, 0), s * 0.12, Color.WHITE, true, -1.0, true)
+		&"ice_lance":
+			# Emilla's ice: a long pale-blue spear of ice with a frosted core.
+			var lance := PackedVector2Array([Vector2(s * 0.7, 0), Vector2(s * 0.2, -s * 0.1), Vector2(-s * 0.6, -s * 0.06), Vector2(-s * 0.7, 0), Vector2(-s * 0.6, s * 0.06), Vector2(s * 0.2, s * 0.1)])
+			canvas.draw_colored_polygon(lance, Color(0.75, 0.92, 1.0, 0.92))
+			canvas.draw_polyline(PackedVector2Array([lance[0], lance[1], lance[2], lance[3], lance[4], lance[5], lance[0]]), Color(0.3, 0.55, 0.75), 2.0, true)
+			canvas.draw_line(Vector2(-s * 0.55, 0), Vector2(s * 0.55, 0), Color.WHITE, 2.0, true)
+			for k in 3:
+				canvas.draw_line(Vector2(-s * 0.3 + k * s * 0.25, -s * 0.08), Vector2(-s * 0.2 + k * s * 0.25, 0), Color(1, 1, 1, 0.7), 1.2, true)
 		&"nue":
 			# Nue: a shadow bird with a white mask and spread wings.
 			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
@@ -579,6 +611,10 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
+		&"minya", &"byakurai":
+			# Magic gathering at the fingertips.
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))
 		&"cleaver":
 			# Gripped by the hilt with the blade running back along the arm.
 			if loaded:

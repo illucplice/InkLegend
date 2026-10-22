@@ -18,5 +18,11 @@ extends Resource
 @export var unlocked_by_default: bool = false
 ## Coins to unlock this fighter in the Shop.
 @export var price: int = 250
-## How rare this fighter is in chests: common, rare or legendary.
+## How rare this fighter is in chests: common, uncommon, rare, epic, legendary or mythical.
 @export var rarity: StringName = &"common"
+
+
+## The id of the fighter this one is based on: the tournament boss is a shadow copy
+## ("shadow_gok") that should fight, talk and finish exactly like the original.
+func base_id() -> StringName:
+	return StringName(String(id).trim_prefix("shadow_"))

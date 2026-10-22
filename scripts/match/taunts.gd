@@ -26,6 +26,9 @@ const INTRO := {
 	&"spydr": ["Your friendly neighbourhood hero!", "Spider-sense tingling."],
 	&"batz": ["I'm the night.", "Criminals are a cowardly lot."],
 	&"jotar": ["Yare yare...", "Good grief."],
+	&"kazma": ["I'll steal your panties. Kidding.", "Luck is a stat too!"],
+	&"subaro": ["I'll save everyone this time!", "Nice to meet you!"],
+	&"aizon": ["Since when were you under the impression...", "Do not use strong words."],
 	&"dyo": ["You thought it would be easy?", "I reject my humanity!"],
 }
 
@@ -39,6 +42,9 @@ const HIT := {
 	&"spydr": ["Thwip!", "Nailed it!"],
 	&"batz": ["Justice.", "Sloppy."],
 	&"jotar": ["ORA!", "Good grief."],
+	&"kazma": ["Lucky!", "Steal!"],
+	&"subaro": ["Nailed it!", "Beatris, thanks!"],
+	&"aizon": ["All according to plan.", "Predictable."],
 	&"dyo": ["MUDA!", "Useless!"],
 	&"thundr": ["Ha! Another!", "Thunder!"],
 	&"akum": ["Weak!", "Shun goku!"],

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/minya.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"subaro"
+display_name = "Subaro"
+short_name = "Subaro"
+body_color = Color(0.18, 0.18, 0.21, 1)
+accent_color = Color(0.95, 0.55, 0.15, 1)
+skin_color = Color(1, 0.86, 0.74, 1)
+cape_color = Color(0.18, 0.18, 0.21, 1)
+hair_color = Color(0.08, 0.08, 0.1, 1)
+style = &"tracksuit"
+special_name = "Emilla's Ice"
+special_description = "Emilla fires three ice lances in a straight line. The first to hit freezes them for a turn."
+price = 400
+rarity = &"rare"

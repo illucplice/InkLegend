@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/kazma_bow.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"kazma"
+display_name = "Kazma"
+short_name = "Kazma"
+body_color = Color(0.25, 0.52, 0.3, 1)
+accent_color = Color(0.72, 0.58, 0.38, 1)
+skin_color = Color(1, 0.85, 0.72, 1)
+cape_color = Color(0.25, 0.52, 0.3, 1)
+hair_color = Color(0.4, 0.26, 0.15, 1)
+style = &"adventurer"
+special_name = "Party Blessing"
+special_description = "Lalatna guards him with a shield, and Aqwa's blessing makes this throw and the next one lucky: they find the enemy wherever you aim."
+price = 400
+rarity = &"rare"

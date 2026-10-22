@@ -4,20 +4,20 @@ extends RefCounted
 ## of that rarity. A fighter you already own levels up (up to MAX_LEVEL, each level a
 ## little stronger); a maxed one turns into coins instead.
 
-const RARITIES := [&"common", &"uncommon", &"rare", &"epic", &"legendary"]
-const RARITY_NAMES := {&"common": "Common", &"uncommon": "Uncommon", &"rare": "Rare", &"epic": "Epic", &"legendary": "Legendary"}
-const RARITY_COLORS := {&"common": Color(0.75, 0.78, 0.85), &"uncommon": Color(0.4, 0.85, 0.45), &"rare": Color(0.35, 0.6, 1.0), &"epic": Color(0.72, 0.35, 1.0), &"legendary": Color(1.0, 0.72, 0.2)}
+const RARITIES := [&"common", &"uncommon", &"rare", &"epic", &"legendary", &"mythical"]
+const RARITY_NAMES := {&"common": "Common", &"uncommon": "Uncommon", &"rare": "Rare", &"epic": "Epic", &"legendary": "Legendary", &"mythical": "Mythical"}
+const RARITY_COLORS := {&"common": Color(0.75, 0.78, 0.85), &"uncommon": Color(0.4, 0.85, 0.45), &"rare": Color(0.35, 0.6, 1.0), &"epic": Color(0.72, 0.35, 1.0), &"legendary": Color(1.0, 0.72, 0.2), &"mythical": Color(1.0, 0.25, 0.4)}
 ## Coins paid back for a duplicate of a fighter that is already at MAX_LEVEL.
-const DUPLICATE_COINS := {&"common": 50, &"uncommon": 80, &"rare": 120, &"epic": 200, &"legendary": 300}
+const DUPLICATE_COINS := {&"common": 50, &"uncommon": 80, &"rare": 120, &"epic": 200, &"legendary": 300, &"mythical": 500}
 ## Coins on top of a level-up from a duplicate.
 const LEVEL_UP_COINS := 25
 const MAX_LEVEL := 5
 
-## id -> {name, price, colour, odds (common, uncommon, rare, epic, legendary percentages)}.
+## id -> {name, price, colour, odds (common, uncommon, rare, epic, legendary, mythical percentages)}.
 const KINDS := {
-	"wood": {"name": "Wooden chest", "price": 150, "color": Color(0.7, 0.48, 0.28), "odds": [55, 30, 12, 2, 1]},
-	"silver": {"name": "Silver chest", "price": 400, "color": Color(0.72, 0.76, 0.85), "odds": [20, 35, 30, 10, 5]},
-	"gold": {"name": "Golden chest", "price": 900, "color": Color(1.0, 0.75, 0.22), "odds": [0, 10, 40, 28, 22]},
+	"wood": {"name": "Wooden chest", "price": 150, "color": Color(0.7, 0.48, 0.28), "odds": [55, 30, 12, 2, 1, 0]},
+	"silver": {"name": "Silver chest", "price": 400, "color": Color(0.72, 0.76, 0.85), "odds": [20, 35, 30, 10, 4, 1]},
+	"gold": {"name": "Golden chest", "price": 900, "color": Color(1.0, 0.75, 0.22), "odds": [0, 10, 38, 28, 20, 4]},
 }
 const ORDER := ["wood", "silver", "gold"]
 

@@ -912,7 +912,11 @@ func _chest_row() -> HBoxContainer:
 		price.add_child(UiStyle.ink_label(str(info["price"]), 17, true))
 		stack.add_child(price)
 		button.add_child(stack)
-		button.tooltip_text = "%s: %d%% common, %d%% rare, %d%% legendary" % [info["name"], info["odds"][0], info["odds"][1], info["odds"][2]]
+		var odds_text := PackedStringArray()
+		for r in Chests.RARITIES.size():
+			if int(info["odds"][r]) > 0:
+				odds_text.append("%d%% %s" % [info["odds"][r], Chests.RARITY_NAMES[Chests.RARITIES[r]]])
+		button.tooltip_text = "%s: %s" % [info["name"], ", ".join(odds_text)]
 		button.pressed.connect(_buy_chest.bind(kind))
 		row.add_child(button)
 	return row

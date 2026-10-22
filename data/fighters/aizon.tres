@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/byakurai.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"aizon"
+display_name = "Aizon"
+short_name = "Aizon"
+body_color = Color(0.95, 0.95, 0.97, 1)
+accent_color = Color(0.1, 0.1, 0.12, 1)
+skin_color = Color(1, 0.86, 0.74, 1)
+cape_color = Color(0.95, 0.95, 0.97, 1)
+hair_color = Color(0.45, 0.28, 0.15, 1)
+style = &"lord"
+special_name = "Kyoka Suigetsu"
+special_description = "Fuses with the Hogyoku. Until his next turn, the next hit meant for him lands on the attacker instead: they were standing in his place all along."
+price = 1000
+rarity = &"mythical"

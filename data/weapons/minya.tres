@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"minya"
+display_name = "Minya"
+max_speed = 1350.0
+body_damage = 18
+head_damage = 32
+count = 1
+spin = 0.0
+sticks = false
+shape = &"minya"
+size = 34.0
+color = Color(0.62, 0.32, 0.88, 1)
+gravity_scale = 0.8
+special = &"icelance"
