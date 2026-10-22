@@ -219,6 +219,8 @@ var _turn_count := 0
 var _extra_throw := false
 ## The current throw is a special: a knockout from it goes straight to the fatality.
 var _special_this_turn := false
+## Kyoka Suigetsu turned a throw back on its thrower and knocked them out.
+var _mirror_ko := false
 ## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
 var _lucky := [0, 0]
 var _empowered := [0, 0]
@@ -451,6 +453,7 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_mirror_ko = false
 	if not _icefall.is_empty() and is_instance_valid(_icefall.get("marker")):
 		(_icefall["marker"] as Node2D).queue_free()
 	_icefall = {}
@@ -2137,6 +2140,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	var was_healthy := target.health > LAST_STAND_HEALTH
 	var impact := push if push != Vector2.ZERO else projectile.current_velocity()
 	target.take_hit(part, maxi(damage, Fighter.KNOCKDOWN_DAMAGE) if projectile.get_meta("chop", false) and target.health > Fighter.KNOCKDOWN_DAMAGE else damage, impact)
+	if mirrored and target.is_knocked_out():
+		_mirror_ko = true
 	var pull := projectile.weapon.pull_target * (2.2 if projectile.get_meta("suck", false) else 1.0)
 	if pull > 0.0 and not target.is_knocked_out():
 		_pull_fighter(target, projectile.thrower, pull)
@@ -2461,8 +2466,8 @@ func _end_match() -> void:
 	# (tap skips it); a miss goes straight to the result.
 	var fatality_id := _match_id
 	var landed := false
-	if _special_this_turn and winner == fighters[current]:
-		# Knocked out by a special: that counts as the finisher.
+	if (_special_this_turn and winner == fighters[current]) or _mirror_ko:
+		# Knocked out by a special (or by Kyoka Suigetsu): that counts as the finisher.
 		loser.stand_dazed()
 		_hud.announce("SPECIAL FINISH!", Color(0.95, 0.15, 0.18))
 		Audio.play("ko", -2.0, 0.7, 0.0)
