@@ -31,6 +31,7 @@ func _initialize() -> void:
 	await _test_practice_specials()
 	await _test_fatalities()
 	await _test_practice_fatality()
+	await _test_aizon_evolves()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -642,5 +643,25 @@ func _test_practice_fatality() -> void:
 	Engine.time_scale = 1.0
 	_check(game.state == game.State.PLAYER_AIM, "practice carries on after a fatality test")
 	_check(game._practice["stars"] == stars_before and game._practice_target != null and game._practice_target.visible, "the practice run is just as it was")
+	game.queue_free()
+	await process_frame
+
+
+## Aizon evolves once, the first time he drops to 40 health.
+func _test_aizon_evolves() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	game.start_match(load("res://data/fighters/aizon.tres"), load("res://data/fighters/quotuk.tres"), game.Mode.VS_AI, 1)
+	await process_frame
+	var aizon: Fighter = game.fighters[0]
+	aizon.take_hit(Rules.BODY, 30, Vector2.ZERO)
+	_check(not aizon.evolved, "Aizon has not evolved at 70 health")
+	aizon.take_hit(Rules.BODY, 35, Vector2.ZERO)
+	_check(aizon.evolved, "Aizon evolves once he drops to 40 health or less")
+	var other: Fighter = game.fighters[1]
+	other.take_hit(Rules.BODY, 70, Vector2.ZERO)
+	_check(not other.evolved, "only Aizon evolves")
 	game.queue_free()
 	await process_frame

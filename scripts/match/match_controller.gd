@@ -232,6 +232,9 @@ const VOLL_RADIUS := 90.0
 const ELEPHANT_RADIUS := 150.0
 ## How close an enemy throw gets to Aizon before Kyoka Suigetsu swaps them.
 const ILLUSION_TRIGGER := 160.0
+## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
+const EVOLVE_HEALTH := 40
+const EVOLVED_DAMAGE := 1.5
 ## Who stands in for the enemy when you test a fatality in Target Practice.
 const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
@@ -1205,6 +1208,21 @@ func _trade_places(a: Fighter, b: Fighter) -> void:
 	b.facing = -b.facing
 	a.reset_physics_interpolation()
 	b.reset_physics_interpolation()
+
+
+## Aizon's evolution: the first time he is beaten down to EVOLVE_HEALTH, the Hogyoku
+## remakes him: white, winged, and far stronger.
+func _check_evolution(fighter: Fighter, health: int) -> void:
+	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
+		return
+	fighter.evolved = true
+	fighter.power_up(2.0)
+	_hud.announce("AIZON EVOLVES!", Color(0.85, 0.7, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "POWER x1.5", Color(0.85, 0.7, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.97, 0.95, 1.0), 60, 700.0, 180.0, 2.0)
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 500.0, 180.0, 1.8)
+	Audio.play("voice_charge", 2.0, fighter.voice_pitch(), 0.0)
+	_camera.shake(0.6)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1578,6 +1596,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 	fighter.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	fighter.reset_physics_interpolation()
 	fighter.setup(data, facing, is_ai)
+	fighter.health_changed.connect(_check_evolution)
 	if not is_ai:
 		fighter.ink_color = Save.ink_color()
 	return fighter
@@ -1933,6 +1952,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
+	if projectile.thrower != null and projectile.thrower.evolved:
+		damage = roundi(damage * EVOLVED_DAMAGE)
 	# Levels from duplicate chest finds: a little more damage on your side.
 	if side >= 0:
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))

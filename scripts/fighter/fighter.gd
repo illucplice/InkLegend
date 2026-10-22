@@ -68,6 +68,8 @@ var is_turn := false
 var pinned := false
 ## Aizon's Kyoka Suigetsu: the next hit meant for him lands on the attacker.
 var illusion := false
+## Aizon has evolved (once per match): wings, a white robe, harder hits.
+var evolved := false
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
 var powered := false
@@ -389,6 +391,8 @@ func _draw() -> void:
 		_draw_aura(p)
 	if form == &"vollstandig" and not is_knocked_out():
 		_draw_light_wings(p)
+	if evolved and not is_knocked_out():
+		_draw_butterfly_wings(p)
 	if illusion and not is_knocked_out():
 		_draw_reiatsu(p)
 	if form == &"ssj3" and _is_anime() and not is_knocked_out():
@@ -1214,7 +1218,7 @@ func _hand_color() -> Color:
 		&"bat":
 			return Color(0.08, 0.08, 0.1)
 		&"lord":
-			return Color(0.11, 0.11, 0.13)
+			return Color(0.93, 0.92, 0.97) if evolved else Color(0.11, 0.11, 0.13)
 	return data.skin_color
 
 
@@ -1377,7 +1381,7 @@ func _draw_hero_outfit(p: Dictionary) -> void:
 			var robe := PackedVector2Array([neck + side * 11.0, neck - side * 11.0, Vector2(hip.x, feet_y) - flare * 30.0, Vector2(hip.x, feet_y) + flare * 30.0])
 			robe = Geometry2D.convex_hull(robe)
 			robe.remove_at(robe.size() - 1)
-			_poly(robe, Color(0.11, 0.11, 0.13), 2.5)
+			_poly(robe, Color(0.93, 0.92, 0.97) if evolved else Color(0.11, 0.11, 0.13), 2.5)
 			var collar := PackedVector2Array()
 			for k in 13:
 				var u := k / 12.0
@@ -1693,3 +1697,32 @@ func _apply_victory_pose(body: Dictionary, bob: float) -> void:
 	for point: StringName in pose:
 		var lift := Vector2(0, bob) if point in [&"head", &"neck", &"felbow", &"fhand", &"belbow", &"bhand"] else Vector2.ZERO
 		body[point] = (pose[point] as Vector2) + lift
+
+
+## Aizon evolved: four great butterfly wings, dark violet with pale veins and eye
+## spots, beating slowly behind him.
+func _draw_butterfly_wings(p: Dictionary) -> void:
+	var root: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.3)
+	var beat := 0.88 + 0.12 * sin(_time * 2.5)
+	var dark := Color(0.22, 0.1, 0.35, 0.85)
+	var vein := Color(0.85, 0.75, 1.0, 0.7)
+	for wing: float in [-1.0, 1.0]:
+		for lobe in 2:
+			var upper := lobe == 0
+			var radii := Vector2(52.0, 30.0) * beat if upper else Vector2(36.0, 20.0) * beat
+			var centre := root + Vector2(wing * radii.x * 0.95, -30.0 if upper else 22.0)
+			var tilt := wing * (-0.45 if upper else 0.4)
+			var shape := PackedVector2Array()
+			for i in 24:
+				var a := i * TAU / 24.0
+				shape.append(centre + Vector2(cos(a) * radii.x, sin(a) * radii.y).rotated(tilt))
+			draw_colored_polygon(shape, dark)
+			var edge := shape.duplicate()
+			edge.append(shape[0])
+			draw_polyline(edge, Color(0.6, 0.35, 0.95, 0.9), 2.0, true)
+			for k in 4:
+				var a := (k - 1.5) * 0.5 + (0.0 if wing > 0 else PI)
+				draw_line(root, centre + Vector2(cos(a) * radii.x, sin(a) * radii.y).rotated(tilt) * 1.0 - centre + centre, vein, 1.2, true)
+			var spot := centre + Vector2(wing * radii.x * 0.35, 0).rotated(tilt)
+			draw_circle(spot, 7.0 if upper else 5.0, Color(0.6, 0.35, 0.95, 0.9), true, -1.0, true)
+			draw_circle(spot, 2.8, Color(1, 1, 1, 0.9), true, -1.0, true)
