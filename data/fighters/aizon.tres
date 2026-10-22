@@ -16,6 +16,6 @@ cape_color = Color(0.95, 0.95, 0.97, 1)
 hair_color = Color(0.45, 0.28, 0.15, 1)
 style = &"lord"
 special_name = "Kyoka Suigetsu"
-special_description = "Fuses with the Hogyoku. Until his next turn, the next hit meant for him lands on the attacker instead: they were standing in his place all along."
+special_description = "Kyoka Suigetsu: the next throw that would hit him lands on the thrower instead (they were standing in his place all along), and he steals their buffs. Lasts until it triggers."
 price = 1000
 rarity = &"mythical"

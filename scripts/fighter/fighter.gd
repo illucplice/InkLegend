@@ -325,7 +325,8 @@ func _posed_points() -> Dictionary:
 	if _dazed:
 		sway = sin(_time * 3.1) * 0.16
 	var hop := -absf(sin(_time * 7.0)) * 16.0 if _celebrating else 0.0
-	var xf := Transform2D(_tilt + sway + wobble, Vector2(facing * stretch.x, stretch.y), 0.0, Vector2(0, hop))
+	var turned := -1.0 if victory_pose in BACK_POSES else 1.0
+	var xf := Transform2D(_tilt + sway + wobble, Vector2(facing * turned * stretch.x, stretch.y), 0.0, Vector2(0, hop))
 	var bob := breathe * 1.2
 	var hip := HIP_REST + Vector2(0, bob * 0.6)
 	var neck := NECK_REST + Vector2(0, bob)
@@ -352,6 +353,8 @@ func _posed_points() -> Dictionary:
 		&"felbow": elbow,
 		&"fhand": hand,
 	}
+	if victory_pose != &"" and not is_knocked_out():
+		_apply_victory_pose(body, bob)
 	var points := {}
 	for point: StringName in body:
 		points[point] = xf * (body[point] as Vector2)
@@ -386,6 +389,10 @@ func _draw() -> void:
 		_draw_aura(p)
 	if form == &"vollstandig" and not is_knocked_out():
 		_draw_light_wings(p)
+	if illusion and not is_knocked_out():
+		_draw_reiatsu(p)
+	if form == &"ssj3" and _is_anime() and not is_knocked_out():
+		_draw_ssj3_mane(p)
 	if _gear2():
 		_draw_haki(p)
 
@@ -416,7 +423,7 @@ func _draw() -> void:
 	if _skin_head():
 		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
 		if data.style in HERO_STYLES:
-			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.95, 0.95, 0.97)}[data.style]
+			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13)}[data.style]
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
@@ -588,8 +595,11 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	var gok := data.style == &"anime"
 	var spikes: Array = [[-40.0, 9.0, 6.0], [-72.0, 14.0, 8.0], [-104.0, 18.0, 9.0], [-136.0, 19.0, 9.0], [-166.0, 16.0, 8.0], [-196.0, 11.0, 7.0]] if gok \
 		else [[-28.0, 12.0, 9.0], [-45.0, 21.0, 10.0], [-62.0, 28.0, 10.0], [-79.0, 32.0, 10.0], [-95.0, 32.0, 10.0], [-111.0, 29.0, 10.0], [-128.0, 23.0, 10.0], [-145.0, 16.0, 9.0], [-162.0, 10.0, 8.0]]
-	var grow := (1.55 if gok else 1.2) if powered else 1.0
+	var grow := ((1.55 if gok else 1.2) if powered else 1.0) * (0.75 if form == &"ssj3" else 1.0)
 	var bob := sin(_time * 8.0) * 1.5 if powered else 0.0
+	if gok and form == &"ssj3":
+		# The mane is drawn behind the body; up top only the cap and bangs.
+		spikes = []
 	for spike: Array in spikes:
 		var angle: float = spike[0]
 		if powered:
@@ -614,8 +624,6 @@ func _draw_hair(head: Vector2, neck: Vector2, ink: Color) -> void:
 	else:
 		# A sharp widow's peak.
 		draw_colored_polygon(PackedVector2Array([Vector2(r * 0.2, -r * 0.85), Vector2(r * 0.95, -r * 0.4), Vector2(r * 0.6, -r * 0.05)]), color)
-	if gok and form == &"ssj3":
-		_draw_ssj3_mane(r, color)
 	if not gok and form == &"majin":
 		# Majin: the M branded on his forehead, and dark veins by the eyes.
 		var brand := Color(0.08, 0.05, 0.1)
@@ -1205,6 +1213,8 @@ func _hand_color() -> Color:
 			return Color(0.85, 0.15, 0.15)
 		&"bat":
 			return Color(0.08, 0.08, 0.1)
+		&"lord":
+			return Color(0.11, 0.11, 0.13)
 	return data.skin_color
 
 
@@ -1360,26 +1370,31 @@ func _draw_hero_outfit(p: Dictionary) -> void:
 			draw_line(neck, hip, Color(0.9, 0.9, 0.92), 1.5, true)
 			_poly([neck + side * 9.0, neck + side * 3.0 + spine * 6.0, neck - side * 3.0 + spine * 6.0, neck - side * 9.0], Color(0.95, 0.55, 0.15), 1.5)
 		&"lord":
-			# Aizon: a white haori over black robes and wide black hakama. Fused with the
-			# Hogyoku, the robes fall away to a pale body with the orb set in his chest.
-			if form == &"hogyoku":
-				_draw_pants(p, Color(0.9, 0.9, 0.95))
-				_poly(torso, Color(0.93, 0.93, 0.97), 2.5)
-				var orb := neck.lerp(hip, 0.35)
-				draw_circle(orb, 9.0, Color(0.55, 0.3, 0.85, 0.35), true, -1.0, true)
-				draw_circle(orb, 5.0, Color(0.6, 0.35, 0.95), true, -1.0, true)
-				draw_circle(orb + Vector2(-1.5, -1.5), 1.8, Color.WHITE, true, -1.0, true)
-				for k in 4:
-					var a := k * PI / 2.0 + PI / 4.0
-					draw_line(orb + Vector2.from_angle(a) * 7.0, orb + Vector2.from_angle(a) * 16.0, Color(0.3, 0.3, 0.38), 1.5, true)
-			else:
-				_draw_hakama(p, side, Color(0.1, 0.1, 0.12))
-				_poly(torso, Color(0.1, 0.1, 0.12), 2.5)
-				var hem := hip + Vector2(0, 30)
-				_poly([neck + side * 12.0, hem + side * 16.0, hem + side * 6.0, neck + side * 4.0], Color(0.96, 0.96, 0.98), 2.0)
-				_poly([neck - side * 4.0, hem - side * 6.0, hem - side * 16.0, neck - side * 12.0], Color(0.96, 0.96, 0.98), 2.0)
-				draw_line(neck + side * 3.0, neck.lerp(hip, 0.4), Color(0.95, 0.95, 0.95), 2.0, true)
-				draw_line(neck - side * 3.0, neck.lerp(hip, 0.4), Color(0.95, 0.95, 0.95), 2.0, true)
+			# Aizon in the Thousand-Year Blood War: a long black robe flaring down to his
+			# ankles, black sleeves, and a great white fur collar across his shoulders.
+			var feet_y: float = ((p[&"bfoot"] as Vector2).y + (p[&"ffoot"] as Vector2).y) * 0.5 - 10.0
+			var flare := Vector2(1, 0)
+			var robe := PackedVector2Array([neck + side * 11.0, neck - side * 11.0, Vector2(hip.x, feet_y) - flare * 30.0, Vector2(hip.x, feet_y) + flare * 30.0])
+			robe = Geometry2D.convex_hull(robe)
+			robe.remove_at(robe.size() - 1)
+			_poly(robe, Color(0.11, 0.11, 0.13), 2.5)
+			var collar := PackedVector2Array()
+			for k in 13:
+				var u := k / 12.0
+				var x := lerpf(-36.0, 36.0, u)
+				var drop := 14.0 + (7.0 if k % 2 == 0 else 0.0) - absf(x) * 0.12
+				collar.append(neck + Vector2(x, drop))
+			collar.append(neck + Vector2(30, -2))
+			collar.append(neck + Vector2(10, -8))
+			collar.append(neck + Vector2(-10, -8))
+			collar.append(neck + Vector2(-30, -2))
+			if Geometry2D.triangulate_polygon(collar).is_empty():
+				collar = Geometry2D.convex_hull(collar)
+				collar.remove_at(collar.size() - 1)
+			draw_colored_polygon(collar, Color(0.95, 0.95, 0.96))
+			var trim := collar.duplicate()
+			trim.append(collar[0])
+			draw_polyline(trim, Color(0.75, 0.75, 0.8), 1.5, true)
 
 
 ## A cape hanging from the shoulders down the back, rippling.
@@ -1472,17 +1487,14 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_arc(Vector2(r * 0.5, -r * 0.1), r * 0.22, 0.0, TAU, 10, OUTLINE, 1.6, true)
 			draw_circle(Vector2(r * 0.55, -r * 0.1), 1.5, OUTLINE, true, -1.0, true)
 		&"lord":
-			# Swept-back brown hair with one strand falling over the brow (long and loose
-			# once he fuses with the Hogyoku).
-			var long := form == &"hogyoku"
-			var hair := PackedVector2Array([Vector2(r * 0.7, -r * 0.65), Vector2(r * 0.1, -r * 1.12), Vector2(-r * 0.8, -r * 1.0), Vector2(-r * 1.25, -r * 0.3), Vector2(-r * 1.4, r * (1.6 if long else 0.4)), Vector2(-r * 0.8, r * (1.3 if long else 0.3)), Vector2(-r * 0.6, -r * 0.2), Vector2(r * 0.1, -r * 0.6)])
+			# Messy brown hair, swept back but falling loose around his face.
+			var hair := PackedVector2Array([Vector2(r * 0.85, -r * 0.5), Vector2(r * 0.6, -r * 1.05), Vector2(r * 0.2, -r * 1.25), Vector2(-r * 0.3, -r * 1.35), Vector2(-r * 0.8, -r * 1.2), Vector2(-r * 1.25, -r * 0.8), Vector2(-r * 1.35, -r * 0.1), Vector2(-r * 1.2, r * 0.6), Vector2(-r * 0.8, r * 0.75), Vector2(-r * 0.6, 0), Vector2(-r * 0.1, -r * 0.5), Vector2(r * 0.4, -r * 0.55)])
 			_poly(hair, data.hair_color, 2.0)
-			draw_polyline(PackedVector2Array([Vector2(r * 0.35, -r * 0.8), Vector2(r * 0.6, -r * 0.4), Vector2(r * 0.5, r * 0.05)]), data.hair_color.darkened(0.2), 2.5, true)
+			for strand: float in [-0.2, 0.25, 0.6]:
+				draw_line(Vector2(r * strand, -r * 1.1), Vector2(r * (strand - 0.25), -r * 0.6), data.hair_color.darkened(0.25), 1.5, true)
+			draw_polyline(PackedVector2Array([Vector2(r * 0.45, -r * 0.9), Vector2(r * 0.7, -r * 0.45), Vector2(r * 0.55, r * 0.05)]), data.hair_color.darkened(0.15), 2.5, true)
 			draw_line(Vector2(r * 0.3, -r * 0.12), Vector2(r * 0.75, -r * 0.16), OUTLINE, 2.0, true)
 			draw_line(Vector2(r * 0.45, r * 0.4), Vector2(r * 0.7, r * 0.36), OUTLINE, 1.5, true)
-			if long:
-				draw_circle(Vector2(r * 0.55, -r * 0.1), 2.0, Color(0.6, 0.35, 0.95), true, -1.0, true)
-	draw_set_transform(Vector2.ZERO)
 
 
 # --- Stands (Jotar and Dyo) ---
@@ -1545,25 +1557,6 @@ func _update_stand() -> void:
 	_stand.show = 0.0 if is_knocked_out() else maxf(stand_out, maxf(_swing * 1.4, 0.35 if _charged() else 0.0))
 
 
-## Super Saiyan 3: a huge golden mane sweeping back from the crown down to the waist
-## (in head space, facing +x).
-func _draw_ssj3_mane(r: float, color: Color) -> void:
-	var wave := sin(_time * 6.0) * r * 0.08
-	var mane := PackedVector2Array([
-		Vector2(r * 0.5, -r * 0.95), Vector2(-r * 0.3, -r * 1.5), Vector2(-r * 1.2, -r * 1.2),
-		Vector2(-r * 1.7, -r * 0.2), Vector2(-r * 2.1 + wave, r * 1.2), Vector2(-r * 2.5 + wave, r * 2.6),
-		Vector2(-r * 2.0 + wave, r * 2.3), Vector2(-r * 2.4 + wave, r * 3.8), Vector2(-r * 1.8 + wave, r * 3.3),
-		Vector2(-r * 1.9 + wave, r * 4.6), Vector2(-r * 1.3 + wave, r * 3.5), Vector2(-r * 1.0 + wave, r * 4.1),
-		Vector2(-r * 0.8, r * 2.4), Vector2(-r * 0.6, r * 1.0), Vector2(-r * 0.2, r * 0.2),
-	])
-	if Geometry2D.triangulate_polygon(mane).is_empty():
-		mane = Geometry2D.convex_hull(mane)
-		mane.remove_at(mane.size() - 1)
-	draw_colored_polygon(mane, color)
-	# Strands down the mane.
-	for k in 3:
-		var x := -r * (0.9 + k * 0.4)
-		draw_line(Vector2(x, -r * 0.6), Vector2(x - r * 0.3, r * 2.8), color.darkened(0.2), 1.5, true)
 
 
 ## Uryo's Vollstandig: great wings of light spread behind him and a star-shaped halo
@@ -1586,3 +1579,117 @@ func _draw_light_wings(p: Dictionary) -> void:
 		star.append(halo + Vector2.from_angle(-PI / 2 + _time + k * PI / 5.0) * (14.0 if k % 2 == 0 else 6.0))
 	draw_colored_polygon(star, Color(glow, 0.85))
 	draw_arc(halo, 18.0, 0.0, TAU, 24, Color(1, 1, 1, 0.6), 2.0, true)
+
+
+## Super Saiyan 3: a huge spiky golden mane, drawn behind the head and body, sweeping
+## back from the crown down past the waist. Lighter than the glowing body so it reads.
+func _draw_ssj3_mane(p: Dictionary) -> void:
+	_head_space(p[&"head"], p[&"neck"])
+	var r := HEAD_RADIUS
+	var sway := sin(_time * 4.0) * r * 0.08
+	var mane := PackedVector2Array([
+		Vector2(r * 0.3, -r * 1.0), Vector2(-r * 0.2, -r * 1.5), Vector2(-r * 1.6, -r * 1.75),
+		Vector2(-r * 1.3, -r * 0.9), Vector2(-r * 2.6, -r * 0.6), Vector2(-r * 1.8, r * 0.2),
+		Vector2(-r * 2.9 + sway, r * 1.6), Vector2(-r * 1.9 + sway, r * 1.9), Vector2(-r * 2.7 + sway, r * 3.4),
+		Vector2(-r * 1.7 + sway, r * 3.4), Vector2(-r * 2.2 + sway, r * 5.0), Vector2(-r * 1.2 + sway, r * 3.9),
+		Vector2(-r * 0.9 + sway, r * 5.1), Vector2(-r * 0.6, r * 3.2), Vector2(-r * 0.4, r * 1.2), Vector2(0, r * 0.2),
+	])
+	if Geometry2D.triangulate_polygon(mane).is_empty():
+		mane = Geometry2D.convex_hull(mane)
+		mane.remove_at(mane.size() - 1)
+	var hair := Color(1.0, 0.9, 0.42).lerp(Color.WHITE, 0.1 * sin(_time * 10.0))
+	draw_colored_polygon(mane, hair)
+	var edge := mane.duplicate()
+	edge.append(mane[0])
+	draw_polyline(edge, Color(0.85, 0.55, 0.08), 2.0, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+## Aizon's Kyoka Suigetsu: crushing violet spiritual pressure pours off him.
+func _draw_reiatsu(p: Dictionary) -> void:
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.45)
+	var violet := Color(0.6, 0.35, 0.95)
+	for layer in 4:
+		var points := PackedVector2Array()
+		for i in 22:
+			var a := TAU * i / 22.0
+			var flame := 1.0 + 0.3 * sin(_time * 12.0 + i * 2.3 + layer) + (0.5 if sin(a) < -0.3 else 0.0)
+			var radius := Vector2(70.0, 105.0) * (1.0 - layer * 0.18) * flame
+			points.append(centre + Vector2(cos(a) * radius.x, sin(a) * radius.y - (14.0 if sin(a) < 0.0 else 0.0)))
+		draw_colored_polygon(points, Color(violet, 0.12 + layer * 0.06))
+	for i in 8:
+		var rise := fmod(_time * 1.4 + i * 0.125, 1.0)
+		draw_circle(centre + Vector2(sin(i * 2.7) * 50.0, 60.0 - rise * 170.0), 4.0 * (1.0 - rise), Color(0.85, 0.7, 1.0, 0.9), true, -1.0, true)
+
+
+# --- Victory poses ---
+
+## The pose struck after winning (empty: none). Set by victory().
+var victory_pose: StringName = &""
+
+## Pose shapes, standing facing right (feet on y = 0). Any joint left out keeps its
+## usual standing place.
+const POSES := {
+	&"fist_up": {&"felbow": Vector2(12, -100), &"fhand": Vector2(8, -124), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56),
+		&"bknee": Vector2(-9, -24), &"bfoot": Vector2(-16, -2), &"fknee": Vector2(10, -24), &"ffoot": Vector2(16, -2)},
+	&"hands_hips": {&"felbow": Vector2(17, -70), &"fhand": Vector2(7, -55), &"belbow": Vector2(-14, -70), &"bhand": Vector2(-5, -55),
+		&"bknee": Vector2(-9, -24), &"bfoot": Vector2(-16, -2), &"fknee": Vector2(10, -24), &"ffoot": Vector2(16, -2)},
+	&"flex": {&"felbow": Vector2(19, -84), &"fhand": Vector2(17, -104), &"belbow": Vector2(-16, -84), &"bhand": Vector2(-15, -104),
+		&"bknee": Vector2(-10, -24), &"bfoot": Vector2(-18, -2), &"fknee": Vector2(11, -24), &"ffoot": Vector2(18, -2)},
+	&"thumbs_up": {&"felbow": Vector2(14, -72), &"fhand": Vector2(25, -88), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56)},
+	&"point": {&"felbow": Vector2(15, -84), &"fhand": Vector2(29, -86), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56),
+		&"bknee": Vector2(-9, -24), &"bfoot": Vector2(-16, -2), &"fknee": Vector2(10, -24), &"ffoot": Vector2(16, -2)},
+	&"sky_point": {&"felbow": Vector2(10, -104), &"fhand": Vector2(15, -126), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56)},
+	&"arms_crossed": {&"felbow": Vector2(13, -72), &"fhand": Vector2(-6, -75), &"belbow": Vector2(-10, -72), &"bhand": Vector2(11, -77),
+		&"bknee": Vector2(-9, -24), &"bfoot": Vector2(-16, -2), &"fknee": Vector2(10, -24), &"ffoot": Vector2(16, -2)},
+	&"hand_out": {&"felbow": Vector2(13, -76), &"fhand": Vector2(27, -82), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
+	&"kneel": {&"head": Vector2(9, -86), &"neck": Vector2(6, -70), &"hip": Vector2(0, -30),
+		&"fknee": Vector2(13, -22), &"ffoot": Vector2(15, -2), &"bknee": Vector2(-10, -4), &"bfoot": Vector2(-27, -2),
+		&"felbow": Vector2(11, -40), &"fhand": Vector2(17, -4), &"belbow": Vector2(-13, -60), &"bhand": Vector2(-27, -55)},
+	&"glasses_push": {&"felbow": Vector2(15, -84), &"fhand": Vector2(7, -103), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
+	&"bow": {&"neck": Vector2(14, -82), &"head": Vector2(25, -94), &"felbow": Vector2(16, -66), &"fhand": Vector2(17, -52),
+		&"belbow": Vector2(9, -66), &"bhand": Vector2(8, -52)},
+	&"back_turned": {&"felbow": Vector2(13, -72), &"fhand": Vector2(-6, -75), &"belbow": Vector2(-10, -72), &"bhand": Vector2(11, -77)},
+	&"peace": {&"felbow": Vector2(16, -88), &"fhand": Vector2(11, -108), &"belbow": Vector2(-12, -70), &"bhand": Vector2(-4, -56)},
+	&"hand_sign": {&"felbow": Vector2(13, -70), &"fhand": Vector2(15, -82), &"belbow": Vector2(4, -70), &"bhand": Vector2(12, -84)},
+	&"wryyy": {&"neck": Vector2(-10, -86), &"head": Vector2(-18, -100), &"felbow": Vector2(11, -90), &"fhand": Vector2(23, -105),
+		&"belbow": Vector2(-19, -88), &"bhand": Vector2(-31, -101), &"bknee": Vector2(-10, -24), &"bfoot": Vector2(-18, -2), &"fknee": Vector2(12, -24), &"ffoot": Vector2(18, -2)},
+	&"carry": {&"neck": Vector2(7, -86), &"head": Vector2(10, -101), &"belbow": Vector2(-10, -66), &"bhand": Vector2(-17, -57),
+		&"felbow": Vector2(-3, -66), &"fhand": Vector2(-12, -59)},
+	&"slick_back": {&"felbow": Vector2(15, -104), &"fhand": Vector2(0, -119), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
+}
+
+## Poses struck with the back to the camera.
+const BACK_POSES := [&"back_turned"]
+
+## Each fighter's [normal win, fatality win] poses.
+const VICTORY := {
+	&"quotuk": [&"fist_up", &"hands_hips"], &"klakla": [&"flex", &"fist_up"], &"pipmo": [&"fist_up", &"thumbs_up"],
+	&"fentuk": [&"hands_hips", &"point"], &"bomba": [&"thumbs_up", &"fist_up"], &"rango": [&"hands_hips", &"point"],
+	&"grak": [&"flex", &"fist_up"], &"plopo": [&"fist_up", &"thumbs_up"],
+	&"gok": [&"thumbs_up", &"sky_point"], &"egita": [&"arms_crossed", &"point"], &"lufi": [&"fist_up", &"flex"],
+	&"ichi": [&"arms_crossed", &"kneel"], &"uryo": [&"glasses_push", &"hands_hips"], &"yuj": [&"thumbs_up", &"fist_up"],
+	&"megu": [&"hand_sign", &"arms_crossed"], &"goj": [&"peace", &"hand_out"], &"ryo": [&"bow", &"fist_up"],
+	&"akum": [&"arms_crossed", &"back_turned"], &"thundr": [&"fist_up", &"kneel"], &"capt": [&"hands_hips", &"thumbs_up"],
+	&"spydr": [&"kneel", &"point"], &"batz": [&"arms_crossed", &"kneel"], &"jotar": [&"point", &"back_turned"],
+	&"dyo": [&"wryyy", &"arms_crossed"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
+	&"aizon": [&"slick_back", &"hand_out"],
+}
+
+
+## Strikes this fighter's victory pose: one for a normal win, another after a fatality.
+func victory(after_fatality: bool) -> void:
+	var pair: Array = VICTORY.get(data.base_id(), [&"fist_up", &"fist_up"])
+	victory_pose = pair[1] if after_fatality else pair[0]
+	_celebrating = false
+	_dazed = false
+	aiming = false
+	holding_weapon = false
+
+
+## Puts the posed joints over the standing skeleton (with a little breathing).
+func _apply_victory_pose(body: Dictionary, bob: float) -> void:
+	var pose: Dictionary = POSES.get(victory_pose, {})
+	for point: StringName in pose:
+		var lift := Vector2(0, bob) if point in [&"head", &"neck", &"felbow", &"fhand", &"belbow", &"bhand"] else Vector2.ZERO
+		body[point] = (pose[point] as Vector2) + lift

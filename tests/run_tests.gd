@@ -522,6 +522,7 @@ func _test_practice_specials() -> void:
 				break
 			await process_frame
 		_check(game.state == game.State.PLAYER_AIM, "practice carries on after %s's special" % id)
+		_check(not game._hud.time_stopped(), "time is moving again after %s's special in practice" % id)
 		if game.is_straight_special(pick.weapon.special):
 			_check(int(game._practice["stars"]) > stars_before, "%s's straight special hits the practice target" % id)
 	game.queue_free()

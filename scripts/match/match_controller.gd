@@ -221,6 +221,8 @@ var _special_this_turn := false
 ## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
 var _lucky := [0, 0]
 var _empowered := [0, 0]
+## Aizon and the enemy while Kyoka Suigetsu has them in each other's places.
+var _swapped: Array = []
 const LUCKY_THROWS := 2
 const ICE_LANCES := 3
 ## Uryo's Vollstandig: empowered throws, the heal, and how hard the arrows hit.
@@ -228,6 +230,8 @@ const VOLL_THROWS := 3
 const VOLL_HEAL := 15
 const VOLL_RADIUS := 90.0
 const ELEPHANT_RADIUS := 150.0
+## How close an enemy throw gets to Aizon before Kyoka Suigetsu swaps them.
+const ILLUSION_TRIGGER := 160.0
 ## Who stands in for the enemy when you test a fatality in Target Practice.
 const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
@@ -368,6 +372,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_special_used = [false, false]
 	_lucky = [0, 0]
 	_empowered = [0, 0]
+	_swapped = []
 	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
@@ -721,7 +726,7 @@ func _tutorial_tip() -> void:
 
 ## Time stops: the world drains to grey-violet with a shockwave from the fighter.
 func _stop_time(fighter: Fighter) -> void:
-	_hud.set_time_stop(true)
+	_hud.set_time_stop(true, fighter.data.style != &"vampire")
 	_hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
 	Audio.play("zap", 0.0, 0.4, 0.0)
 	Audio.play("ko", -6.0, 0.5, 0.0)
@@ -865,6 +870,7 @@ func _ki_burst(projectile: Projectile) -> void:
 func _bless(fighter: Fighter) -> void:
 	fighter.shielded = true
 	_lucky[current] = LUCKY_THROWS
+	_party_cameo(fighter)
 	_hud.announce("LALATNA'S GUARD + AQWA'S BLESSING!", Color(0.6, 0.85, 1.0))
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.85, 1.0), 30, 500.0, 180.0, 1.4)
 	Effects.burst(_actors, fighter.aim_point(true) + Vector2(0, -40), Color(1.0, 0.9, 0.45), 24, 300.0, 180.0, 1.6)
@@ -883,6 +889,7 @@ func _make_lucky(projectile: Projectile) -> void:
 ## Subaro's special: Emilla fires ice lances dead straight, one after another. The
 ## first that hits freezes them in place for a turn.
 func _ice_lances(fighter: Fighter, angle: float) -> void:
+	_cameo(fighter, &"emilla", 95.0, "My name is Emilla. Just Emilla.", 0.0)
 	var lance := fighter.data.weapon.duplicate() as WeaponData
 	lance.shape = &"ice_lance"
 	lance.gravity_scale = 0.0
@@ -983,6 +990,221 @@ func _vollstandig(fighter: Fighter) -> void:
 	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "+%d" % VOLL_HEAL, Color(0.5, 1.0, 0.6), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.8, 0.92, 1.0), 50, 600.0, 180.0, 1.8)
 	Audio.play("voice_charge", 0.0, fighter.voice_pitch() * 1.1, 0.0)
+
+
+## Kazma's party pops in for his special: Lalatna in armour right in front of him (far
+## too keen to take the hits), and Aqwa a step further on, showing off.
+func _party_cameo(fighter: Fighter) -> void:
+	_cameo(fighter, &"lalatna", 95.0, "Hit me harder!", 0.0)
+	_cameo(fighter, &"aqwa", 210.0, "Worship me, I'm a goddess!", 1.25)
+
+
+## Someone from a fighter's story steps in beside them for a moment, saying `line`
+## after `delay` seconds.
+func _cameo(fighter: Fighter, who: StringName, ahead: float, line: String, delay: float) -> void:
+	var side := float(fighter.facing)
+	var x := fighter.position.x + side * ahead
+	var member := Node2D.new()
+	member.position = Vector2(x, Terrain.height_at(x))
+	member.z_index = 4
+	member.draw.connect(_draw_party_member.bind(member, who, side))
+	_actors.add_child(member)
+	member.modulate.a = 0.0
+	var life := member.create_tween()
+	life.tween_property(member, "modulate:a", 1.0, 0.2)
+	life.tween_interval(delay + 1.6)
+	life.tween_property(member, "modulate:a", 0.0, 0.4)
+	life.tween_callback(member.queue_free)
+	var id := _match_id
+	get_tree().create_timer(delay, false).timeout.connect(func() -> void:
+		if id == _match_id:
+			_say_at(Vector2(x, Terrain.height_at(x) - 150.0), line, 1.2))
+
+
+func _draw_party_member(canvas: Node2D, who: StringName, side: float) -> void:
+	var ink := Color(0.08, 0.07, 0.1)
+	var skin := Color(1, 0.87, 0.76)
+	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2(side, 1.0))
+	canvas.draw_line(Vector2(-6, 0), Vector2(0, -36), ink, 4.0, true)
+	canvas.draw_line(Vector2(6, 0), Vector2(0, -36), ink, 4.0, true)
+	if who == &"lalatna":
+		# Silver armour, a blue skirt, a long blond ponytail and a big sword.
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-14, -30), Vector2(14, -30), Vector2(10, -44), Vector2(-10, -44)]), Color(0.2, 0.3, 0.6))
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-12, -44), Vector2(12, -44), Vector2(13, -74), Vector2(-13, -74)]), Color(0.82, 0.84, 0.9))
+		canvas.draw_polyline(PackedVector2Array([Vector2(-12, -44), Vector2(12, -44), Vector2(13, -74), Vector2(-13, -74), Vector2(-12, -44)]), ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-8, -96), Vector2(-26, -70), Vector2(-20, -40), Vector2(-12, -74)]), Color(0.98, 0.86, 0.45))
+		canvas.draw_circle(Vector2(0, -88), 12.0, skin, true, -1.0, true)
+		canvas.draw_arc(Vector2(0, -88), 12.0, 0.0, TAU, 16, ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-13, -88), Vector2(-8, -101), Vector2(8, -101), Vector2(13, -90), Vector2(4, -95)]), Color(0.98, 0.86, 0.45))
+		canvas.draw_line(Vector2(3, -90), Vector2(9, -90), ink, 2.0, true)
+		canvas.draw_line(Vector2(16, -60), Vector2(30, -110), Color(0.75, 0.78, 0.85), 5.0, true)
+		canvas.draw_line(Vector2(10, -64), Vector2(22, -58), Color(0.6, 0.45, 0.2), 4.0, true)
+	elif who == &"aqwa":
+		# Long blue hair, a blue and white outfit, and a staff topped with a flower.
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-14, -30), Vector2(14, -30), Vector2(10, -48), Vector2(-10, -48)]), Color(0.3, 0.55, 0.95))
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-11, -48), Vector2(11, -48), Vector2(12, -74), Vector2(-12, -74)]), Color(0.95, 0.96, 1.0))
+		canvas.draw_polyline(PackedVector2Array([Vector2(-11, -48), Vector2(11, -48), Vector2(12, -74), Vector2(-12, -74), Vector2(-11, -48)]), ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-12, -96), Vector2(8, -102), Vector2(4, -80), Vector2(-6, -40), Vector2(-20, -46), Vector2(-16, -80)]), Color(0.45, 0.72, 1.0))
+		canvas.draw_circle(Vector2(0, -88), 12.0, skin, true, -1.0, true)
+		canvas.draw_arc(Vector2(0, -88), 12.0, 0.0, TAU, 16, ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-13, -90), Vector2(-6, -101), Vector2(10, -99), Vector2(13, -89), Vector2(2, -94)]), Color(0.45, 0.72, 1.0))
+		canvas.draw_circle(Vector2(-4, -103), 4.0, Color(0.45, 0.72, 1.0), true, -1.0, true)
+		canvas.draw_line(Vector2(3, -89), Vector2(9, -89), ink, 2.0, true)
+		canvas.draw_line(Vector2(18, -20), Vector2(22, -112), Color(0.5, 0.35, 0.2), 3.0, true)
+		canvas.draw_circle(Vector2(22, -116), 7.0, Color(0.55, 0.85, 1.0), true, -1.0, true)
+		canvas.draw_circle(Vector2(22, -116), 3.0, Color.WHITE, true, -1.0, true)
+	elif who == &"beatris":
+		# Small, in a frilly pink dress, with long cream-blond drill twin-tails.
+		canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2(side * 0.85, 0.85))
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-18, -28), Vector2(18, -28), Vector2(9, -64), Vector2(-9, -64)]), Color(0.95, 0.55, 0.7))
+		canvas.draw_polyline(PackedVector2Array([Vector2(-18, -28), Vector2(18, -28), Vector2(9, -64), Vector2(-9, -64), Vector2(-18, -28)]), ink, 2.0, true)
+		canvas.draw_line(Vector2(-17, -32), Vector2(17, -32), Color(0.3, 0.15, 0.3), 3.0, true)
+		for drill: float in [-1.0, 1.0]:
+			for k in 4:
+				canvas.draw_circle(Vector2(drill * 16.0, -84 + k * 11.0), 7.0 - k, Color(0.98, 0.9, 0.62), true, -1.0, true)
+				canvas.draw_arc(Vector2(drill * 16.0, -84 + k * 11.0), 7.0 - k, 0.0, TAU, 12, Color(0.8, 0.65, 0.35), 1.2, true)
+		canvas.draw_circle(Vector2(0, -82), 12.0, skin, true, -1.0, true)
+		canvas.draw_arc(Vector2(0, -82), 12.0, 0.0, TAU, 16, ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-13, -84), Vector2(-8, -95), Vector2(9, -95), Vector2(13, -84), Vector2(2, -89)]), Color(0.98, 0.9, 0.62))
+		canvas.draw_circle(Vector2(5, -82), 2.2, Color(0.4, 0.6, 0.95), true, -1.0, true)
+		canvas.draw_circle(Vector2(-3, -97), 4.0, Color(0.3, 0.15, 0.3), true, -1.0, true)
+	elif who == &"emilla":
+		# Long silver hair with a white flower, a white and violet dress.
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-15, -26), Vector2(15, -26), Vector2(11, -50), Vector2(-11, -50)]), Color(0.75, 0.6, 0.95))
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-11, -50), Vector2(11, -50), Vector2(12, -74), Vector2(-12, -74)]), Color(0.97, 0.97, 1.0))
+		canvas.draw_polyline(PackedVector2Array([Vector2(-11, -50), Vector2(11, -50), Vector2(12, -74), Vector2(-12, -74), Vector2(-11, -50)]), ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-12, -96), Vector2(8, -102), Vector2(6, -84), Vector2(-4, -30), Vector2(-22, -36), Vector2(-17, -82)]), Color(0.9, 0.9, 0.97))
+		canvas.draw_circle(Vector2(0, -88), 12.0, skin, true, -1.0, true)
+		canvas.draw_arc(Vector2(0, -88), 12.0, 0.0, TAU, 16, ink, 2.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-13, -90), Vector2(-6, -101), Vector2(10, -99), Vector2(13, -89), Vector2(2, -94)]), Color(0.9, 0.9, 0.97))
+		canvas.draw_circle(Vector2(5, -88), 2.2, Color(0.6, 0.35, 0.85), true, -1.0, true)
+		for petal in 5:
+			canvas.draw_circle(Vector2(-8, -100) + Vector2.from_angle(petal * TAU / 5.0) * 3.5, 2.5, Color.WHITE, true, -1.0, true)
+		canvas.draw_circle(Vector2(-8, -100), 1.8, Color(1.0, 0.85, 0.3), true, -1.0, true)
+	canvas.draw_set_transform(Vector2.ZERO)
+
+
+## A speech bubble standing at `at` for a moment.
+func _say_at(at: Vector2, text: String, seconds: float) -> void:
+	var font := ThemeDB.fallback_font
+	var bubble := Node2D.new()
+	bubble.z_index = 30
+	bubble.position = at
+	bubble.draw.connect(func() -> void:
+		var extent := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 24)
+		var box := Rect2(Vector2(-extent.x / 2 - 12, -extent.y - 12), extent + Vector2(24, 18))
+		bubble.draw_colored_polygon(PackedVector2Array([Vector2(-10, box.end.y - 2), Vector2(10, box.end.y - 2), Vector2(0, box.end.y + 16)]), Color.WHITE)
+		bubble.draw_style_box(UiStyle.flat(Color.WHITE, 14), box)
+		bubble.draw_string(font, Vector2(-extent.x / 2, -10), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(0.1, 0.08, 0.12)))
+	bubble.scale = Vector2.ONE / _camera.zoom.x
+	# Keep the whole bubble on screen.
+	var half := (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x / 2.0 + 16.0) * bubble.scale.x
+	var view := _camera.visible_rect()
+	bubble.position.x = clampf(at.x, view.position.x + half, maxf(view.position.x + half, view.end.x - half))
+	_actors.add_child(bubble)
+	var life := bubble.create_tween()
+	life.tween_interval(seconds)
+	life.tween_property(bubble, "modulate:a", 0.0, 0.25)
+	life.tween_callback(bubble.queue_free)
+
+
+## Kyoka Suigetsu: as an enemy throw closes in on Aizon, the illusion breaks. He was
+## never there: the thrower is standing in his place, and takes their own hit.
+func _watch_illusion() -> void:
+	if state != State.FLYING:
+		return
+	for fighter in fighters:
+		if not fighter.illusion or fighter.is_knocked_out():
+			continue
+		for projectile in _in_flight:
+			if not is_instance_valid(projectile) or projectile.frozen or projectile.thrower == null or projectile.thrower == fighter:
+				continue
+			if projectile.global_position.distance_to(fighter.aim_point(false)) < ILLUSION_TRIGGER and _will_hit(projectile, fighter):
+				_swap_places(fighter, projectile.thrower, projectile)
+				return
+
+
+
+## Whether a throw's path over the next moment runs into this fighter.
+static func _will_hit(projectile: Projectile, fighter: Fighter) -> bool:
+	var body := fighter.aim_point(false)
+	var head := fighter.aim_point(true)
+	var t := 0.0
+	while t < 0.4:
+		var at := projectile.predict(t)
+		if at.distance_to(body) < 42.0 or at.distance_to(head) < 26.0:
+			return true
+		t += 0.01
+	return false
+
+
+## When Kyoka Suigetsu breaks, Aizon walks off with whatever the enemy had going:
+## their shield, double damage, lucky throws or empowered arrows.
+func _steal_buffs(aizon: Fighter, foe: Fighter) -> void:
+	var stolen := PackedStringArray()
+	var mine := fighters.find(aizon)
+	var theirs := fighters.find(foe)
+	if foe.shielded:
+		foe.shielded = false
+		aizon.shielded = true
+		stolen.append("SHIELD")
+	if foe.powered:
+		foe.powered = false
+		aizon.powered = true
+		stolen.append("DOUBLE DAMAGE")
+	if mine >= 0 and theirs >= 0:
+		if _lucky[theirs] > 0:
+			_lucky[mine] += _lucky[theirs]
+			_lucky[theirs] = 0
+			stolen.append("LUCK")
+		if _empowered[theirs] > 0:
+			_empowered[mine] += _empowered[theirs]
+			_empowered[theirs] = 0
+			foe.form = &""
+			stolen.append("POWER-UP")
+	if not stolen.is_empty():
+		Effects.popup(_actors, aizon.aim_point(true) + Vector2(0, -110), "STOLE: " + ", ".join(stolen), Color(0.8, 0.6, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+
+func _swap_places(aizon: Fighter, foe: Fighter, projectile: Projectile) -> void:
+	aizon.illusion = false
+	var spot := aizon.position
+	_swapped = [aizon, foe]
+	_shatter_illusion(aizon)
+	_steal_buffs(aizon, foe)
+	_trade_places(aizon, foe)
+	# The throw now flies at the thrower; it no longer knows to miss them.
+	projectile._exclude.clear()
+	projectile._exclude.append_array(aizon.get_hitbox_rids())
+	projectile.set_meta("mirrored", true)
+	projectile.homing_target = foe
+	projectile.homing_range = 400.0
+	projectile.homing_turn = 12.0
+	Effects.burst(_actors, spot + Vector2(0, -60), Color(0.9, 0.95, 1.0), 50, 700.0, 180.0, 1.6)
+	_slow_time(0.45, 0.25)
+
+
+## Puts them back where they really stood once the hit has settled.
+func _unswap() -> void:
+	if _swapped.is_empty():
+		return
+	var pair := _swapped
+	_swapped = []
+	if not is_instance_valid(pair[0]) or not is_instance_valid(pair[1]):
+		return
+	_trade_places(pair[0], pair[1])
+	for fighter: Fighter in pair:
+		Effects.burst(_actors, fighter.aim_point(false), Color(0.75, 0.6, 1.0), 24, 400.0, 180.0, 1.2)
+	Audio.play("whoosh", -2.0, 1.4, 0.0)
+
+
+func _trade_places(a: Fighter, b: Fighter) -> void:
+	var spot := a.position
+	a.position = Vector2(b.position.x, Terrain.height_at(b.position.x))
+	b.position = Vector2(spot.x, Terrain.height_at(spot.x))
+	a.facing = -a.facing
+	b.facing = -b.facing
+	a.reset_physics_interpolation()
+	b.reset_physics_interpolation()
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1063,6 +1285,8 @@ func _test_fatality() -> void:
 	dummy.queue_free()
 	winner._celebrating = false
 	winner.facing = 1
+	winner.victory_pose = &""
+	winner.holding_weapon = true
 	winner.position = Vector2(-700.0, Terrain.height_at(-700.0))
 	winner.reset_physics_interpolation()
 	if _practice_target != null:
@@ -1362,10 +1586,6 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
-	# Kyoka Suigetsu lasts until his own next turn.
-	if fighter.illusion:
-		fighter.illusion = false
-		fighter.form = &""
 	# Burning (Fuga): the fire hurts at the start of their turn.
 	if fighter.burn_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
 		fighter.burn_turns -= 1
@@ -1423,6 +1643,7 @@ func _begin_turn() -> void:
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
+		_aim.full_guide = _hud.time_stopped() and fighter == _stopper
 		_tutorial_tip()
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
@@ -1469,6 +1690,7 @@ func _process(delta: float) -> void:
 ## Slow-mo cam: if a throw is about to hit a head, slow time and swoop in on it.
 func _physics_process(_delta: float) -> void:
 	_pull_toward_purple(_delta)
+	_watch_illusion()
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
 	for projectile in _in_flight:
@@ -1505,6 +1727,7 @@ func _on_special_toggled(armed: bool) -> void:
 		var data := fighters[current].data
 		# The beam fires in a straight line, so the aim guide straightens and can point down.
 		_aim.set_beam(armed and is_straight_special(data.weapon.special))
+		_aim.full_guide = (armed and data.weapon.special == &"timestop") or (_hud.time_stopped() and fighters[current] == _stopper)
 		_aim.set_special(data.special_name if armed else "", data.body_color)
 		if armed:
 			Audio.play("win", -10.0, 1.8, 0.0)
@@ -1579,7 +1802,6 @@ func _throw(angle: float, power: float) -> void:
 		_bless(fighter)
 	if special == &"illusion":
 		fighter.illusion = true
-		fighter.form = &"hogyoku"
 		_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
 		Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
 	if special == &"timestop":
@@ -1599,6 +1821,9 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_moon_fang(fighter, angle)
 		return
+	# Subaro can't cast a thing himself: Beatris throws the magic for him.
+	if fighter.data.base_id() == &"subaro" and special == &"":
+		_cameo(fighter, &"beatris", 80.0, "Betty will help, I suppose.", 0.0)
 	if _lucky[current] > 0:
 		var shot := _lucky_shot(fighter)
 		angle = shot["angle"]
@@ -1676,9 +1901,10 @@ func _throw(angle: float, power: float) -> void:
 ## only used by explosions.
 func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName, scale: float = 1.0, push: Vector2 = Vector2.ZERO) -> void:
 	# Kyoka Suigetsu: the one they hit was never him. They were standing in his place.
-	var mirrored := false
+	var mirrored: bool = projectile.get_meta("mirrored", false)
 	if target.illusion and projectile.thrower != null and projectile.thrower != target:
 		_shatter_illusion(target)
+		_steal_buffs(target, projectile.thrower)
 		target = projectile.thrower
 		mirrored = true
 	var side := fighters.find(projectile.thrower)
@@ -1981,6 +2207,10 @@ func _after_throw() -> void:
 		_combo[current] = 0
 		if _throw_closest < CLOSE_CALL_DISTANCE and _held.is_empty():
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
+	if mode == Mode.PRACTICE and _hud.time_stopped():
+		# Practice moves on after every throw, so time stop ends with it.
+		_time_stop_left = 0
+		_resume_time()
 	if mode == Mode.PRACTICE:
 		var practice_id := _match_id
 		await get_tree().create_timer(SETTLE_TIME, false).timeout
@@ -1998,6 +2228,7 @@ func _after_throw() -> void:
 		if match_id != _match_id:
 			return
 		waited += get_process_delta_time()
+	_unswap()
 	for fighter in fighters:
 		if fighter.is_knocked_out():
 			_end_match()
@@ -2070,7 +2301,7 @@ func _end_match() -> void:
 			return
 	state = State.GAME_OVER
 	var winner_side := fighters.find(winner)
-	winner.celebrate()
+	winner.victory(landed)
 	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
 	var title := "DEFEAT"
 	var color := Color(0.92, 0.3, 0.3)
@@ -2399,7 +2630,7 @@ func _new_special(fighter: Fighter, special: StringName, angle: float, power: fl
 		&"gou":
 			_straight_shot(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", true, 170.0, 3.4)
 		&"shinku":
-			_straight_shot(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", false, 150.0, 2.8)
+			_straight_shot(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", true, 150.0, 2.8)
 		&"purple":
 			_hollow_purple(fighter, angle)
 		&"rain":

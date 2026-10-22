@@ -21,6 +21,8 @@ var power := 0.6
 var wind := 0.0
 ## Beam special: aim in a straight line, allowed to point below level.
 var straight := false
+## Time stop: show the whole flight, out to where it lands, with a marker there.
+var full_guide := false
 var min_angle := Rules.MIN_ANGLE
 ## An armed special: its name shows on the readout and the guide takes its colour.
 var special_name := ""
@@ -126,6 +128,11 @@ func _draw() -> void:
 			draw_circle(origin + direction * i * 34.0, 6.0 * inv_zoom, Color(fighter.data.weapon.color, alpha * (1.0 - i / 24.0)), true, -1.0, true)
 		_draw_angle_arc(origin, inv_zoom, alpha)
 		return
+	if full_guide:
+		_draw_full_guide(origin, velocity, inv_zoom, alpha)
+		_draw_angle_arc(origin, inv_zoom, alpha)
+		_draw_power_gauge(inv_zoom, alpha)
+		return
 	var guide_time := LONG_PREVIEW_TIME if Save.long_aim_guide else PREVIEW_TIME
 	var dots := int(PREVIEW_DOTS * guide_time / PREVIEW_TIME)
 	for i in range(1, dots + 1):
@@ -174,3 +181,26 @@ func _draw_power_gauge(inv_zoom: float, alpha: float) -> void:
 	color.a = alpha
 	var fill := Rect2(base + Vector2(3.0 * inv_zoom, -3.0 * inv_zoom - fill_height), Vector2(width - 6.0 * inv_zoom, fill_height))
 	draw_style_box(UiStyle.flat(color, int(5 * inv_zoom)), fill)
+
+
+## The whole flight path in stopped time, dot by dot until it meets the ground, with
+## a marker where it comes down.
+func _draw_full_guide(origin: Vector2, velocity: Vector2, inv_zoom: float, alpha: float) -> void:
+	var gravity := Rules.GRAVITY * fighter.data.weapon.gravity_scale
+	var color := Color(0.8, 0.7, 1.0)
+	var last := origin
+	var t := 0.0
+	var step := 0
+	while t < 3.0:
+		t += 0.03
+		step += 1
+		var at := Rules.position_at(origin, velocity, t, wind, gravity)
+		if at.y > Terrain.height_at(at.x) - 4.0:
+			break
+		last = at
+		if step % 2 == 0:
+			draw_circle(at, 4.0 * inv_zoom, Color(color, alpha * 0.9), true, -1.0, true)
+	var r := 12.0 * inv_zoom
+	draw_arc(last, r, 0.0, TAU, 20, Color(1.0, 0.35, 0.4, alpha), 2.5 * inv_zoom, true)
+	draw_line(last + Vector2(-r * 1.6, 0), last + Vector2(r * 1.6, 0), Color(1.0, 0.35, 0.4, alpha), 2.0 * inv_zoom, true)
+	draw_line(last + Vector2(0, -r * 1.6), last + Vector2(0, r * 1.6), Color(1.0, 0.35, 0.4, alpha), 2.0 * inv_zoom, true)

@@ -17,5 +17,5 @@ hair_color = Color(0.08, 0.08, 0.1, 1)
 style = &"tracksuit"
 special_name = "Emilla's Ice"
 special_description = "Emilla fires three ice lances in a straight line. The first to hit freezes them for a turn."
-price = 400
-rarity = &"rare"
+price = 500
+rarity = &"epic"

@@ -16,6 +16,6 @@ hair_color = Color(0.32, 0.2, 0.12, 1)
 weapon = ExtResource("2_weapon")
 style = &"gi"
 special_name = "Shinku Hadoken"
-special_description = "A huge, fast fireball of ki that bursts on impact."
+special_description = "A huge, fast fireball of ki that tears straight through obstacles and bursts on the enemy."
 price = 600
 rarity = &"rare"

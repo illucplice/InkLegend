@@ -532,10 +532,12 @@ func _build_match_hud() -> void:
 	grey.shader.code = "shader_type canvas_item;
 uniform sampler2D screen : hint_screen_texture, filter_linear;
 uniform float amount = 1.0;
+uniform float purple = 1.0;
 void fragment() {
 	vec3 c = texture(screen, SCREEN_UV).rgb;
 	float g = dot(c, vec3(0.3, 0.59, 0.11));
-	vec3 tint = vec3(g * 0.8 + 0.08, g * 0.7 + 0.04, g * 0.95 + 0.14);
+	vec3 violet = vec3(g * 0.8 + 0.08, g * 0.7 + 0.04, g * 0.95 + 0.14);
+	vec3 tint = mix(vec3(g), violet, purple);
 	COLOR = vec4(mix(c, tint, amount), 1.0);
 }
 "
@@ -2183,12 +2185,14 @@ func hide_tip() -> void:
 	_tip.hide()
 
 
-## Turns the time-stop tint on or off.
-func set_time_stop(on: bool) -> void:
+## Turns the time-stop tint on or off: violet for Star Platina, black and white for
+## The Warld.
+func set_time_stop(on: bool, violet: bool = true) -> void:
 	if _time_stop == null or on == _time_stop.visible:
 		return
 	var grey: ShaderMaterial = _time_stop.material
 	if on:
+		grey.set_shader_parameter("purple", 1.0 if violet else 0.0)
 		_time_stop.show()
 		grey.set_shader_parameter("amount", 0.0)
 		create_tween().tween_method(func(a: float) -> void: grey.set_shader_parameter("amount", a), 0.0, 1.0, 0.4)

@@ -143,7 +143,7 @@ func _run(intro: bool) -> void:
 	hud.announce(NAMES.get(id, "FINISHED!"), Color(1.0, 0.3, 0.25))
 	# Subaro is in no state to celebrate.
 	if id != &"subaro":
-		winner.celebrate()
+		winner.victory(true)
 	if not await _wait(1.6):
 		return
 	_finish()
@@ -164,6 +164,9 @@ func _finish() -> void:
 		winner.stand_out = 0.0
 		winner.stand_barrage = false
 		winner._dazed = false
+		winner.illusion = false
+		if is_instance_valid(hud):
+			hud.set_time_stop(false)
 		winner.global_position.y = Terrain.height_at(winner.global_position.x)
 		winner.aiming = false
 	finished.emit()
@@ -532,8 +535,8 @@ func _head_sucker() -> void:
 	Audio.play("hit_head", 0.0, 1.4, 0.0)
 
 
-## Gok: goes Super Saiyan 3, dashes in and drives a Dragon Fist straight through them.
-## A huge golden dragon tears out of the body and races off sideways, carrying him.
+## Gok: goes Super Saiyan 3, and a golden dragon forms around his fist and carries him
+## straight through them.
 func _vaporize() -> void:
 	var side := _toward_loser()
 	winner.power_up(5.0)
@@ -565,39 +568,23 @@ func _vaporize() -> void:
 		camera.shake(0.12)
 		if not await _wait(0.12):
 			return
-	Audio.play("whoosh", 0.0, 0.45, 0.0)
-	var start := winner.global_position
-	var streak := _prop(func(canvas: Node2D) -> void:
-		var now := winner.global_position + Vector2(0, -60)
-		canvas.draw_line(start + Vector2(0, -60), now, Color(1.0, 0.85, 0.3, 0.35), 40.0, true)
-		canvas.draw_line(start + Vector2(0, -60), now, Color(1.0, 0.95, 0.7, 0.7), 12.0, true))
-	get_tree().process_frame.connect(streak.queue_redraw)
-	await _move_winner(Vector2(loser.global_position.x - side * 44.0, 0.0), 0.28, 0.0)
+	# He blurs in close first.
+	Audio.play("whoosh", 0.0, 0.7, 0.0)
+	await _move_winner(Vector2(loser.global_position.x - side * 240.0, 0.0), 0.25, 0.0)
 	if _done:
 		return
-	var streak_fade := streak.create_tween()
-	streak_fade.tween_property(streak, "modulate:a", 0.0, 0.3)
-	winner.play_throw()
-	var b := loser.body_points()
-	var at: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.5)
-	Audio.play("hit_head", 5.0, 0.4, 0.0)
-	Audio.play("ground", 2.0, 0.5, 0.0)
-	_impact(at, 1.0)
-	_flash_ring(at, Color(1.0, 0.9, 0.5), 520.0)
-	Effects.burst(self, at, Color(1.0, 0.92, 0.5), 60, 1000.0, 180.0, 2.4)
-	_hide_loser_and_explode(at - Vector2(side * 60.0, 0.0), 1300.0, -0.35)
-	# Punch in close on the uppercut, in slow motion, as he rises through them.
-	var close := PackedVector2Array([at + Vector2(-110, -150), at + Vector2(110, 70)])
-	camera.focus_on(func() -> PackedVector2Array: return close, 30.0, 2.8)
-	_slowmo(0.3, 0.7)
+	# The dragon forms around his fist, then carries him straight through them.
 	winner.aiming = true
 	winner.aim_angle = 0.0
 	winner.aim_power = 1.0
-	await _move_winner(Vector2(at.x + side * 40.0, at.y + 40.0), 0.4, 0.0)
-	if _done:
-		return
-	_flash_ring(at, Color(1.0, 0.85, 0.35), 380.0)
-	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
+	winner.play_throw()
+	Audio.play("whoosh", 0.0, 0.45, 0.0)
+	var at := winner.aim_point(false) + Vector2(side * 20.0, 0.0)
+	var gap := absf(loser.global_position.x - at.x)
+	var reach := gap + 300.0
+	var hit_u := maxf(0.05, (gap - 40.0) / reach)
+	var struck := {"done": false}
+	_flash_ring(at, Color(1.0, 0.85, 0.35), 260.0)
 	# The dragon: a thick glowing serpent spiralling up out of the wound.
 	var state := {"t": 0.0}
 	var gold := Color(1.0, 0.76, 0.16)
@@ -613,7 +600,7 @@ func _vaporize() -> void:
 			# The last point rides exactly at t, so the dragon grows smoothly.
 			var u := minf(i / float(length), float(state["t"]))
 			var turn := u * TAU * 1.6
-			path.append(at + Vector2(side * u * 1500.0, -absf(sin(turn)) * (30.0 + u * 70.0) - u * 160.0))
+			path.append(at + Vector2(side * u * reach, -absf(sin(turn)) * 22.0 - maxf(0.0, u - hit_u) * reach * 0.36))
 			# Wider where the spiral swings toward the camera.
 			widths.append(lerpf(20.0, 54.0, minf(1.0, u * 3.0)) * (0.8 + 0.25 * cos(turn)))
 		for i in path.size() - 1:
@@ -664,19 +651,43 @@ func _vaporize() -> void:
 	rise.tween_method(func(t: float) -> void:
 		state["t"] = t
 		dragon.queue_redraw()
-		# He rides up with it, just behind the head, fist still raised.
-		var u := maxf(0.0, t - 0.1)
-		var on_path := at + Vector2(side * u * 1500.0, -absf(sin(u * TAU * 1.6)) * (30.0 + u * 70.0) - u * 160.0) + Vector2(-side * 60.0, 50.0)
-		winner.global_position = launch.lerp(on_path, minf(1.0, t * 4.0)),  0.0, 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	rise.tween_interval(1.0)
+		# He rides at the head, fist first, and it hits when they reach the enemy.
+		var u := maxf(0.0, t - 0.04)
+		var on_path := at + Vector2(side * u * reach, -absf(sin(u * TAU * 1.6)) * 22.0 - maxf(0.0, u - hit_u) * reach * 0.36) + Vector2(-side * 50.0, 52.0)
+		winner.global_position = launch.lerp(on_path, minf(1.0, t * 6.0))
+		if not struck["done"] and t >= hit_u:
+			struck["done"] = true
+			_dragon_strike(side), 0.0, 1.0, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	rise.tween_interval(0.6)
 	rise.tween_property(dragon, "modulate:a", 0.0, 0.5)
-	_frame_around(Vector2(at.x + side * 650.0, at.y - 60.0), 900.0, 520.0)
+	_frame_around(Vector2(at.x + side * reach * 0.5, Terrain.height_at(at.x)), reach * 0.5 + 250.0, 520.0)
 	await rise.finished
 	if _done:
 		return
 	winner.aiming = false
-	await _move_winner(Vector2(at.x + side * 1300.0, 0.0), 0.6, 0.0)
+	await _move_winner(Vector2(at.x + side * reach, 0.0), 0.6, 0.0)
 
+
+
+## The Dragon Fist lands: the body bursts apart in a flash of gold.
+func _dragon_strike(side: float) -> void:
+	if _done:
+		return
+	var b := loser.body_points()
+	var at: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.5)
+	Audio.play("hit_head", 5.0, 0.4, 0.0)
+	Audio.play("ground", 2.0, 0.5, 0.0)
+	_impact(at, 1.0)
+	_flash_ring(at, Color(1.0, 0.9, 0.5), 520.0)
+	Effects.burst(self, at, Color(1.0, 0.92, 0.5), 60, 1000.0, 180.0, 2.4)
+	_hide_loser_and_explode(at - Vector2(side * 60.0, 0.0), 1300.0, -0.35)
+	_slowmo(0.3, 0.5)
+	# Punch in close on the impact, then pull back out.
+	var close := PackedVector2Array([at + Vector2(-140, -130), at + Vector2(140, 80)])
+	camera.focus_on(func() -> PackedVector2Array: return close, 30.0, 2.8)
+	if not await _wait(0.55):
+		return
+	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
 
 ## A bright ring that expands and fades (shockwaves).
 func _flash_ring(at: Vector2, color: Color, radius: float) -> void:
@@ -1890,17 +1901,33 @@ func _run_over(side: float) -> void:
 	_spray(loser.aim_point(false), Vector2(side, -0.4), 70, 1000.0, 0.6)
 
 
-## Jotar: walks in slowly, menacing, and Star Platina steps out. A barrage of fists
-## drives them back, ORA ORA ORA, then a last punch blows them apart. He turns away.
+## Jotar: Star Platina stops time and he simply appears behind them. Time moves again
+## and a barrage of fists drives them back, ORA ORA ORA, then a last punch blows them
+## apart. He turns away.
 func _ora_rush() -> void:
-	var side := _toward_loser()
-	var menace := _menace(Color(0.6, 0.4, 0.95))
-	_frame_around(loser.global_position - Vector2(side * 120.0, 0), 380.0, 440.0)
-	_say_line("Yare yare...", 1.2)
-	await _move_winner(Vector2(loser.global_position.x - side * 105.0, 0.0), 1.1, 0.0)
-	if _done:
+	_frame_around(loser.global_position, 420.0, 440.0)
+	_say_line("Star Platina... The World.", 1.2)
+	hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
+	Audio.play("zap", 0.0, 0.4, 0.0)
+	Audio.play("ko", -4.0, 0.5, 0.0)
+	_flash_ring(winner.aim_point(false), Color(0.85, 0.75, 1.0, 0.9), 1100.0)
+	hud.set_time_stop(true, true)
+	if not await _wait(0.8):
 		return
-	menace.queue_free()
+	# In stopped time he walks round behind them.
+	var behind := loser.global_position.x + _toward_loser() * 105.0
+	_place_winner(behind)
+	winner.facing = -winner.facing
+	winner.reset_physics_interpolation()
+	_sfx("whoosh", 0.0, 1.5)
+	if not await _wait(0.6):
+		return
+	_say_line("Time moves again.", 1.0)
+	if not await _wait(0.5):
+		return
+	hud.set_time_stop(false)
+	hud.announce("TIME RESUMES", Color(0.95, 0.95, 1.0))
+	var side := _toward_loser()
 	hud.announce("STAR PLATINA!", Color(0.7, 0.5, 1.0))
 	winner.power_up(6.0)
 	_flash_ring(winner.aim_point(false), Color(0.7, 0.5, 1.0, 0.8), 420.0)
@@ -1939,7 +1966,7 @@ func _road_roller() -> void:
 	# Time stops: a dome of inverted colour bursts out, and the world goes grey-violet.
 	_flash_ring(winner.aim_point(false), Color(0.95, 0.85, 0.3, 0.9), 900.0)
 	_flash_ring(winner.aim_point(false), Color(0.35, 0.2, 0.6, 0.7), 1200.0)
-	var stop := _wash(Color(0.35, 0.22, 0.6), 0.5, 0.3, 60.0, 0.3, 8)
+	hud.set_time_stop(true, false)
 	_frame_around(loser.global_position, 360.0, 520.0)
 	if not await _wait(0.6):
 		return
@@ -1981,6 +2008,7 @@ func _road_roller() -> void:
 		return
 	var roller := _prop(func(canvas: Node2D) -> void: _draw_road_roller(canvas))
 	roller.z_index = 12
+	Effects.popup(self, Vector2(ground_x, ground - 330.0), "ROAD ROLLER!", Color(1.0, 0.8, 0.25), 64, 1.0 / camera.zoom.x, camera.visible_rect())
 	roller.position = Vector2(ground_x, ground - 900.0)
 	roller.rotation = side * -0.4
 	roller.scale = Vector2(side, 1.0)
@@ -2025,7 +2053,7 @@ func _road_roller() -> void:
 	_say_line("Time moves again.", 1.0)
 	if not await _wait(0.4):
 		return
-	stop.queue_free()
+	hud.set_time_stop(false)
 	hud.announce("TIME RESUMES", Color(0.95, 0.95, 1.0))
 	for knife in knives:
 		knife.create_tween().tween_property(knife, "global_position", Vector2(ground_x + randf_range(-70, 70), ground - randf_range(20, 110)), 0.12)
@@ -2043,23 +2071,8 @@ func _road_roller() -> void:
 		knife.queue_free()
 	_put_stand_away()
 	Audio.play("voice_laugh", 2.0, winner.voice_pitch() * 0.9, 0.0)
+	Effects.popup(self, winner.aim_point(true) + Vector2(0, -90), "WRYYYYY!", Color(1.0, 0.85, 0.3), 60, 1.0 / camera.zoom.x, camera.visible_rect())
 	await _wait(0.8)
-
-
-## Purple menace letters drifting up around the winner as he walks in.
-func _menace(color: Color) -> Node2D:
-	var start := Time.get_ticks_msec()
-	var node := _prop(func(canvas: Node2D) -> void:
-		var t := (Time.get_ticks_msec() - start) / 1000.0
-		var font := ThemeDB.fallback_font
-		for k in 6:
-			var rise := fmod(t * 0.5 + k / 6.0, 1.0)
-			var at := winner.global_position + Vector2((-1.0 if k % 2 == 0 else 1.0) * (60.0 + (k % 3) * 22.0), -60.0 - rise * 160.0)
-			canvas.draw_string_outline(font, at, "GO", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, 8, Color(0.08, 0.05, 0.12, 1.0 - rise))
-			canvas.draw_string(font, at, "GO", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, Color(color, 1.0 - rise)))
-	node.z_index = 15
-	get_tree().process_frame.connect(node.queue_redraw)
-	return node
 
 
 ## A ghost of the winner left where he stood.
@@ -2206,7 +2219,13 @@ func _explosion_magic() -> void:
 		var x: float = mage["x"]
 		var foot := Vector2(x, Terrain.height_at(x))
 		var fall: float = mage["lying"]
-		canvas.draw_set_transform(foot, side * fall * PI * 0.5, Vector2(side, 1.0))
+		var face := side
+		if mage.get("carried", false):
+			# Piggyback: up behind him, peeking over his shoulder.
+			face = float(winner.facing)
+			foot = winner.global_position + Vector2(-face * 22.0, -46.0)
+			fall = 0.12
+		canvas.draw_set_transform(foot, face * fall * PI * 0.5, Vector2(face, 1.0))
 		canvas.draw_line(Vector2(-6, 0), Vector2(0, -34), INK, 4.0, true)
 		canvas.draw_line(Vector2(6, 0), Vector2(0, -34), INK, 4.0, true)
 		canvas.draw_colored_polygon(PackedVector2Array([Vector2(-14, -28), Vector2(14, -28), Vector2(8, -68), Vector2(-8, -68)]), Color(0.75, 0.12, 0.15))
@@ -2299,7 +2318,16 @@ func _explosion_magic() -> void:
 	if not await _wait(0.8):
 		return
 	_say_line("Every single time...", 1.2)
-	await _wait(1.0)
+	if not await _wait(0.9):
+		return
+	# He trudges over and hoists her onto his back.
+	await _move_winner(Vector2(float(mage["x"]) + side * 24.0, 0.0), 0.6, 0.0)
+	if _done:
+		return
+	mage["carried"] = true
+	megumyn.z_index = -1
+	winner.victory(true)
+	await _wait(0.6)
 
 
 ## Subaro: the world goes dark and the Witch's shadow rises. Black hands pour up out of
@@ -2455,8 +2483,17 @@ func _kurohitsugi() -> void:
 	var side := _toward_loser()
 	var target := loser.aim_point(false)
 	var ground := Terrain.height_at(loser.global_position.x)
+	# He rises slowly into the air, violet pressure pouring off him.
+	winner.illusion = true
+	winner.power_up(8.0)
+	Audio.play("whoosh", 0.0, 0.35, 0.0)
+	var hover_x := loser.global_position.x - side * 260.0
+	_frame_around(Vector2(hover_x + side * 130.0, ground), 420.0, 560.0)
+	await _move_winner(Vector2(hover_x, Terrain.height_at(hover_x) - 170.0), 1.2, 40.0)
+	if _done:
+		return
 	_frame_around(Vector2(target.x - side * 120.0, ground), 420.0, 480.0)
-	_say_line("Overflowing with turbidity...", 1.4)
+	_say_line("Hado #90... Kurohitsugi.", 1.4)
 	hud.announce("HADO #90  KUROHITSUGI", Color(0.6, 0.35, 0.95))
 	winner.power_up(5.0)
 	# The coffin: black walls close in from the sides and top, edged in violet.
@@ -2511,6 +2548,7 @@ func _kurohitsugi() -> void:
 	if not await _wait(0.5):
 		return
 	hud.announce("HADO #99  GORYUTENMETSU", Color(0.85, 0.4, 1.0))
+	_say_line("Hado #99... Goryutenmetsu.", 1.4)
 	_frame_around(Vector2(target.x, ground), 520.0, 700.0)
 	# Two beasts of violet flame rise from the ground either side and snap shut.
 	var beasts := {"rise": 0.0, "bite": 0.0}
@@ -2562,6 +2600,8 @@ func _kurohitsugi() -> void:
 	fade.tween_callback(maws.queue_free)
 	if not await _wait(0.8):
 		return
+	await _move_winner(Vector2(winner.global_position.x, 0.0), 0.6, 0.0)
+	winner.illusion = false
 	_say_line("Do not use strong words.", 1.4)
 	await _wait(1.0)
 
