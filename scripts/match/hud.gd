@@ -787,8 +787,9 @@ func _build_title() -> Control:
 	plate.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	plate.offset_left = -270
 	plate.offset_right = 270
-	plate.offset_top = -96
+	plate.offset_top = -120
 	plate.offset_bottom = 0
+	plate.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	plate.alignment = BoxContainer.ALIGNMENT_END
 	plate.add_theme_constant_override("separation", 2)
 	var name_row := HBoxContainer.new()
@@ -810,6 +811,10 @@ func _build_title() -> Control:
 	plate.add_child(_showcase_weapon)
 	_showcase_special = UiStyle.game_label("", 16)
 	_showcase_special.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Wrap to the pedestal's width so a long description can't stretch the plate sideways.
+	_showcase_special.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_showcase_special.custom_minimum_size.x = 520
+	_showcase_special.max_lines_visible = 2
 	_showcase_special.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
 	plate.add_child(_showcase_special)
 	stage.add_child(plate)
