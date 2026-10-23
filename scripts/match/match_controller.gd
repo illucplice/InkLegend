@@ -156,6 +156,7 @@ const THROW_SOUNDS := {
 	&"byakurai": ["zap", 1.8],
 	&"dark_hado": ["zap", 0.9],
 	&"zoltraak": ["zap", 1.3],
+	&"mana_orb": ["zap", 1.5],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -232,6 +233,11 @@ var _icefall := {}
 var _swapped: Array = []
 ## Frierin's Mana Analysis: she missed last turn, so this turn shows her whole aim line.
 var _analysis := [false, false]
+## Frierin's orb in flight, waiting to drop its beam; the AI's timing slack; and
+## whether Mana Analysis shows a drop guide for this throw.
+var _drop_orb: Projectile
+var _drop_ai_offset := 0.0
+var _drop_guide := false
 const LUCKY_THROWS := 2
 
 ## Subaro's Emilla icefall: the target circle's size, sweep speed, and how long you get.
@@ -240,6 +246,13 @@ const ICEFALL_SPEED := 650.0
 const ICEFALL_TIME := 6.0
 const ICEFALL_DROPS := 3
 const ZOLTRAAK_CIRCLES := 7
+## Frierin's dropped Zoltraak beam: body and head damage.
+const ZOLTRAAK_BEAM_DAMAGE := [22, 38]
+## With Mana Release, the beam bursts over this radius.
+const ZOLTRAAK_BURST_RADIUS := 110.0
+## The volley: how high she flies, and each sphere's little burst.
+const ZOLTRAAK_SKY := 320.0
+const ZOLTRAAK_VOLLEY_BURST := 55.0
 ## Uryo's Vollstandig: empowered throws, the heal, and how hard the arrows hit.
 const VOLL_THROWS := 3
 const VOLL_HEAL := 15
@@ -461,6 +474,7 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_drop_orb = null
 	_mirror_ko = false
 	if not _icefall.is_empty() and is_instance_valid(_icefall.get("marker")):
 		(_icefall["marker"] as Node2D).queue_free()
@@ -583,7 +597,10 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		_lightning(at)
 	if projectile.get_meta("elephant", false):
 		_elephant_drop(at)
-	if projectile.get_meta("icefall", false):
+	if projectile.get_meta("zoltraak", false) or projectile.get_meta("zoltraak_drop", false):
+		Effects.burst(_actors, at, Color(0.75, 0.6, 1.0), 26, 500.0, 180.0, 1.2)
+		Effects.burst(_actors, at, Color.WHITE, 10, 260.0, 180.0, 0.9)
+	elif projectile.get_meta("icefall", false):
 		Effects.burst(_actors, at, Color(0.8, 0.94, 1.0), 60, 800.0, 180.0, 1.8)
 		Effects.burst(_actors, at, Color.WHITE, 26, 400.0, 180.0, 1.4)
 		Effects.popup(_actors, at + Vector2(0, -50), "SHATTER!", Color(0.7, 0.9, 1.0), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -591,7 +608,7 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
 		Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
 		Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
-	Audio.play("boom", 0.0, 1.0, 0.1)
+	Audio.play("zap" if projectile.get_meta("zoltraak", false) else "boom", -4.0 if projectile.get_meta("zoltraak", false) else 0.0, 1.0, 0.1)
 	Audio.play("ground", 2.0, 0.45, 0.0)
 	Device.vibrate(90)
 	Audio.play("hit_body", -2.0, 0.6, 0.0)
@@ -610,7 +627,8 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		var obstacle := child as Obstacle
 		if obstacle != null and not obstacle.is_destroyed and (obstacle == collider or obstacle.rect.grow(radius * 0.5).has_point(at)):
 			obstacle.damage(2)
-	_blast_crater(at, radius)
+	if not projectile.get_meta("zoltraak", false):
+		_blast_crater(at, radius)
 
 
 
@@ -1320,10 +1338,14 @@ func _process_icefall(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _icefall.is_empty() or (_icefall["fighter"] as Fighter).is_ai:
-		return
 	var pressed: bool = (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event.is_action_pressed("ui_accept")
-	if pressed:
+	if not pressed:
+		return
+	if _drop_orb != null and is_instance_valid(_drop_orb) and not _drop_orb.thrower.is_ai and state == State.FLYING:
+		get_viewport().set_input_as_handled()
+		_drop_beam()
+		return
+	if not _icefall.is_empty() and not (_icefall["fighter"] as Fighter).is_ai:
 		get_viewport().set_input_as_handled()
 		_drop_icefall()
 
@@ -1379,14 +1401,20 @@ func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
 	beam.max_speed = 2200.0
 	beam.size = 34.0
 	beam.color = Color(0.7, 0.4, 1.0)
-	var a := deg_to_rad(angle)
-	var direction := Vector2(cos(a) * fighter.facing, -sin(a))
-	var across := direction.orthogonal()
-	# Every beam converges on the aim line at the enemy's distance.
-	var reach := absf(_icefall_target_x() - fighter.position.x) / maxf(absf(direction.x), 0.25)
-	var focus := fighter.throw_origin() + direction * reach
 	var id := _match_id
 	_launching = true
+	# She rises high into the sky, over every wall and mountain.
+	var ground_y := fighter.position.y
+	var rise := fighter.create_tween()
+	rise.tween_property(fighter, "position:y", ground_y - ZOLTRAAK_SKY, 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	Audio.play("whoosh", 0.0, 0.5, 0.0)
+	await rise.finished
+	if id != _match_id:
+		return
+	# Every sphere converges on the target from up there.
+	var focus: Vector2 = _practice_target.global_position if mode == Mode.PRACTICE and _practice_target != null else fighters[1 - current].aim_point(false)
+	var direction := (focus - fighter.throw_origin()).normalized()
+	var across := direction.orthogonal()
 	var circles: Array[Node2D] = []
 	for i in ZOLTRAAK_CIRCLES:
 		var spot := fighter.throw_origin() + across * (i - (ZOLTRAAK_CIRCLES - 1) / 2.0) * 46.0 - direction * 20.0
@@ -1418,6 +1446,7 @@ func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
 		projectile.pierce = true
 		projectile.set_trail_color(Color(0.8, 0.9, 1.0))
 		projectile.set_meta("zoltraak", true)
+		projectile.explode_radius = ZOLTRAAK_VOLLEY_BURST
 		_track(projectile)
 		Audio.play("zap", -2.0, 1.2, 0.05)
 		var fade := circles[i].create_tween()
@@ -1426,6 +1455,7 @@ func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
 		await get_tree().create_timer(0.1, false).timeout
 		if id != _match_id:
 			return
+# And floats back down.	var land := fighter.create_tween()	land.tween_property(fighter, "position:y", ground_y, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)	await land.finished	if id != _match_id:		return
 	_launching = false
 	if _in_flight.is_empty() and state == State.FLYING:
 		_after_throw()
@@ -1442,6 +1472,89 @@ func _release_mana(fighter: Fighter) -> void:
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.8, 0.9, 1.0), 70, 800.0, 180.0, 2.2)
 	Audio.play("special_ready", 2.0, 0.8, 0.0)
 	_camera.shake(0.6)
+
+
+## Frierin's basic, step two: her mana orb is in flight, waiting for the press that
+## fires a Zoltraak straight down from it.
+func _arm_drop_orb(projectile: Projectile, fighter: Fighter) -> void:
+	_drop_orb = projectile
+	var error: float = [120.0, 70.0, 35.0, 15.0][clampi(_last_difficulty, 0, 3)]
+	_drop_ai_offset = rng.randf_range(-error, error)
+	if not fighter.is_ai:
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "PRESS TO DROP ZOLTRAAK!", Color(0.8, 0.7, 1.0), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	if _drop_guide:
+		# Mana Analysis: a faint line under the orb shows where the beam would land.
+		var guide := Node2D.new()
+		guide.z_index = 5
+		guide.draw.connect(func() -> void:
+			if not is_instance_valid(projectile) or not projectile.is_flying():
+				return
+			var top := projectile.global_position
+			var bottom := Vector2(top.x, Terrain.height_at(top.x))
+			guide.draw_dashed_line(top, bottom, Color(0.8, 0.7, 1.0, 0.7), 3.0, 14.0)
+			guide.draw_arc(bottom, 14.0, 0.0, TAU, 20, Color(0.8, 0.7, 1.0, 0.8), 2.5, true))
+		_actors.add_child(guide)
+		get_tree().process_frame.connect(guide.queue_redraw)
+		projectile.tree_exiting.connect(guide.queue_free)
+
+
+## Each frame: the AI drops when the orb is over its target (give or take).
+func _watch_drop_orb() -> void:
+	if _drop_orb == null:
+		return
+	if not is_instance_valid(_drop_orb) or not _drop_orb.is_flying():
+		_drop_orb = null
+		return
+	if not _drop_orb.thrower.is_ai:
+		return
+	var aim_x := _icefall_target_x() + _drop_ai_offset
+	if absf(_drop_orb.global_position.x - aim_x) < 26.0:
+		_drop_beam()
+
+
+## The Zoltraak: a beam fires straight down from the orb, which is spent.
+func _drop_beam() -> void:
+	var orb := _drop_orb
+	_drop_orb = null
+	if not is_instance_valid(orb) or not orb.is_flying():
+		return
+	var fighter := orb.thrower
+	var top := orb.global_position
+	var beam := orb.weapon.duplicate() as WeaponData
+	beam.shape = &"zoltraak"
+	beam.gravity_scale = 0.0
+	beam.max_speed = 3200.0
+	beam.size = 60.0
+	beam.color = Color(0.75, 0.88, 1.0)
+	beam.body_damage = ZOLTRAAK_BEAM_DAMAGE[0]
+	beam.head_damage = ZOLTRAAK_BEAM_DAMAGE[1]
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(beam, fighter, top, Vector2(0, beam.max_speed), 0.0)
+	projectile.target = orb.target
+	projectile.set_trail_color(Color(0.8, 0.9, 1.0))
+	projectile.set_meta("zoltraak_drop", true)
+	# Mana Release: the beam lands in a wide burst.
+	var released := fighter.mana_released
+	if released:
+		projectile.explode_radius = ZOLTRAAK_BURST_RADIUS
+	_track(projectile)
+	# A flash of light down the whole line.
+	var flash := Node2D.new()
+	flash.z_index = 19
+	var bottom := Vector2(top.x, Terrain.height_at(top.x))
+	flash.draw.connect(func() -> void:
+		var wide := 2.0 if released else 1.0
+		flash.draw_line(top, bottom, Color(0.75, 0.88, 1.0, 0.4), 22.0 * wide, true)
+		flash.draw_line(top, bottom, Color.WHITE, 6.0 * wide, true))
+	_actors.add_child(flash)
+	var fade := flash.create_tween()
+	fade.tween_property(flash, "modulate:a", 0.0, 0.35)
+	fade.tween_callback(flash.queue_free)
+	Effects.burst(_actors, top, Color(0.8, 0.7, 1.0), 20, 300.0, 180.0, 1.0)
+	Audio.play("zap", 0.0, 1.1, 0.05)
+	orb.visible = false
+	orb._finish(false)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1935,6 +2048,7 @@ func _process(delta: float) -> void:
 ## Slow-mo cam: if a throw is about to hit a head, slow time and swoop in on it.
 func _physics_process(_delta: float) -> void:
 	_pull_toward_purple(_delta)
+	_watch_drop_orb()
 	_watch_illusion()
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
@@ -2048,6 +2162,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 
 func _throw(angle: float, power: float) -> void:
 	_hud.hide_tip()
+	_drop_guide = _analysis[current]
 	_analysis[current] = false
 	state = State.FLYING
 	_hud.set_turn("")
@@ -2169,6 +2284,8 @@ func _throw(angle: float, power: float) -> void:
 			projectile.stop_short = true
 			projectile.set_meta("timestop", true)
 			projectile.stopped_short.connect(_on_stopped_short)
+		if weapon.id == &"zoltraak" and special == &"" and i == 0:
+			_arm_drop_orb(projectile, fighter)
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -2758,7 +2875,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"barrage_zoltraak"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.

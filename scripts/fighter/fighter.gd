@@ -241,7 +241,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado", &"zoltraak"]
+	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb"]
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:

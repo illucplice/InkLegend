@@ -653,7 +653,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai", &"dark_hado", &"zoltraak":
+		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))
