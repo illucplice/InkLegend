@@ -10,6 +10,8 @@ const CANCEL_RADIUS := 28.0
 ## Aim guide length in seconds of flight; Settings can make it longer.
 const PREVIEW_TIME := 0.55
 const LONG_PREVIEW_TIME := 1.1
+## How far the guide reaches at the last Mana Analysis step before full.
+const ANALYSIS_PREVIEW_TIME := 2.4
 const PREVIEW_DOTS := 9
 const KEY_ANGLE_SPEED := 45.0
 const KEY_POWER_SPEED := 0.5
@@ -23,6 +25,8 @@ var wind := 0.0
 var straight := false
 ## Time stop: show the whole flight, out to where it lands, with a marker there.
 var full_guide := false
+## Frierin's Mana Analysis: 0 is the normal guide, 1 reaches all the way.
+var guide_boost := 0.0
 var min_angle := Rules.MIN_ANGLE
 ## An armed special: its name shows on the readout and the guide takes its colour.
 var special_name := ""
@@ -134,6 +138,7 @@ func _draw() -> void:
 		_draw_power_gauge(inv_zoom, alpha)
 		return
 	var guide_time := LONG_PREVIEW_TIME if Save.long_aim_guide else PREVIEW_TIME
+	guide_time = lerpf(guide_time, ANALYSIS_PREVIEW_TIME, guide_boost)
 	var dots := int(PREVIEW_DOTS * guide_time / PREVIEW_TIME)
 	for i in range(1, dots + 1):
 		var t := guide_time * i / dots

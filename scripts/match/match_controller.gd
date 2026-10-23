@@ -234,7 +234,7 @@ var _icefall := {}
 ## Aizon and the enemy while Kyoka Suigetsu has them in each other's places.
 var _swapped: Array = []
 ## Frierin's Mana Analysis: she missed last turn, so this turn shows her whole aim line.
-var _analysis := [false, false]
+var _analysis := [0, 0]
 ## Frierin's orb in flight, waiting to drop its beam; the AI's timing slack; and
 ## whether Mana Analysis shows a drop guide for this throw.
 var _drop_orb: Projectile
@@ -267,12 +267,14 @@ const ILLUSION_TRIGGER := 160.0
 ## Aizon gets this much health back each time Kyoka Suigetsu fools someone.
 const KYOKA_HEAL := 5
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
-const EVOLVE_HEALTH := 40
+const EVOLVE_HEALTH := 50
 const EVOLVED_DAMAGE := 1.5
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 60
-## In Mana Release her barrier takes this share off every enemy hit.
-const MANA_BARRIER := 0.5
+## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
+const MANA_BARRIER := 0.75
+## Mana Analysis: each miss lengthens her aim guide one step, up to full.
+const ANALYSIS_STEPS := 4
 ## Who stands in for the enemy when you test a fatality in Target Practice.
 const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
@@ -414,7 +416,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_lucky = [0, 0]
 	_empowered = [0, 0]
 	_swapped = []
-	_analysis = [false, false]
+	_analysis = [0, 0]
 	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
@@ -2044,9 +2046,11 @@ func _begin_turn() -> void:
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
-		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current]
-		if _analysis[current]:
-			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "MANA ANALYSIS", Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current] >= ANALYSIS_STEPS
+		_aim.guide_boost = float(_analysis[current]) / ANALYSIS_STEPS
+		if _analysis[current] > 0:
+			var label := "MANA ANALYSIS: FULL" if _analysis[current] >= ANALYSIS_STEPS else "MANA ANALYSIS %d / %d" % [_analysis[current], ANALYSIS_STEPS]
+			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), label, Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		_tutorial_tip()
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
@@ -2235,8 +2239,10 @@ func _on_player_throw(angle: float, power: float) -> void:
 
 func _throw(angle: float, power: float) -> void:
 	_hud.hide_tip()
-	_drop_guide = _analysis[current] or fighters[current].mana_released
-	_analysis[current] = false
+	# A full Mana Analysis shows the drop guide too, and is then used up.
+	_drop_guide = _analysis[current] >= ANALYSIS_STEPS
+	if _drop_guide:
+		_analysis[current] = 0
 	state = State.FLYING
 	_hud.set_turn("")
 	_hud.set_special(null, 0.0, false)
@@ -2413,7 +2419,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
 	if target.mana_released and not mirrored and side >= 0 and side != fighters.find(target):
 		damage = ceili(damage * MANA_BARRIER)
-		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -50%", Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -%d%%" % roundi((1.0 - MANA_BARRIER) * 100.0), Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, projectile.global_position, Color(0.7, 0.85, 1.0), 26, 420.0, 180.0, 1.2)
 		Audio.play("clang", -4.0, 1.5, 0.0)
 	if target.shielded:
@@ -2700,7 +2706,7 @@ func _after_throw() -> void:
 	if not _turn_hit:
 		_combo[current] = 0
 		if fighters[current].mana_released:
-			_analysis[current] = true
+			_analysis[current] = mini(_analysis[current] + 1, ANALYSIS_STEPS)
 		if _throw_closest < CLOSE_CALL_DISTANCE and _held.is_empty():
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
 	if mode == Mode.PRACTICE and _hud.time_stopped():
@@ -3096,7 +3102,7 @@ func _finisher_launch(angle: float, power: float) -> void:
 		_basic_traits(projectile, weapon, _finisher["loser"])
 		_hook_finisher(projectile)
 		if weapon.id == &"zoltraak" and i == 0:
-			_drop_guide = winner.mana_released
+			_drop_guide = false
 			_arm_drop_orb(projectile, winner)
 	state = State.FLYING
 

@@ -16,6 +16,6 @@ cape_color = Color(0.95, 0.95, 0.98, 1)
 hair_color = Color(0.9, 0.9, 0.94, 1)
 style = &"elf"
 special_name = "Zoltraak Volley"
-special_description = "Basic: throw a mana orb, then press while it flies to fire a Zoltraak straight down from it. Special: she flies high into the sky and rains a volley of bursting mana spheres down on them, over every wall. Mana Release at 60 HP: her drop beam bursts wide, a barrier halves the first hit each enemy turn, and after a miss she gets her full aim line and a drop guide."
+special_description = "Basic: throw a mana orb, then press while it flies to fire a Zoltraak straight down from it. Special: she flies high into the sky and rains a volley of bursting mana spheres down on them, over every wall. Mana Release at 60 HP: her drop beam bursts wide, a barrier blocks a quarter of every enemy hit, and Mana Analysis lengthens her aim guide a step with every miss; at full it reaches the ground and shows where the beam would land, then resets."
 price = 1000
 rarity = &"mythic"
