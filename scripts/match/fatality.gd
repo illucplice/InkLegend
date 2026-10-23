@@ -23,7 +23,7 @@ const NAMES := {
 	&"uryo": "SPRENGER!", &"yuj": "DISMANTLED!", &"megu": "MAHORAGA!", &"goj": "INFINITY!", &"ryo": "METSU HADOKEN!", &"akum": "SHUN GOKU SATSU!",
 	&"thundr": "STRUCK DOWN!", &"capt": "SHIELD SLICED!", &"spydr": "WEB SMASHED!", &"batz": "ROADKILL!",
 	&"jotar": "ORA ORA ORA!", &"dyo": "WRYYY!",
-	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!",
+	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!", &"frierin": "REALITY SHATTER!",
 }
 
 var _screamed := false
@@ -136,6 +136,8 @@ func _run(intro: bool) -> void:
 			await _return_by_death()
 		&"aizon":
 			await _kurohitsugi()
+		&"frierin":
+			await _zoltraak_storm()
 		_:
 			await _kaboom()
 	if _done:
@@ -2622,6 +2624,185 @@ func _bubble(at: Callable, text: String, seconds: float) -> void:
 	life.tween_interval(seconds)
 	life.tween_property(bubble, "modulate:a", 0.0, 0.25)
 	life.tween_callback(bubble.queue_free)
+
+
+## Frierin: the camera closes in on her calm face. A black hole ringed in fire forms
+## between her hands and swallows them; then Reality Shatter: the whole view cracks like
+## glass and bursts into falling shards, and they come back out in fragments.
+func _zoltraak_storm() -> void:
+	var target := loser.aim_point(false)
+	var ground := Terrain.height_at(loser.global_position.x)
+	# She floats up and drifts in close, hair streaming.
+	var side := _toward_loser()
+	var hover_x := loser.global_position.x - side * 380.0
+	_frame_around(Vector2(hover_x + side * 190.0, ground), 460.0, 620.0)
+	Audio.play("whoosh", 0.0, 0.4, 0.0)
+	await _move_winner(Vector2(hover_x, Terrain.height_at(hover_x) - 200.0), 1.2, 40.0)
+	if _done:
+		return
+	# A close look at her face, cold and calm.
+	var face := winner.aim_point(true)
+	var close := PackedVector2Array([face + Vector2(-70, -60), face + Vector2(70, 50)])
+	camera.focus_on(func() -> PackedVector2Array: return close, 30.0, 3.2)
+	winner.power_up(8.0)
+	winner.aiming = true
+	winner.aim_angle = 70.0
+	winner.aim_power = 1.0
+	_say_line("...", 0.9)
+	if not await _wait(1.1):
+		return
+	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
+	_frame_around(Vector2(target.x, ground), 420.0, 700.0)
+	# The Void: the world goes to deep starry blue, and a black hole ringed in fire forms
+	# between her hands.
+	var b := loser.body_points()
+	var space := _wash(Color(0.02, 0.04, 0.14), 0.7, 0.4, 60.0, 0.4, 8)
+	var stars := _prop(func(canvas: Node2D) -> void:
+		var view := camera.visible_rect()
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7
+		for k in 70:
+			var at := view.position + Vector2(rng.randf() * view.size.x, rng.randf() * view.size.y)
+			canvas.draw_circle(at, rng.randf_range(1.0, 2.5), Color(0.8, 0.9, 1.0, rng.randf_range(0.4, 0.9)), true, -1.0, true))
+	stars.z_index = 9
+	var hole := {"r": 2.0, "at": winner.throw_origin() + Vector2(_toward_loser() * 18.0, 0.0)}
+	var void_node := _prop(func(canvas: Node2D) -> void:
+		var r: float = hole["r"]
+		var at: Vector2 = hole["at"]
+		var spin := Time.get_ticks_msec() * 0.006
+		canvas.draw_circle(at, r * 2.4, Color(1.0, 0.5, 0.15, 0.12), true, -1.0, true)
+		canvas.draw_set_transform(at, sin(spin) * 0.05, Vector2(1.0, 0.28))
+		for ring in 3:
+			canvas.draw_arc(Vector2.ZERO, r * (1.5 + ring * 0.35), 0.0, TAU, 48, Color(1.0, 0.75 - ring * 0.2, 0.25, 0.85 - ring * 0.2), r * (0.3 - ring * 0.07), true)
+		canvas.draw_set_transform(Vector2.ZERO)
+		canvas.draw_circle(at, r, Color.BLACK, true, -1.0, true)
+		canvas.draw_arc(at, r * 1.02, 0.0, TAU, 32, Color(1.0, 0.85, 0.5, 0.9), maxf(1.5, r * 0.08), true))
+	void_node.z_index = 20
+	get_tree().process_frame.connect(void_node.queue_redraw)
+	var form := create_tween()
+	form.tween_method(func(r: float) -> void: hole["r"] = r, 2.0, 22.0, 0.9).set_trans(Tween.TRANS_SINE)
+	Audio.play("zap", 0.0, 0.35, 0.0)
+	Audio.play("ko", -4.0, 0.4, 0.0)
+	await form.finished
+	if _done:
+		return
+	if not await _wait(0.3):
+		return
+	# She lets it go: it drifts onto them, swelling, and swallows them whole.
+	var fly := create_tween()
+	fly.tween_method(func(t: float) -> void:
+		hole["at"] = (hole["at"] as Vector2).lerp(target, t)
+		hole["r"] = lerpf(22.0, 70.0, t), 0.0, 1.0, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	Audio.play("whoosh", 2.0, 0.3, 0.0)
+	await fly.finished
+	if _done:
+		return
+	var pull := create_tween().set_parallel()
+	pull.tween_property(loser, "scale", Vector2(0.05, 0.05), 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	pull.tween_property(loser, "rotation", 6.0, 0.6)
+	pull.tween_property(loser, "global_position", target + Vector2(0, 40), 0.6)
+	_spray(target, Vector2.UP, 40, 300.0, 3.0)
+	camera.shake(0.7)
+	await pull.finished
+	if _done:
+		return
+	_hide_loser()
+	loser.scale = Vector2.ONE
+	loser.rotation = 0.0
+	var collapse := create_tween()
+	collapse.tween_method(func(r: float) -> void: hole["r"] = r, 70.0, 6.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	await collapse.finished
+	if _done:
+		return
+	void_node.queue_free()
+	_wash(Color.WHITE, 0.7, 0.03, 0.1, 0.3, 18)
+	_impact(target, 1.3)
+	Effects.burst(self, target, Color(1.0, 0.75, 0.35), 60, 900.0, 180.0, 2.2)
+	space.queue_free()
+	stars.queue_free()
+	# Reality cracks: lines spidering out across the whole view from where they stand.
+	var view := camera.visible_rect()
+	var cracks: Array = []
+	for k in 14:
+		var a := k * TAU / 14.0 + randf_range(-0.15, 0.15)
+		var line := PackedVector2Array([target])
+		var at := target
+		var heading := a
+		for step in 9:
+			heading += randf_range(-0.35, 0.35)
+			at += Vector2.from_angle(heading) * randf_range(60.0, 140.0)
+			line.append(at)
+		cracks.append(line)
+	var crack := {"t": 0.0}
+	var glass := _prop(func(canvas: Node2D) -> void:
+		var t: float = crack["t"]
+		for line: PackedVector2Array in cracks:
+			var shown := PackedVector2Array()
+			var count := maxi(2, int(ceil(line.size() * minf(1.0, t))))
+			for i in count:
+				shown.append(line[i])
+			canvas.draw_polyline(shown, Color(0.1, 0.08, 0.14, 0.8), 5.0, true)
+			canvas.draw_polyline(shown, Color(1, 1, 1, 0.95), 2.0, true)
+		canvas.draw_rect(view, Color(1, 1, 1, 0.08 * minf(1.0, t))))
+	glass.z_index = 25
+	var spread := create_tween()
+	spread.tween_method(func(t: float) -> void:
+		crack["t"] = t
+		glass.queue_redraw(), 0.0, 1.0, 0.35)
+	Audio.play("clang", 6.0, 0.6, 0.0)
+	camera.shake(0.6)
+	await spread.finished
+	if _done:
+		return
+	if not await _wait(0.35):
+		return
+	# It shatters: shards of the view fall away, and what the Void took comes out in pieces.
+	for part: Array in _parts(b):
+		for piece in 3:
+			var bit := PackedVector2Array()
+			for p: Vector2 in part[0]:
+				bit.append(p + Vector2(randf_range(-4, 4), randf_range(-4, 4)))
+			_gib(bit, Vector2(randf_range(-700, 700), randf_range(-700, 100)), randf_range(-16, 16), 0.8, part[1] * 0.4)
+	_spray(target, Vector2.UP, 70, 900.0, 1.6)
+	var shards := []
+	for k in 18:
+		var c := Vector2(randf_range(view.position.x, view.end.x), randf_range(view.position.y, view.end.y))
+		var shard := PackedVector2Array()
+		for corner in 3:
+			shard.append(c + Vector2.from_angle(randf_range(0.0, TAU)) * randf_range(30.0, 90.0))
+		shards.append({"poly": shard, "fall": randf_range(200.0, 600.0), "spin": randf_range(-2.0, 2.0)})
+	var drop := {"t": 0.0}
+	var pieces := _prop(func(canvas: Node2D) -> void:
+		var t: float = drop["t"]
+		for s: Dictionary in shards:
+			var poly: PackedVector2Array = s["poly"]
+			var c := (poly[0] + poly[1] + poly[2]) / 3.0
+			var moved := PackedVector2Array()
+			for p: Vector2 in poly:
+				moved.append(c + (p - c).rotated(float(s["spin"]) * t) + Vector2(0, float(s["fall"]) * t * t))
+			canvas.draw_colored_polygon(moved, Color(0.85, 0.9, 1.0, 0.35 * (1.0 - t)))
+			moved.append(moved[0])
+			canvas.draw_polyline(moved, Color(1, 1, 1, 0.9 * (1.0 - t)), 2.0, true))
+	pieces.z_index = 26
+	glass.queue_free()
+	Audio.play("crunch", 6.0, 1.3, 0.0)
+	Audio.play("boom", 2.0, 1.2, 0.0)
+	_wash(Color.WHITE, 0.5, 0.02, 0.05, 0.3, 24)
+	var fall := create_tween()
+	fall.tween_method(func(t: float) -> void:
+		drop["t"] = t
+		pieces.queue_redraw(), 0.0, 1.0, 1.0)
+	await fall.finished
+	if _done:
+		return
+	pieces.queue_free()
+	await _move_winner(Vector2(winner.global_position.x, 0.0), 0.6, 0.0)
+	if _done:
+		return
+	winner.aiming = false
+	winner.victory(true)
+	_say_line("Humans really do live such short lives.", 1.6)
+	await _wait(1.2)
 
 
 ## Moves the winner to `to` over `seconds`, hopping `arc` px high on the way.

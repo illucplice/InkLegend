@@ -70,6 +70,10 @@ var pinned := false
 var illusion := false
 ## Aizon has evolved (once per match): wings, a white robe, harder hits.
 var evolved := false
+## Frierin's barrier: halves the first hit she takes each enemy turn.
+var barrier_ready := true
+## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.
+var mana_released := false
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
 var powered := false
@@ -237,7 +241,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado"]
+	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado", &"zoltraak"]
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -393,6 +397,8 @@ func _draw() -> void:
 		_draw_light_wings(p)
 	if evolved and not is_knocked_out():
 		_draw_butterfly_wings(p)
+	if mana_released and not is_knocked_out():
+		_draw_mana_release(p)
 	if illusion and not is_knocked_out():
 		_draw_reiatsu(p)
 	if form == &"ssj3" and _is_anime() and not is_knocked_out():
@@ -427,7 +433,7 @@ func _draw() -> void:
 	if _skin_head():
 		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
 		if data.style in HERO_STYLES:
-			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13)}[data.style]
+			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13), &"elf": Color(0.3, 0.2, 0.15)}[data.style]
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
@@ -992,7 +998,7 @@ func _skin_head() -> bool:
 
 # --- Uryo, Yuj, Megu, Goj, Ryo and Akum ---
 
-const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord"]
+const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf"]
 
 
 ## Special charged (or firing): changes Goj's eyes, Yuj's face and so on.
@@ -1195,6 +1201,8 @@ func _new_aura_color() -> Color:
 			return Color(0.7, 0.85, 1.0)
 		&"lord":
 			return Color(0.6, 0.35, 0.95)
+		&"elf":
+			return Color(0.75, 0.88, 1.0)
 		&"quincy":
 			return Color(0.55, 0.85, 1.0)
 		&"jujutsu":
@@ -1274,7 +1282,7 @@ func _draw_bleeding(p: Dictionary) -> void:
 
 # --- Thundr, Capt, Spydr and Batz ---
 
-const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord"]
+const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf"]
 
 
 ## Outfits for the four heroes.
@@ -1399,6 +1407,19 @@ func _draw_hero_outfit(p: Dictionary) -> void:
 			var trim := collar.duplicate()
 			trim.append(collar[0])
 			draw_polyline(trim, Color(0.75, 0.75, 0.8), 1.5, true)
+		&"elf":
+			# Frierin: a white mage's coat trimmed in gold over black, a short white skirt
+			# and dark tights.
+			_draw_pants(p, Color(0.12, 0.11, 0.14))
+			var hem := hip + Vector2(0, 16)
+			_poly([hip + side * 13.0, hip - side * 13.0, hem - side * 19.0, hem + side * 19.0], Color(0.96, 0.96, 0.98), 2.0)
+			draw_line(hem - side * 18.0, hem + side * 18.0, Color(0.85, 0.7, 0.3), 2.5, true)
+			_poly(torso, Color(0.96, 0.96, 0.98), 2.5)
+			draw_line(neck, hip, Color(0.12, 0.11, 0.14), 4.0, true)
+			draw_line(neck + side * 10.0, hip + side * 11.0, Color(0.85, 0.7, 0.3), 2.0, true)
+			draw_line(neck - side * 10.0, hip - side * 11.0, Color(0.85, 0.7, 0.3), 2.0, true)
+			_poly([neck + side * 12.0, neck + side * 6.0 + spine * 10.0, neck - side * 6.0 + spine * 10.0, neck - side * 12.0], Color(0.96, 0.96, 0.98), 1.5)
+			draw_circle(neck.lerp(hip, 0.2), 2.5, Color(0.85, 0.7, 0.3), true, -1.0, true)
 
 
 ## A cape hanging from the shoulders down the back, rippling.
@@ -1499,6 +1520,31 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_polyline(PackedVector2Array([Vector2(r * 0.45, -r * 0.9), Vector2(r * 0.7, -r * 0.45), Vector2(r * 0.55, r * 0.05)]), data.hair_color.darkened(0.15), 2.5, true)
 			draw_line(Vector2(r * 0.3, -r * 0.12), Vector2(r * 0.75, -r * 0.16), OUTLINE, 2.0, true)
 			draw_line(Vector2(r * 0.45, r * 0.4), Vector2(r * 0.7, r * 0.36), OUTLINE, 1.5, true)
+		&"elf":
+			# Long silver twin-tails, a fringe, a pointed elf ear and a red drop earring.
+			var hair := data.hair_color
+			for tail: float in [0.0, 1.0]:
+				var root := Vector2(-r * (0.7 + tail * 0.25), -r * (0.55 - tail * 0.2))
+				var strand := PackedVector2Array([root + Vector2(r * 0.25, -r * 0.2), root + Vector2(-r * 0.55, r * 0.6), root + Vector2(-r * 0.75, r * 2.4), root + Vector2(-r * 0.4, r * 4.2), root + Vector2(-r * 0.1, r * 2.4), root + Vector2(r * 0.05, r * 0.6)])
+				_poly(strand, hair.darkened(0.06 * tail), 1.5)
+				draw_circle(root, 3.0, Color(0.85, 0.7, 0.3), true, -1.0, true)
+			var cap := PackedVector2Array()
+			for i in 13:
+				cap.append(Vector2.from_angle(lerpf(PI * 1.0, TAU, i / 12.0)) * (r + 1.5))
+			cap.append(Vector2(r * 0.95, -r * 0.05))
+			cap.append(Vector2(r * 0.5, -r * 0.35))
+			cap.append(Vector2(r * 0.2, -r * 0.1))
+			cap.append(Vector2(-r * 0.3, -r * 0.35))
+			cap.append(Vector2(-r * 0.9, r * 0.2))
+			if Geometry2D.triangulate_polygon(cap).is_empty():
+				cap = Geometry2D.convex_hull(cap)
+				cap.remove_at(cap.size() - 1)
+			_poly(cap, hair, 1.5)
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.15, -r * 0.05), Vector2(-r * 0.85, -r * 0.55), Vector2(-r * 0.05, r * 0.25)]), data.skin_color)
+			draw_polyline(PackedVector2Array([Vector2(-r * 0.15, -r * 0.05), Vector2(-r * 0.85, -r * 0.55), Vector2(-r * 0.05, r * 0.25)]), OUTLINE, 1.5, true)
+			draw_line(Vector2(r * 0.35, -r * 0.1), Vector2(r * 0.7, -r * 0.12), OUTLINE, 2.0, true)
+			draw_circle(Vector2(r * 0.55, -r * 0.08), 1.6, Color(0.3, 0.6, 0.45), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
 
 
 # --- Stands (Jotar and Dyo) ---
@@ -1524,7 +1570,7 @@ func _draw_heart(at: Vector2, size: float, color: Color) -> void:
 
 ## How high their voice is: big bruisers growl low, little ones squeak.
 const VOICE_PITCH := {
-	&"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
+	&"frierin": 1.18, &"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
 	&"bomba": 0.86, &"ryo": 0.88, &"egita": 0.98, &"goj": 0.95, &"ichi": 0.92, &"uryo": 1.02, &"megu": 0.96,
 	&"yuj": 1.0, &"gok": 1.04, &"lufi": 1.12, &"spydr": 1.1, &"rango": 0.9, &"quotuk": 1.0, &"fentuk": 1.08,
 	&"klakla": 1.35, &"pipmo": 1.5, &"plopo": 1.6,
@@ -1678,7 +1724,7 @@ const VICTORY := {
 	&"akum": [&"arms_crossed", &"back_turned"], &"thundr": [&"fist_up", &"kneel"], &"capt": [&"hands_hips", &"thumbs_up"],
 	&"spydr": [&"kneel", &"point"], &"batz": [&"arms_crossed", &"kneel"], &"jotar": [&"point", &"back_turned"],
 	&"dyo": [&"arms_crossed", &"wryyy"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
-	&"aizon": [&"slick_back", &"hand_out"],
+	&"aizon": [&"slick_back", &"hand_out"], &"frierin": [&"hand_out", &"hand_sign"],
 }
 
 
@@ -1727,3 +1773,36 @@ func _draw_butterfly_wings(p: Dictionary) -> void:
 			var spot := centre + Vector2(wing * radii.x * 0.35, 0).rotated(tilt)
 			draw_circle(spot, 7.0 if upper else 5.0, Color(0.6, 0.35, 0.95, 0.9), true, -1.0, true)
 			draw_circle(spot, 2.8, Color(1, 1, 1, 0.9), true, -1.0, true)
+
+
+## Frierin's Mana Release: tall wavering ribbons of pale light pour up around her,
+## branching like frost, over a soft blue glow.
+func _draw_mana_release(p: Dictionary) -> void:
+	var feet: Vector2 = ((p[&"bfoot"] as Vector2) + (p[&"ffoot"] as Vector2)) * 0.5
+	draw_set_transform(feet, 0.0, Vector2(1.0, 0.3))
+	draw_circle(Vector2.ZERO, 90.0, Color(0.7, 0.85, 1.0, 0.25), true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
+	# A thick flame of pale mana wrapped around her.
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.4)
+	for layer in 4:
+		var flame := PackedVector2Array()
+		for i in 22:
+			var a := TAU * i / 22.0
+			var lick := 1.0 + 0.3 * sin(_time * 10.0 + i * 2.1 + layer) + (0.6 if sin(a) < -0.3 else 0.0)
+			var radius := Vector2(62.0, 92.0) * (1.0 - layer * 0.18) * lick
+			flame.append(centre + Vector2(cos(a) * radius.x, sin(a) * radius.y - (16.0 if sin(a) < 0.0 else 0.0)))
+		draw_colored_polygon(flame, Color(0.75, 0.88, 1.0, 0.14 + layer * 0.07))
+	for k in 8:
+		var base := feet + Vector2((k - 3.5) * 20.0, 0)
+		var ribbon := PackedVector2Array()
+		var phase := _time * 1.6 + k * 1.3
+		for i in 14:
+			var u := i / 13.0
+			ribbon.append(base + Vector2(sin(phase + u * 5.0) * (10.0 + u * 28.0), -u * (170.0 + k % 3 * 30.0)))
+		draw_polyline(ribbon, Color(0.75, 0.88, 1.0, 0.22), 24.0, true)
+		draw_polyline(ribbon, Color(0.9, 0.96, 1.0, 0.55), 6.0, true)
+		# A few frost-like branches off each ribbon.
+		for j in [4, 8, 11]:
+			var at: Vector2 = ribbon[j]
+			var dir := (ribbon[j] - ribbon[j - 1]).normalized().rotated(0.9 if (k + j) % 2 == 0 else -0.9)
+			draw_line(at, at + dir * 22.0, Color(0.9, 0.96, 1.0, 0.4), 2.0, true)

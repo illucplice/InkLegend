@@ -48,6 +48,7 @@ const ROSTER := [
 	preload("res://data/fighters/kazma.tres"),
 	preload("res://data/fighters/subaro.tres"),
 	preload("res://data/fighters/aizon.tres"),
+	preload("res://data/fighters/frierin.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -112,7 +113,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "timestop": 1.5}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "timestop": 1.5, "zoltraak": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -154,6 +155,7 @@ const THROW_SOUNDS := {
 	&"minya": ["zap", 1.4],
 	&"byakurai": ["zap", 1.8],
 	&"dark_hado": ["zap", 0.9],
+	&"zoltraak": ["zap", 1.3],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -228,6 +230,8 @@ var _empowered := [0, 0]
 var _icefall := {}
 ## Aizon and the enemy while Kyoka Suigetsu has them in each other's places.
 var _swapped: Array = []
+## Frierin's Mana Analysis: she missed last turn, so this turn shows her whole aim line.
+var _analysis := [false, false]
 const LUCKY_THROWS := 2
 
 ## Subaro's Emilla icefall: the target circle's size, sweep speed, and how long you get.
@@ -235,6 +239,7 @@ const ICEFALL_RADIUS := 85.0
 const ICEFALL_SPEED := 650.0
 const ICEFALL_TIME := 6.0
 const ICEFALL_DROPS := 3
+const ZOLTRAAK_CIRCLES := 7
 ## Uryo's Vollstandig: empowered throws, the heal, and how hard the arrows hit.
 const VOLL_THROWS := 3
 const VOLL_HEAL := 15
@@ -247,6 +252,8 @@ const ILLUSION_TRIGGER := 160.0
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
 const EVOLVE_HEALTH := 40
 const EVOLVED_DAMAGE := 1.5
+## Frierin stops hiding her mana at this much health, and her passives switch on.
+const MANA_RELEASE_HEALTH := 60
 ## Who stands in for the enemy when you test a fatality in Target Practice.
 const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
@@ -255,7 +262,7 @@ var _time_stop_left := 0
 var _stopper: Fighter
 var _held: Array[Projectile] = []
 var _marks: Array[Node2D] = []
-const TIME_STOP_THROWS := 1
+const TIME_STOP_THROWS := 2
 const KNIFE_STORM := 7
 ## Target Practice progress: index, attempt, stars, and whether this throw hit.
 var _practice := {}
@@ -344,7 +351,7 @@ func go_to_menu() -> void:
 	state = State.MENU
 	tournament = {}
 	_arena.set_spread(MENU_GAP / 2)
-	Terrain.build(rng, MENU_GAP / 2, 0.6 * (current_map.terrain_roughness if current_map != null else 1.0))
+	Terrain.build(rng, MENU_GAP / 2, 0.6 * (current_map.terrain_roughness if current_map != null else 1.0), false)
 	_arena.refresh_terrain()
 	_build_obstacles(MENU_GAP, 1210.0)
 	_camera.snap()
@@ -388,6 +395,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_lucky = [0, 0]
 	_empowered = [0, 0]
 	_swapped = []
+	_analysis = [false, false]
 	_charge = [0.0, 0.0]
 	_combo = [0, 0]
 	_turn_count = 0
@@ -536,7 +544,8 @@ func _add_charge(side: int, amount: float) -> void:
 	_charge[side] = minf(1.0, _charge[side] + amount)
 	fighters[side].charge = _charge[side]
 	if not was_full and _charge[side] >= 1.0:
-		Audio.play("voice_charge", -3.0, fighters[side].voice_pitch(), 0.0)
+		Audio.play("special_ready", 0.0, 1.0, 0.0)
+		Audio.play("voice_charge", -6.0, fighters[side].voice_pitch(), 0.0)
 	if not was_full and _charge[side] >= 1.0 and not fighters[side].is_ai:
 		_hud.announce("%s: SPECIAL READY!" % fighters[side].data.short_name.to_upper(), fighters[side].data.body_color.lightened(0.35))
 		if Save.tutorial_step == 2 and mode != Mode.PRACTICE and not autoplay:
@@ -1217,6 +1226,9 @@ func _trade_places(a: Fighter, b: Fighter) -> void:
 ## Aizon's evolution: the first time he is beaten down to EVOLVE_HEALTH, the Hogyoku
 ## remakes him: white, winged, and far stronger.
 func _check_evolution(fighter: Fighter, health: int) -> void:
+	if fighter.data.base_id() == &"frierin" and not fighter.mana_released and health > 0 and health <= MANA_RELEASE_HEALTH and mode != Mode.PRACTICE:
+		_release_mana(fighter)
+		return
 	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
 		return
 	fighter.evolved = true
@@ -1356,6 +1368,80 @@ func _end_icefall() -> void:
 	_launching = false
 	if _in_flight.is_empty() and state == State.FLYING:
 		_after_throw()
+
+
+## Frierin's special, Zoltraak: magic circles flicker open around her and pour out a
+## volley of fast purple spheres of pure mana, straight through anything in the way.
+func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
+	var beam := fighter.data.weapon.duplicate() as WeaponData
+	beam.shape = &"mana_orb"
+	beam.gravity_scale = 0.0
+	beam.max_speed = 2200.0
+	beam.size = 34.0
+	beam.color = Color(0.7, 0.4, 1.0)
+	var a := deg_to_rad(angle)
+	var direction := Vector2(cos(a) * fighter.facing, -sin(a))
+	var across := direction.orthogonal()
+	# Every beam converges on the aim line at the enemy's distance.
+	var reach := absf(_icefall_target_x() - fighter.position.x) / maxf(absf(direction.x), 0.25)
+	var focus := fighter.throw_origin() + direction * reach
+	var id := _match_id
+	_launching = true
+	var circles: Array[Node2D] = []
+	for i in ZOLTRAAK_CIRCLES:
+		var spot := fighter.throw_origin() + across * (i - (ZOLTRAAK_CIRCLES - 1) / 2.0) * 46.0 - direction * 20.0
+		var circle := Node2D.new()
+		circle.z_index = 18
+		circle.position = spot
+		circle.rotation = direction.angle()
+		circle.draw.connect(func() -> void:
+			var spin := Time.get_ticks_msec() * 0.004
+			circle.draw_set_transform(Vector2.ZERO, 0.0, Vector2(0.35, 1.0))
+			circle.draw_arc(Vector2.ZERO, 26.0, 0.0, TAU, 32, Color(0.75, 0.88, 1.0, 0.9), 3.0, true)
+			circle.draw_arc(Vector2.ZERO, 18.0, spin, spin + TAU * 0.8, 24, Color(1.0, 0.95, 0.7, 0.9), 2.0, true)
+			for k in 6:
+				var p := Vector2.from_angle(spin + k * TAU / 6.0) * 22.0
+				circle.draw_circle(p, 2.0, Color.WHITE, true, -1.0, true))
+		_actors.add_child(circle)
+		get_tree().process_frame.connect(circle.queue_redraw)
+		circles.append(circle)
+		Audio.play("zap", -8.0, 1.6 + i * 0.1, 0.0)
+		await get_tree().create_timer(0.08, false).timeout
+		if id != _match_id:
+			return
+	for i in circles.size():
+		fighter.play_throw()
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+		_actors.add_child(projectile)
+		projectile.launch(beam, fighter, circles[i].position, (focus - circles[i].position).normalized() * beam.max_speed, 0.0)
+		projectile.target = fighters[1 - current]
+		projectile.pierce = true
+		projectile.set_trail_color(Color(0.8, 0.9, 1.0))
+		projectile.set_meta("zoltraak", true)
+		_track(projectile)
+		Audio.play("zap", -2.0, 1.2, 0.05)
+		var fade := circles[i].create_tween()
+		fade.tween_property(circles[i], "modulate:a", 0.0, 0.4)
+		fade.tween_callback(circles[i].queue_free)
+		await get_tree().create_timer(0.1, false).timeout
+		if id != _match_id:
+			return
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
+
+
+## Frierin's Mana Release: she stops suppressing her mana. A torrent of pale light
+## pours off her, and her barrier and Mana Analysis switch on for the rest of the match.
+func _release_mana(fighter: Fighter) -> void:
+	fighter.mana_released = true
+	fighter.barrier_ready = true
+	fighter.power_up(2.0)
+	_hud.announce("MANA RELEASE!", Color(0.75, 0.88, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "BARRIER + MANA ANALYSIS", Color(0.75, 0.88, 1.0), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.8, 0.9, 1.0), 70, 800.0, 180.0, 2.2)
+	Audio.play("special_ready", 2.0, 0.8, 0.0)
+	_camera.shake(0.6)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -1372,7 +1458,7 @@ func start_practice(pick: FighterData) -> void:
 	_obstacle_rects.clear()
 	_gap = 2000.0
 	_arena.set_spread(700.0)
-	Terrain.build(rng, 700.0, 0.7 * current_map.terrain_roughness)
+	Terrain.build(rng, 700.0, 0.7 * current_map.terrain_roughness, false)
 	_arena.refresh_terrain()
 	fighters.append(_spawn_fighter(pick, -700, 1, false))
 	# An invisible stand-in opponent keeps the two-sided turn code happy; it can't be hit.
@@ -1738,6 +1824,10 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
+	# Frierin's barrier comes back up whenever her enemy starts a turn.
+	for other in fighters:
+		if other != fighter and other.data.base_id() == &"frierin":
+			other.barrier_ready = true
 	# Burning (Fuga): the fire hurts at the start of their turn.
 	if fighter.burn_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
 		fighter.burn_turns -= 1
@@ -1795,7 +1885,9 @@ func _begin_turn() -> void:
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, _charge[current], false)
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
-		_aim.full_guide = _hud.time_stopped() and fighter == _stopper
+		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current]
+		if _analysis[current]:
+			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "MANA ANALYSIS", Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		_tutorial_tip()
 		Audio.play("turn", -6.0)
 		_aim.begin(fighter)
@@ -1956,6 +2048,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 
 func _throw(angle: float, power: float) -> void:
 	_hud.hide_tip()
+	_analysis[current] = false
 	state = State.FLYING
 	_hud.set_turn("")
 	_hud.set_special(null, 0.0, false)
@@ -1990,6 +2083,10 @@ func _throw(angle: float, power: float) -> void:
 	if special == &"knifestorm":
 		fighter.powered = false
 		_knife_storm(fighter, angle, power)
+		return
+	if special == &"barrage_zoltraak":
+		fighter.powered = false
+		_zoltraak_barrage(fighter, angle)
 		return
 	if special == &"icefall":
 		fighter.powered = false
@@ -2126,6 +2223,12 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	# Levels from duplicate chest finds: a little more damage on your side.
 	if side >= 0:
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
+	if target.barrier_ready and target.mana_released and not mirrored and side >= 0:
+		target.barrier_ready = false
+		damage = ceili(damage * 0.5)
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -50%", Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, projectile.global_position, Color(0.7, 0.85, 1.0), 26, 420.0, 180.0, 1.2)
+		Audio.play("clang", -4.0, 1.5, 0.0)
 	if target.shielded:
 		target.shielded = false
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "SHIELD BLOCK!", Color(0.6, 0.85, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2134,7 +2237,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_camera.shake(0.3)
 		return
 	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icefall", false) and not mirrored:
+	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icefall", false) and not projectile.get_meta("zoltraak", false) and not mirrored:
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -2400,6 +2503,8 @@ func _after_throw() -> void:
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
+		if fighters[current].mana_released:
+			_analysis[current] = true
 		if _throw_closest < CLOSE_CALL_DISTANCE and _held.is_empty():
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
 	if mode == Mode.PRACTICE and _hud.time_stopped():
@@ -2653,7 +2758,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"barrage_zoltraak"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.

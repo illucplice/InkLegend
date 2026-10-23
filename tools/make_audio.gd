@@ -24,6 +24,7 @@ func _initialize() -> void:
 		"voice_die": _voice_die(),
 		"voice_charge": _voice_charge(),
 		"voice_laugh": _voice_laugh(),
+		"special_ready": _special_ready(),
 	}
 	for name: String in sfx:
 		_save("res://audio/sfx/%s.wav" % name, sfx[name], 0.9)
@@ -262,6 +263,22 @@ func _voice_laugh() -> PackedFloat32Array:
 	for k in 3:
 		var pulse := _voice(0.2 if k < 2 else 0.34, 230.0 + k * 20.0, 200.0 + k * 30.0, 750.0, 1200.0, func(t: float) -> float: return minf(1.0, t * 14.0) * pow(1.0 - t, 1.3))
 		_mix(b, pulse, k * 0.24, 0.8 if k < 2 else 1.0)
+	return b
+
+
+## Special ready: a deep whoom, a bright rising bell arpeggio and a shimmer of sparkle.
+func _special_ready() -> PackedFloat32Array:
+	var b := _buffer(1.4)
+	_mix(b, _tone(0.6, 70.0, 140.0, 4.0), 0.0, 0.9)
+	var notes := [72.0, 76.0, 79.0, 84.0, 88.0]
+	for i in notes.size():
+		var f := _hz(float(notes[i]))
+		var bell := _tone(0.7, f, f, 5.0)
+		_mix(bell, _tone(0.5, f * 2.01, f * 2.01, 7.0), 0.0, 0.35)
+		_mix(bell, _tone(0.35, f * 3.02, f * 3.0, 9.0), 0.0, 0.15)
+		_mix(b, bell, 0.08 + i * 0.07, 0.45)
+	var shimmer := _noise(1.0, 3000.0, 11000.0, 3.0, true)
+	_mix(b, shimmer, 0.1, 0.25)
 	return b
 
 # --- music ---

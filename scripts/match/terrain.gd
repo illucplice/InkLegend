@@ -9,6 +9,10 @@ const HALF_WIDTH := 4000.0
 const STEP := 20.0
 ## Flat ground either side of where a fighter stands.
 const PLATEAU := 190.0
+## The mountain between the fighters: how often, and how high its peak.
+const MOUNTAIN_CHANCE := 0.75
+const MOUNTAIN_MIN := 150.0
+const MOUNTAIN_MAX := 300.0
 
 static var _heights := PackedFloat32Array()
 
@@ -20,7 +24,7 @@ static func flat() -> void:
 
 ## Builds the ground for fighters standing `half_gap` either side of the middle.
 ## roughness scales every height (0 = flat).
-static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float) -> void:
+static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float, mountains: bool = true) -> void:
 	if roughness <= 0.0:
 		flat()
 		return
@@ -33,6 +37,12 @@ static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float)
 	var count := int(HALF_WIDTH * 2.0 / STEP) + 1
 	_heights.resize(count)
 	var inner := maxf(half_gap - PLATEAU, 1.0)
+	# Most matches put a mountain between the fighters, Bowmasters-style: throws have to
+	# arc over it.
+	var has_mountain := mountains and rng.randf() < MOUNTAIN_CHANCE
+	var peak := rng.randf_range(MOUNTAIN_MIN, MOUNTAIN_MAX) * clampf(roughness, 0.7, 1.3)
+	var spread := rng.randf_range(170.0, 280.0)
+	var peak_x := rng.randf_range(-inner * 0.35, inner * 0.35)
 	for i in count:
 		var x := -HALF_WIDTH + i * STEP
 		var y := 0.0
@@ -43,6 +53,10 @@ static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float)
 			var level := lerpf(left, right, u)
 			var dip := pow(sin(u * PI), 2.0)
 			y = level + (valley - level) * dip + bumps * dip
+			if has_mountain:
+				var d := absf(x - peak_x) / spread
+				if d < 1.0:
+					y -= peak * pow(cos(d * PI * 0.5), 2.0) + sin(x * 0.045) * 10.0 * (1.0 - d)
 		elif absf(x) <= half_gap + PLATEAU:
 			y = left if x < 0.0 else right
 		else:

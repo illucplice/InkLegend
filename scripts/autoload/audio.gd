@@ -2,7 +2,7 @@ extends Node
 ## Plays sound effects from a small pool of players. Use: Audio.play("hit_head").
 ## Browsers only allow sound after the first tap; Godot's web export resumes it then.
 
-const SOUNDS := ["whoosh", "sling", "twang", "hit_body", "hit_head", "tick", "thunk", "ground", "ko", "win", "lose", "turn", "click", "splat", "gore", "gush", "slice", "crunch", "punch", "cheer", "clang", "zap", "boom", "voice_hurt", "voice_die", "voice_charge", "voice_laugh"]
+const SOUNDS := ["whoosh", "sling", "twang", "hit_body", "hit_head", "tick", "thunk", "ground", "ko", "win", "lose", "turn", "click", "splat", "gore", "gush", "slice", "crunch", "punch", "cheer", "clang", "zap", "boom", "voice_hurt", "voice_die", "voice_charge", "voice_laugh", "special_ready"]
 const POOL_SIZE := 10
 
 var muted := false

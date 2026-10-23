@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/zoltraak.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"frierin"
+display_name = "Frierin"
+short_name = "Frierin"
+body_color = Color(0.95, 0.95, 0.98, 1)
+accent_color = Color(0.85, 0.7, 0.3, 1)
+skin_color = Color(1, 0.88, 0.8, 1)
+cape_color = Color(0.95, 0.95, 0.98, 1)
+hair_color = Color(0.9, 0.9, 0.94, 1)
+style = &"elf"
+special_name = "Zoltraak Volley"
+special_description = "Magic circles open around her and pour out a rapid volley of fast purple spheres of pure mana, straight through every obstacle. Passives: the first hit she takes each enemy turn is halved by a barrier, and after a miss she sees her full aim line next turn."
+price = 1000
+rarity = &"mythic"

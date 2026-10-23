@@ -18,7 +18,7 @@ extends Resource
 @export var unlocked_by_default: bool = false
 ## Coins to unlock this fighter in the Shop.
 @export var price: int = 250
-## How rare this fighter is in chests: common, uncommon, rare, epic, legendary or mythical.
+## How rare this fighter is in chests: common, rare, epic, legendary or mythic.
 @export var rarity: StringName = &"common"
 
 

@@ -468,6 +468,18 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_circle(Vector2.ZERO, s * 0.42, Color(0.08, 0.03, 0.12), true, -1.0, true)
 			canvas.draw_arc(Vector2.ZERO, s * 0.42, 0.0, TAU, 24, w.color, 3.0, true)
 			canvas.draw_circle(Vector2(-s * 0.08, -s * 0.08), s * 0.14, Color(0.85, 0.7, 1.0), true, -1.0, true)
+		&"zoltraak":
+			# Zoltraak: a lance of white light with a bright core and a crackling tail.
+			canvas.draw_line(Vector2(-s * 0.9, 0), Vector2(s * 0.5, 0), Color(w.color, 0.3), s * 0.34, true)
+			canvas.draw_line(Vector2(-s * 0.7, 0), Vector2(s * 0.55, 0), w.color, s * 0.16, true)
+			canvas.draw_line(Vector2(-s * 0.5, 0), Vector2(s * 0.6, 0), Color.WHITE, s * 0.07, true)
+			canvas.draw_circle(Vector2(s * 0.58, 0), s * 0.11, Color.WHITE, true, -1.0, true)
+		&"mana_orb":
+			# A sphere of pure mana: violet glow around a bright core.
+			canvas.draw_line(Vector2(-s * 1.2, 0), Vector2.ZERO, Color(w.color, 0.3), s * 0.5, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.55, Color(w.color, 0.35), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.38, w.color, true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.18, Color.WHITE, true, -1.0, true)
 		&"nue":
 			# Nue: a shadow bird with a white mask and spread wings.
 			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
@@ -641,7 +653,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai", &"dark_hado":
+		&"minya", &"byakurai", &"dark_hado", &"zoltraak":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))

@@ -17,4 +17,4 @@ unlocked_by_default = false
 style = &"ranger"
 cape_color = Color(0.22, 0.45, 0.28, 1)
 hair_color = Color(0.25, 0.18, 0.12, 1)
-rarity = &"uncommon"
+rarity = &"common"

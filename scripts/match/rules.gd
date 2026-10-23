@@ -5,9 +5,11 @@ extends RefCounted
 
 const MAX_HEALTH := 100
 const PX_PER_M := 20.0
+## Every map's fighters stand this much further apart than its listed distances.
+const MAP_SCALE := 1.12
 ## Downward acceleration in px/s². Lower = floatier, slower throws (weapon speeds are
 ## scaled with sqrt(GRAVITY) so every throw still reaches the same distance).
-const GRAVITY := 560.0
+const GRAVITY := 470.0
 const MIN_DISTANCE_M := 65.0
 const MAX_DISTANCE_M := 85.0
 const MIN_ANGLE := 5.0
@@ -53,8 +55,8 @@ static func damage_with_bonuses(weapon: WeaponData, part: StringName, flight_tim
 ## apart, the dojo is close quarters); with no map, the classic range.
 static func random_distance_px(rng: RandomNumberGenerator, map: MapData = null) -> float:
 	if map != null:
-		return rng.randf_range(map.min_distance_m, map.max_distance_m) * PX_PER_M
-	return rng.randf_range(MIN_DISTANCE_M, MAX_DISTANCE_M) * PX_PER_M
+		return rng.randf_range(map.min_distance_m, map.max_distance_m) * PX_PER_M * MAP_SCALE
+	return rng.randf_range(MIN_DISTANCE_M, MAX_DISTANCE_M) * PX_PER_M * MAP_SCALE
 
 
 ## A wind for the next turn, in px/s² (negative blows left). Calm half the time on easy.

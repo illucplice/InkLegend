@@ -338,6 +338,9 @@ func _test_anime_match() -> void:
 		if frame % 200 == 0:
 			game._charge[0] = 1.0
 			game._charge[1] = 1.0
+		# Matches can end before the AI feels like it: make sure each side tries theirs.
+		if game.state == game.State.AI_AIM and not game._special_used[game.current] and game._charge[game.current] >= 1.0:
+			game._special_armed = true
 		await physics_frame
 	Engine.time_scale = 1.0
 	_check(not result.is_empty(), "a Gok vs Egita match ends in a knockout")
@@ -359,7 +362,7 @@ func _test_map_variety() -> void:
 		_check(map.min_distance_m >= 50.0 and map.max_distance_m <= 105.0 and map.min_distance_m < map.max_distance_m, "%s stands fighters a sensible distance apart" % id)
 		var in_range := true
 		for i in 20:
-			var gap := Rules.random_distance_px(rng, map) / Rules.PX_PER_M
+			var gap := Rules.random_distance_px(rng, map) / (Rules.PX_PER_M * Rules.MAP_SCALE)
 			in_range = in_range and gap >= map.min_distance_m and gap <= map.max_distance_m
 		_check(in_range, "%s picks distances in its own range" % id)
 		var all_clear := true
@@ -493,7 +496,7 @@ func _test_practice_specials() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
-	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon"]:
+	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon", "frierin"]:
 		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
 		game.start_practice(pick)
 		for frame in 300:
@@ -592,7 +595,7 @@ func _test_terrain() -> void:
 	var all_good := true
 	for i in 20:
 		var half_gap := rng.randf_range(550.0, 1050.0)
-		Terrain.build(rng, half_gap, rng.randf_range(0.3, 1.3))
+		Terrain.build(rng, half_gap, rng.randf_range(0.3, 1.3), false)
 		for side: float in [-1.0, 1.0]:
 			var stand := Terrain.height_at(side * half_gap)
 			all_good = all_good and is_equal_approx(Terrain.height_at(side * half_gap + 120.0), stand) and is_equal_approx(Terrain.height_at(side * half_gap - 120.0), stand)
@@ -606,6 +609,15 @@ func _test_terrain() -> void:
 			all_good = all_good and absf(now - previous) < 12.0
 			previous = now
 	_check(all_good, "fighters stand on flat plateaus above a smooth valley")
+	var mountains := 0
+	for i in 20:
+		Terrain.build(rng, 900.0, 1.0)
+		var top := 0.0
+		for step in 61:
+			top = minf(top, Terrain.height_at(-600.0 + step * 20.0))
+		if top < Terrain.height_at(900.0) - 120.0:
+			mountains += 1
+	_check(mountains >= 8 and mountains < 20, "most matches have a mountain between the fighters (%d / 20)" % mountains)
 	Terrain.flat()
 	_check(Terrain.height_at(123.0) == 0.0, "flat ground is at y = 0")
 

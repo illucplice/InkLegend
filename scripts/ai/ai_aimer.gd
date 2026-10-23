@@ -60,10 +60,9 @@ static func solve(origin: Vector2, target: Vector2, max_speed: float, facing: in
 	return {"angle": 45.0, "power": 1.0, "clear": false}
 
 
-## True if a throw reaches target's x without passing through any obstacle.
+## True if a throw reaches target's x without passing through an obstacle or into the
+## ground (mountains in the way).
 static func path_is_clear(origin: Vector2, velocity: Vector2, target: Vector2, obstacles: Array[Rect2], wind: float = 0.0, gravity: float = Rules.GRAVITY) -> bool:
-	if obstacles.is_empty():
-		return true
 	var direction := signf(velocity.x)
 	var t := 0.0
 	while t < 8.0:
@@ -73,6 +72,8 @@ static func path_is_clear(origin: Vector2, velocity: Vector2, target: Vector2, o
 		for box in obstacles:
 			if box.grow(PATH_MARGIN).has_point(point):
 				return false
+		if absf(point.x - origin.x) > 60.0 and absf(point.x - target.x) > 60.0 and point.y > Terrain.height_at(point.x) - 6.0:
+			return false
 		t += PATH_STEP
 	return false
 

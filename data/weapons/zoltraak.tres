@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"zoltraak"
+display_name = "Zoltraak"
+max_speed = 2000.0
+body_damage = 20
+head_damage = 36
+count = 1
+spin = 0.0
+sticks = false
+shape = &"zoltraak"
+size = 48.0
+color = Color(0.75, 0.88, 1, 1)
+gravity_scale = 0.06
+special = &"barrage_zoltraak"
