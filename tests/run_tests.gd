@@ -508,6 +508,13 @@ func _test_practice_specials() -> void:
 			await process_frame
 		_check(game._charge[0] >= 1.0 and game._hud._special_button.visible, "%s starts practice with the special ready" % id)
 		game._on_special_toggled(true)
+		# Frierin floats up into the sky first; aim from up there.
+		if pick.weapon.special == &"barrage_zoltraak":
+			var sky: float = Terrain.height_at(game.fighters[0].position.x) - game.ZOLTRAAK_SKY
+			for frame in 240:
+				if absf(game.fighters[0].position.y - sky) < 1.0:
+					break
+				await process_frame
 		var origin: Vector2 = game.fighters[0].throw_origin()
 		var target: Vector2 = game._practice_target.global_position
 		var angle := 0.0

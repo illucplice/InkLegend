@@ -1778,6 +1778,13 @@ func _draw_butterfly_wings(p: Dictionary) -> void:
 ## Frierin's Mana Release: tall wavering ribbons of pale light pour up around her,
 ## branching like frost, over a soft blue glow.
 func _draw_mana_release(p: Dictionary) -> void:
+	# Her barrier: a faint hexagonal bubble around her.
+	var core: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.45)
+	var shell := PackedVector2Array()
+	for k in 7:
+		shell.append(core + Vector2.from_angle(k * TAU / 6.0 + _time * 0.3) * Vector2(66.0, 84.0))
+	draw_colored_polygon(shell, Color(0.7, 0.85, 1.0, 0.1))
+	draw_polyline(shell, Color(0.85, 0.94, 1.0, 0.55 + 0.2 * sin(_time * 4.0)), 2.5, true)
 	var feet: Vector2 = ((p[&"bfoot"] as Vector2) + (p[&"ffoot"] as Vector2)) * 0.5
 	draw_set_transform(feet, 0.0, Vector2(1.0, 0.3))
 	draw_circle(Vector2.ZERO, 90.0, Color(0.7, 0.85, 1.0, 0.25), true, -1.0, true)

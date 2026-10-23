@@ -113,7 +113,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "timestop": 1.5, "zoltraak": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -126,6 +126,8 @@ const BURN_TURNS := 3
 const BURN_DAMAGE := 6
 const BLEED_TURNS := 3
 const BLEED_DAMAGE := 3
+## How often a knife or Iggi bite makes them bleed.
+const BLEED_CHANCE := 0.35
 ## Egita's homing ki, and the burst of Gok's ki blasts.
 const KI_HOMING_RANGE := 180.0
 const KI_HOMING_TURN := 2.4
@@ -262,11 +264,15 @@ const ELEPHANT_RADIUS := 150.0
 const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop"]
 ## How close an enemy throw gets to Aizon before Kyoka Suigetsu swaps them.
 const ILLUSION_TRIGGER := 160.0
+## Aizon gets this much health back each time Kyoka Suigetsu fools someone.
+const KYOKA_HEAL := 5
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
 const EVOLVE_HEALTH := 40
 const EVOLVED_DAMAGE := 1.5
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 60
+## In Mana Release her barrier takes this share off every enemy hit.
+const MANA_BARRIER := 0.5
 ## Who stands in for the enemy when you test a fatality in Target Practice.
 const FATALITY_DUMMY := preload("res://data/fighters/quotuk.tres")
 ## Jotar's time stop: throws left before time moves again.
@@ -592,6 +598,11 @@ func _pull_fighter(target: Fighter, thrower: Fighter, amount: float) -> void:
 ## Bomb: everyone in the blast takes damage (less toward the edge) and is thrown
 ## outward; obstacles in it are chipped.
 func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighter, part: StringName, collider: Object) -> void:
+	if _special_finisher():
+		Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
+		if direct == _finisher["loser"] or (_finisher["loser"] as Fighter).aim_point(false).distance_to(at) < projectile.explode_radius + 30.0:
+			_resolve_finisher(true)
+		return
 	var radius := projectile.explode_radius
 	if projectile.get_meta("thunder", false):
 		_lightning(at)
@@ -614,7 +625,9 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 	Audio.play("hit_body", -2.0, 0.6, 0.0)
 	_camera.shake(0.9)
 	for fighter in fighters:
-		if fighter == projectile.thrower or fighter.is_knocked_out():
+		# A throw Kyoka Suigetsu turned around blasts its own thrower and spares Aizon.
+		var spared: Fighter = projectile.get_meta("mirror_of", projectile.thrower)
+		if fighter == spared or fighter.is_knocked_out():
 			continue
 		var centre := fighter.aim_point(false)
 		var distance := 0.0 if fighter == direct else centre.distance_to(at)
@@ -811,7 +824,8 @@ func _knife_storm(fighter: Fighter, angle: float, power: float) -> void:
 	var weapon := fighter.data.weapon
 	var id := _match_id
 	_stopper = fighter
-	_stop_time(fighter)
+	if not _hud.time_stopped():
+		_stop_time(fighter)
 	_launching = true
 	for i in KNIFE_STORM:
 		fighter.play_throw()
@@ -951,6 +965,8 @@ func _make_lucky(projectile: Projectile) -> void:
 ## Kyoka Suigetsu breaks: Aizon's image shatters like glass.
 func _shatter_illusion(fighter: Fighter) -> void:
 	fighter.illusion = false
+	fighter.heal(KYOKA_HEAL)
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -110), "+%d" % KYOKA_HEAL, Color(0.5, 1.0, 0.6), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	_hud.announce("KYOKA SUIGETSU!", Color(0.75, 0.55, 1.0))
 	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "AN ILLUSION!", Color(0.85, 0.75, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.9, 0.95, 1.0), 40, 600.0, 180.0, 1.4)
@@ -1210,6 +1226,7 @@ func _swap_places(aizon: Fighter, foe: Fighter, projectile: Projectile) -> void:
 
 ## The throw now flies at its own thrower; it no longer knows to miss them.
 func _turn_on_thrower(projectile: Projectile, aizon: Fighter, foe: Fighter) -> void:
+	projectile.set_meta("mirror_of", aizon)
 	projectile._exclude.clear()
 	projectile._exclude.append_array(aizon.get_hitbox_rids())
 	projectile.set_meta("mirrored", true)
@@ -1284,19 +1301,28 @@ func _start_icefall(fighter: Fighter) -> void:
 	_icefall = {"fighter": fighter, "x": near, "dir": float(fighter.facing), "lo": lo, "hi": hi, "time": 0.0,
 		"ai_at": foe_x + rng.randf_range(-error, error), "error": error, "id": _match_id, "left": ICEFALL_DROPS, "cooldown": 0.0}
 	var marker := Node2D.new()
-	marker.z_index = 6
+	marker.z_index = 24
 	marker.draw.connect(func() -> void:
-		var pulse := 0.7 + 0.3 * sin(Time.get_ticks_msec() * 0.015)
-		marker.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.3))
-		marker.draw_circle(Vector2.ZERO, ICEFALL_RADIUS, Color(1.0, 0.15, 0.2, 0.2 * pulse), true, -1.0, true)
-		marker.draw_arc(Vector2.ZERO, ICEFALL_RADIUS, 0.0, TAU, 40, Color(1.0, 0.2, 0.25, pulse), 7.0, true)
-		marker.draw_arc(Vector2.ZERO, ICEFALL_RADIUS * 0.45, 0.0, TAU, 24, Color(1.0, 0.2, 0.25, pulse), 4.0, true)
+		var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.015)
+		var r := ICEFALL_RADIUS
+		# A beam of red light down from the sky marks the spot.
+		marker.draw_rect(Rect2(-r * 0.35, -900.0, r * 0.7, 900.0), Color(1.0, 0.2, 0.25, 0.16 * pulse))
+		marker.draw_line(Vector2(0, -900), Vector2(0, -10), Color(1.0, 0.35, 0.4, 0.6 * pulse), 4.0, true)
+		marker.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.32))
+		marker.draw_circle(Vector2.ZERO, r, Color(1.0, 0.15, 0.2, 0.35 * pulse), true, -1.0, true)
+		marker.draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(0.15, 0.02, 0.04, 0.9), 14.0, true)
+		marker.draw_arc(Vector2.ZERO, r, 0.0, TAU, 48, Color(1.0, 0.25, 0.3, 1.0), 9.0, true)
+		marker.draw_arc(Vector2.ZERO, r * 0.5, 0.0, TAU, 32, Color(1.0, 0.3, 0.35, 0.9), 6.0, true)
 		marker.draw_set_transform(Vector2.ZERO)
-		marker.draw_line(Vector2(0, -260), Vector2(0, -12), Color(1.0, 0.3, 0.35, 0.35 * pulse), 3.0, true))
+		marker.draw_line(Vector2(-r - 10, 0), Vector2(-r * 0.6, 0), Color.WHITE, 3.0, true)
+		marker.draw_line(Vector2(r * 0.6, 0), Vector2(r + 10, 0), Color.WHITE, 3.0, true)
+		# Icicles left.
+		var left := int(_icefall.get("left", 0))
+		for k in left:
+			var x := (k - (left - 1) / 2.0) * 22.0
+			marker.draw_colored_polygon(PackedVector2Array([Vector2(x - 7, -150), Vector2(x + 7, -150), Vector2(x, -120)]), Color(0.75, 0.92, 1.0)))
 	_actors.add_child(marker)
 	_icefall["marker"] = marker
-	if not fighter.is_ai:
-		_hud.show_tip("Tap, click or press Space when the red circle is on them! (%d icicles)" % ICEFALL_DROPS)
 
 
 ## Where the icicle should land to hit: the enemy, or the target in practice.
@@ -1403,17 +1429,17 @@ func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
 	beam.color = Color(0.7, 0.4, 1.0)
 	var id := _match_id
 	_launching = true
-	# She rises high into the sky, over every wall and mountain.
-	var ground_y := fighter.position.y
-	var rise := fighter.create_tween()
-	rise.tween_property(fighter, "position:y", ground_y - ZOLTRAAK_SKY, 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	Audio.play("whoosh", 0.0, 0.5, 0.0)
-	await rise.finished
+	# She is already up in the sky (she rose when the special was used). Every sphere
+	# converges on the aim line at the target's distance.
+	await _set_floating(fighter, true)
 	if id != _match_id:
 		return
-	# Every sphere converges on the target from up there.
-	var focus: Vector2 = _practice_target.global_position if mode == Mode.PRACTICE and _practice_target != null else fighters[1 - current].aim_point(false)
-	var direction := (focus - fighter.throw_origin()).normalized()
+	if fighter.is_ai:
+		angle = beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(false), fighter.facing)
+	var a := deg_to_rad(angle)
+	var direction := Vector2(cos(a) * fighter.facing, -sin(a))
+	var reach := absf(_icefall_target_x() - fighter.position.x) / maxf(absf(direction.x), 0.25)
+	var focus := fighter.throw_origin() + direction * reach
 	var across := direction.orthogonal()
 	var circles: Array[Node2D] = []
 	for i in ZOLTRAAK_CIRCLES:
@@ -1455,7 +1481,10 @@ func _zoltraak_barrage(fighter: Fighter, angle: float) -> void:
 		await get_tree().create_timer(0.1, false).timeout
 		if id != _match_id:
 			return
-# And floats back down.	var land := fighter.create_tween()	land.tween_property(fighter, "position:y", ground_y, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)	await land.finished	if id != _match_id:		return
+	# And floats back down.
+	await _set_floating(fighter, false)
+	if id != _match_id:
+		return
 	_launching = false
 	if _in_flight.is_empty() and state == State.FLYING:
 		_after_throw()
@@ -1534,11 +1563,15 @@ func _drop_beam() -> void:
 	projectile.target = orb.target
 	projectile.set_trail_color(Color(0.8, 0.9, 1.0))
 	projectile.set_meta("zoltraak_drop", true)
+	var finishing: bool = not _finisher.is_empty() and not _finisher["done"]
 	# Mana Release: the beam lands in a wide burst.
 	var released := fighter.mana_released
 	if released:
 		projectile.explode_radius = ZOLTRAAK_BURST_RADIUS
-	_track(projectile)
+	if finishing:
+		_hook_finisher(projectile)
+	else:
+		_track(projectile)
 	# A flash of light down the whole line.
 	var flash := Node2D.new()
 	flash.z_index = 19
@@ -1555,6 +1588,19 @@ func _drop_beam() -> void:
 	Audio.play("zap", 0.0, 1.1, 0.05)
 	orb.visible = false
 	orb._finish(false)
+
+
+## Frierin rises into the sky to cast her volley (and comes back down after).
+func _set_floating(fighter: Fighter, up: bool) -> void:
+	var ground := Terrain.height_at(fighter.position.x)
+	var goal := ground - ZOLTRAAK_SKY if up else ground
+	if absf(fighter.position.y - goal) < 1.0:
+		return
+	if up:
+		Audio.play("whoosh", 0.0, 0.5, 0.0)
+	var move := fighter.create_tween()
+	move.tween_property(fighter, "position:y", goal, 0.5 if up else 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT if up else Tween.EASE_IN_OUT)
+	await move.finished
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -2014,6 +2060,14 @@ func _begin_turn() -> void:
 	var brain := _brains[current]
 	if _charge[current] >= 1.0 and brain.wants_special(fighter.health):
 		_special_armed = true
+		if fighter.data.weapon.special == &"knifestorm":
+			_stopper = fighter
+			_stop_time(fighter)
+		if fighter.data.weapon.special == &"barrage_zoltraak":
+			var rise_id := _match_id
+			await _set_floating(fighter, true)
+			if rise_id != _match_id:
+				return
 	var target := fighters[1 - current].aim_point(brain.wants_headshot())
 	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter), Rules.GRAVITY * fighter.data.weapon.gravity_scale)
 	if _special_armed and is_straight_special(fighter.data.weapon.special):
@@ -2081,7 +2135,7 @@ func _start_cinematic(projectile: Projectile) -> void:
 
 
 func _on_special_toggled(armed: bool) -> void:
-	if state == State.PLAYER_AIM and _charge[current] >= 1.0:
+	if (state == State.PLAYER_AIM or state == State.FINISHER) and _charge[current] >= 1.0:
 		if armed and fighters[current].data.weapon.special in INSTANT_SPECIALS + [&"icefall"]:
 			_use_special_now(fighters[current])
 			return
@@ -2089,6 +2143,17 @@ func _on_special_toggled(armed: bool) -> void:
 		var data := fighters[current].data
 		# The beam fires in a straight line, so the aim guide straightens and can point down.
 		_aim.set_beam(armed and is_straight_special(data.weapon.special))
+		if data.weapon.special == &"barrage_zoltraak":
+			_set_floating(fighters[current], armed)
+		# Dyo: The Warld stops time the moment the special is pressed; the knives come
+		# with the throw. Un-arming lets time move again.
+		if data.weapon.special == &"knifestorm":
+			if armed and not _hud.time_stopped():
+				_stopper = fighters[current]
+				_stop_time(fighters[current])
+			elif not armed and _hud.time_stopped() and _stopper == fighters[current]:
+				_resume_time()
+			_aim.full_guide = armed
 		_aim.full_guide = (armed and data.weapon.special == &"timestop") or (_hud.time_stopped() and fighters[current] == _stopper)
 		_aim.set_special(data.special_name if armed else "", data.body_color)
 		if armed:
@@ -2135,6 +2200,8 @@ func _use_special_now(fighter: Fighter) -> void:
 	_special_armed = false
 	_consume_special(fighter)
 	_hud.set_special(null, 0.0, false)
+	if special == &"icefall" and not _finisher.is_empty() and not _finisher["done"]:
+		_finisher["special"] = true
 	if special == &"icefall":
 		_aim.finish()
 		_turn_timer = -1.0
@@ -2150,7 +2217,13 @@ func _use_special_now(fighter: Fighter) -> void:
 func _on_player_throw(angle: float, power: float) -> void:
 	if state == State.FINISHER:
 		_aim.finish()
-		_finisher_launch(angle, power)
+		if _special_armed:
+			# Finishing with a special: it flies like any special, and touching the loser
+			# earns the fatality.
+			_finisher["special"] = true
+			_throw(angle, power)
+		else:
+			_finisher_launch(angle, power)
 		return
 	if state != State.PLAYER_AIM:
 		return
@@ -2162,7 +2235,7 @@ func _on_player_throw(angle: float, power: float) -> void:
 
 func _throw(angle: float, power: float) -> void:
 	_hud.hide_tip()
-	_drop_guide = _analysis[current]
+	_drop_guide = _analysis[current] or fighters[current].mana_released
 	_analysis[current] = false
 	state = State.FLYING
 	_hud.set_turn("")
@@ -2261,16 +2334,7 @@ func _throw(angle: float, power: float) -> void:
 		projectile.hit_ground.connect(_on_projectile_hit_ground)
 		projectile.hit_crate.connect(_on_projectile_hit_crate)
 		projectile.hit_target.connect(_on_practice_target_hit)
-		# Nue (Megu's shadow bird) bends a little toward the enemy.
-		if weapon.shape == &"nue":
-			projectile.homing_target = fighters[1 - current]
-			projectile.homing_range = 260.0
-			projectile.homing_turn = 2.2
-		# Egita's ki curves in on the enemy once it gets close.
-		if weapon.id == &"ki_orb":
-			projectile.homing_target = fighters[1 - current]
-			projectile.homing_range = KI_HOMING_RANGE
-			projectile.homing_turn = KI_HOMING_TURN
+		_basic_traits(projectile, weapon, fighters[1 - current])
 		# Blue drags the enemy toward it as it flies.
 		if weapon.shape == &"blue_orb":
 			projectile.set_meta("blue", true)
@@ -2302,7 +2366,14 @@ func _throw(angle: float, power: float) -> void:
 ## scale (bomb blasts fall off with distance) and push (the blast direction) are
 ## only used by explosions.
 func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringName, scale: float = 1.0, push: Vector2 = Vector2.ZERO) -> void:
+	if _special_finisher():
+		if target == _finisher["loser"]:
+			_resolve_finisher(true)
+		return
 	# Kyoka Suigetsu: the one they hit was never him. They were standing in his place.
+	# Frierin's dropped Zoltraak is a body shot, never a headshot.
+	if projectile.get_meta("zoltraak_drop", false):
+		part = Rules.BODY
 	var mirrored: bool = projectile.get_meta("mirrored", false)
 	if target.illusion and projectile.thrower != null and projectile.thrower != target:
 		_shatter_illusion(target)
@@ -2340,9 +2411,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	# Levels from duplicate chest finds: a little more damage on your side.
 	if side >= 0:
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
-	if target.barrier_ready and target.mana_released and not mirrored and side >= 0:
-		target.barrier_ready = false
-		damage = ceili(damage * 0.5)
+	if target.mana_released and not mirrored and side >= 0 and side != fighters.find(target):
+		damage = ceili(damage * MANA_BARRIER)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -50%", Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, projectile.global_position, Color(0.7, 0.85, 1.0), 26, 420.0, 180.0, 1.2)
 		Audio.play("clang", -4.0, 1.5, 0.0)
@@ -2388,7 +2458,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		_pull_fighter(target, projectile.thrower, 380.0)
 		target.pinned = true
 		_hud.announce("WEBBED!", Color(0.95, 0.95, 1.0))
-	if projectile.weapon != null and projectile.weapon.shape in [&"knife", &"iggi"] and not target.is_knocked_out():
+	if projectile.weapon != null and projectile.weapon.shape in [&"knife", &"iggi"] and not target.is_knocked_out() and rng.randf() < BLEED_CHANCE:
 		target.bleed_turns = BLEED_TURNS
 		if projectile.weapon.shape == &"iggi":
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -95), "CHOMP!", Color(1.0, 0.9, 0.85), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2478,6 +2548,10 @@ func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void
 func _on_projectile_finished(projectile: Projectile) -> void:
 	_throw_closest = minf(_throw_closest, projectile.closest)
 	_in_flight.erase(projectile)
+	if _special_finisher():
+		if _in_flight.is_empty() and not _launching:
+			_resolve_finisher(false)
+		return
 	if not _in_flight.is_empty() or _launching or state != State.FLYING:
 		return
 	_after_throw()
@@ -2617,6 +2691,11 @@ static func beam_angle(origin: Vector2, target: Vector2, facing: int) -> float:
 
 ## Once everything thrown has landed: combos, close calls, settling, then the next turn.
 func _after_throw() -> void:
+	# A special used for the finishing throw: whatever happened, the finisher is decided.
+	if not _finisher.is_empty():
+		if not _finisher["done"]:
+			_resolve_finisher(false)
+		return
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
@@ -2875,7 +2954,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"barrage_zoltraak"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.
@@ -2986,6 +3065,8 @@ func _finisher_throw(winner: Fighter, loser: Fighter) -> bool:
 		_finisher_launch(shot["angle"], shot["power"])
 	else:
 		_hud.set_turn("FINISH THEM!", Color(0.95, 0.15, 0.18))
+		_special_armed = false
+		_hud.set_special(winner.data, _charge[current], false)
 		_aim.wind = _wind_for(winner)
 		_aim.begin(winner)
 	if not _finisher["done"]:
@@ -3012,22 +3093,55 @@ func _finisher_launch(angle: float, power: float) -> void:
 		_actors.add_child(projectile)
 		projectile.launch(weapon, winner, winner.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, winner.facing), _wind_for(winner))
 		projectile.target = _finisher["loser"]
-		projectile.hit_fighter.connect(func(p: Projectile, who: Fighter, _part: StringName) -> void:
-			if who == _finisher["loser"]:
-				Effects.burst(_actors, p.global_position, Color(1, 1, 1, 0.9), 14, 420.0)
-				Audio.play("hit_body", 0.0, 0.9, 0.0)
-				_camera.shake(0.5)
-				_resolve_finisher(true))
-		projectile.finished.connect(func(p: Projectile) -> void:
-			_in_flight.erase(p)
-			_finisher["in_flight"] -= 1
-			if _finisher["in_flight"] <= 0:
-				_resolve_finisher(false))
-		_finisher["in_flight"] += 1
-		_in_flight.append(projectile)
+		_basic_traits(projectile, weapon, _finisher["loser"])
+		_hook_finisher(projectile)
+		if weapon.id == &"zoltraak" and i == 0:
+			_drop_guide = winner.mana_released
+			_arm_drop_orb(projectile, winner)
 	state = State.FLYING
 
 
+
+
+## What a fighter's basic throw always does, in a match or a finishing throw: Nue and
+## Egita's ki bend in on the enemy as they get close.
+func _basic_traits(projectile: Projectile, weapon: WeaponData, foe: Fighter) -> void:
+	if weapon.shape == &"nue":
+		projectile.homing_target = foe
+		projectile.homing_range = 260.0
+		projectile.homing_turn = 2.2
+	elif weapon.id == &"ki_orb":
+		projectile.homing_target = foe
+		projectile.homing_range = KI_HOMING_RANGE
+		projectile.homing_turn = KI_HOMING_TURN
+
+
+## A finishing-throw projectile: touching the loser earns the fatality; once every one
+## is gone without that, the finisher missed.
+func _hook_finisher(projectile: Projectile) -> void:
+	projectile.hit_fighter.connect(func(p: Projectile, who: Fighter, _part: StringName) -> void:
+		if who == _finisher["loser"]:
+			Effects.burst(_actors, p.global_position, Color(1, 1, 1, 0.9), 14, 420.0)
+			Audio.play("hit_body", 0.0, 0.9, 0.0)
+			_camera.shake(0.5)
+			_resolve_finisher(true))
+	projectile.exploded.connect(func(p: Projectile, at: Vector2, _direct: Fighter, _part: StringName, _collider: Object) -> void:
+		if not _finisher.is_empty() and (_finisher["loser"] as Fighter).aim_point(false).distance_to(at) < p.explode_radius + 30.0:
+			_resolve_finisher(true))
+	projectile.finished.connect(func(p: Projectile) -> void:
+		_in_flight.erase(p)
+		if _finisher.is_empty():
+			return
+		_finisher["in_flight"] -= 1
+		if _finisher["in_flight"] <= 0:
+			_resolve_finisher(false))
+	_finisher["in_flight"] += 1
+	_in_flight.append(projectile)
+
+
+## A finishing throw made with a special is in progress.
+func _special_finisher() -> bool:
+	return not _finisher.is_empty() and not _finisher["done"] and _finisher.get("special", false)
 ## Ends the finishing throw once: hit (true) or every projectile gone (false).
 func _resolve_finisher(hit: bool) -> void:
 	if _finisher.is_empty() or _finisher["done"]:

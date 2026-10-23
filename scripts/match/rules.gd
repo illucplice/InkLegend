@@ -12,7 +12,7 @@ const MAP_SCALE := 1.12
 const GRAVITY := 470.0
 const MIN_DISTANCE_M := 65.0
 const MAX_DISTANCE_M := 85.0
-const MIN_ANGLE := 5.0
+const MIN_ANGLE := -15.0
 const MAX_ANGLE := 85.0
 
 ## Wind is a sideways push in px/s². A new wind is rolled each turn.

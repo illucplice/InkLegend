@@ -25,7 +25,7 @@ signal fatality_test_requested
 const INK := UiStyle.INK
 const PAPER := UiStyle.PAPER
 const GHOST := Color(1.0, 0.95, 0.75)
-const VERSION := "v0.1"
+const VERSION := "v0.2"
 const HINT_TEXT := "Drag back to aim, release to throw  •  Drag back to the start to cancel  •  ↑↓ angle  ←→ power  Space throws  •  Esc pauses"
 const TOUCH_HINT_TEXT := "Drag back anywhere to aim, let go to throw  •  Drag back to where you started to cancel"
 const DIFFICULTY_NAMES := ["Easy", "Normal", "Hard"]
@@ -69,6 +69,7 @@ var _title_screen: Control
 var _select_screen: Control
 var _settings_screen: Control
 var _howto_screen: Control
+var _patch_screen: Control
 var _pause_screen: Control
 var _result_screen: Control
 var _settings_return: Control
@@ -150,6 +151,7 @@ func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
 	_fighters_content = _fighters_screen.get_meta("content")
 	_settings_screen = _build_settings()
 	_howto_screen = _build_howto()
+	_patch_screen = _build_patch_notes()
 	_pause_screen = _build_pause()
 	_result_screen = _build_result()
 	_intro = VsIntro.new()
@@ -884,13 +886,14 @@ func _build_title() -> Control:
 	bar.add_child(tabs)
 	screen.add_child(bar)
 
-	var version := UiStyle.game_label(VERSION, 14)
+	# The version doubles as a button to the patch notes.
+	var version := _icon_button(&"star", "%s  What's new" % VERSION, UiStyle.PURPLE, Vector2(200, 40), 15)
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	version.offset_left = -70
-	version.offset_top = -104
-	version.offset_right = -12
-	version.offset_bottom = -84
-	version.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	version.offset_left = -214
+	version.offset_top = -132
+	version.offset_right = -14
+	version.offset_bottom = -92
+	version.pressed.connect(func() -> void: _show_screen(_patch_screen))
 	screen.add_child(version)
 	return screen
 
@@ -1530,10 +1533,16 @@ func _build_howto() -> Control:
 		label.custom_minimum_size.x = 600
 		row.add_child(label)
 		content.add_child(row)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 16)
+	var notes := _icon_button(&"star", "Patch notes", UiStyle.PURPLE, Vector2(220, 66), 22)
+	notes.pressed.connect(func() -> void: _show_screen(_patch_screen))
+	buttons.add_child(notes)
 	var back := _icon_button(&"play", "Got it!", UiStyle.GREEN, Vector2(220, 66), 26)
-	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	back.pressed.connect(show_title)
-	content.add_child(back)
+	buttons.add_child(back)
+	content.add_child(buttons)
 	return _card_screen("HOW TO PLAY", UiStyle.PURPLE, content)
 
 
@@ -2207,3 +2216,31 @@ func set_time_stop(on: bool, violet: bool = true) -> void:
 
 func time_stopped() -> bool:
 	return _time_stop != null and _time_stop.visible
+
+
+## Patch notes: every version's changes, newest first, in a scrolling card.
+func _build_patch_notes() -> Control:
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(760, 420)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 10)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for entry: Dictionary in PatchNotes.NOTES:
+		var heading := UiStyle.game_label("%s  —  %s" % [entry["version"], entry["title"]], 26, true)
+		heading.add_theme_color_override("font_color", UiStyle.PURPLE)
+		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		list.add_child(heading)
+		for note: String in entry["notes"]:
+			var label := UiStyle.ink_label("•  " + note, 18)
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			label.custom_minimum_size.x = 720
+			list.add_child(label)
+		list.add_child(_spacer(8))
+	scroll.add_child(list)
+	content.add_child(scroll)
+	content.add_child(_back_button(show_title))
+	return _card_screen("PATCH NOTES", UiStyle.PURPLE, content)
