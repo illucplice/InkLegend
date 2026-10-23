@@ -270,7 +270,7 @@ const KYOKA_HEAL := 5
 const EVOLVE_HEALTH := 50
 const EVOLVED_DAMAGE := 1.5
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
-const MANA_RELEASE_HEALTH := 60
+const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
 const MANA_BARRIER := 0.75
 ## Mana Analysis: each miss lengthens her aim guide one step, up to full.

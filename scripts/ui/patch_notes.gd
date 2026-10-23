@@ -5,7 +5,7 @@ extends RefCounted
 
 const NOTES := [
 	{"version": "v0.2", "title": "Legends Arrive", "notes": [
-		"New Mythic fighter Frierin: throw a mana orb, then press while it flies to drop a Zoltraak beam (body hits only). Her special lifts her into the sky to rain bursting mana spheres over every wall. Mana Release at 60 HP: a barrier blocks a quarter of every enemy hit, the drop beam bursts wide, and each miss lengthens her aim guide a step (at full it shows the whole path and drop point, then resets).",
+		"New Mythic fighter Frierin: throw a mana orb, then press while it flies to drop a Zoltraak beam (body hits only). Her special lifts her into the sky to rain bursting mana spheres over every wall. Mana Release at 50 HP: a barrier blocks a quarter of every enemy hit, the drop beam bursts wide, and each miss lengthens her aim guide a step (at full it shows the whole path and drop point, then resets).",
 		"New Mythic fighter Aizon: Kyoka Suigetsu swaps places just before a throw hits, so the thrower takes their own hit; it lasts until it triggers, steals their buffs and heals him 5. He evolves at 50 HP with butterfly wings and a stronger Hado.",
 		"New Legendary fighters: Jotar and Dyo (time stop with stands), Kazma (lucky throws and a shield), Subaro (Emilla's icicles from the sky).",
 		"New Epic heroes: Thundr, Capt, Spydr and Batz.",
