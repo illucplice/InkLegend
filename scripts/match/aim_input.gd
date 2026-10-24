@@ -27,6 +27,8 @@ var straight := false
 var full_guide := false
 ## Frierin's Mana Analysis: 0 is the normal guide, 1 reaches all the way.
 var guide_boost := 0.0
+## Under Aizon's spiritual pressure: no trajectory dots at all.
+var hide_guide := false
 var min_angle := Rules.MIN_ANGLE
 ## An armed special: its name shows on the readout and the guide takes its colour.
 var special_name := ""
@@ -131,6 +133,10 @@ func _draw() -> void:
 		for i in range(1, 22):
 			draw_circle(origin + direction * i * 34.0, 6.0 * inv_zoom, Color(fighter.data.weapon.color, alpha * (1.0 - i / 24.0)), true, -1.0, true)
 		_draw_angle_arc(origin, inv_zoom, alpha)
+		return
+	if hide_guide:
+		_draw_angle_arc(origin, inv_zoom, alpha)
+		_draw_power_gauge(inv_zoom, alpha)
 		return
 	if full_guide:
 		_draw_full_guide(origin, velocity, inv_zoom, alpha)

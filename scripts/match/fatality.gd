@@ -2551,29 +2551,17 @@ func _kurohitsugi() -> void:
 		return
 	hud.announce("HADO #99  GORYUTENMETSU", Color(0.85, 0.4, 1.0))
 	_say_line("Hado #99... Goryutenmetsu.", 1.4)
-	_frame_around(Vector2(target.x, ground), 520.0, 700.0)
+	_frame_around(Vector2(target.x, ground), 560.0, 720.0)
 	# Two beasts of violet flame rise from the ground either side and snap shut.
 	var beasts := {"rise": 0.0, "bite": 0.0}
 	var maws := _prop(func(canvas: Node2D) -> void:
 		var rise: float = beasts["rise"]
 		var bite: float = beasts["bite"]
 		for dir: float in [-1.0, 1.0]:
-			var root := Vector2(target.x + dir * 260.0, ground + 40.0)
-			var head := Vector2(target.x + dir * lerpf(200.0, 40.0, bite), lerpf(ground + 40.0, target.y - 120.0, rise) + bite * 80.0)
-			var neck := PackedVector2Array()
-			for i in 12:
-				var u := i / 11.0
-				neck.append(root.lerp(head, u) + Vector2(dir * sin(u * PI) * 90.0, 0))
-			canvas.draw_polyline(neck, Color(0.55, 0.2, 0.9, 0.35), 90.0, true)
-			canvas.draw_polyline(neck, Color(0.6, 0.3, 0.95), 50.0, true)
-			canvas.draw_polyline(neck, Color(0.9, 0.75, 1.0), 16.0, true)
-			var facing_in := Vector2(-dir, 0)
-			var jaw_open := (1.0 - bite) * 0.6
-			for jaw: float in [-1.0, 1.0]:
-				var tip := head + facing_in.rotated(jaw * jaw_open) * 110.0
-				canvas.draw_colored_polygon(PackedVector2Array([head + Vector2(0, jaw * 30.0), tip, head + facing_in * 40.0]), Color(0.6, 0.3, 0.95))
-				canvas.draw_polyline(PackedVector2Array([head + Vector2(0, jaw * 30.0), tip, head + facing_in * 40.0]), Color(0.95, 0.85, 1.0), 3.0, true)
-			canvas.draw_circle(head + Vector2(0, -26), 8.0, Color(1.0, 0.9, 0.4), true, -1.0, true))
+			var root := Vector2(target.x + dir * 300.0, ground + 40.0)
+			var head := Vector2(target.x + dir * lerpf(230.0, 70.0, bite), lerpf(ground + 40.0, target.y - 150.0, rise) + bite * 90.0)
+			_draw_flame_dragon(canvas, root, head, dir, bite))
+	get_tree().process_frame.connect(maws.queue_redraw)
 	maws.z_index = 11
 	var surge := create_tween()
 	surge.tween_method(func(t: float) -> void:
@@ -2607,6 +2595,84 @@ func _kurohitsugi() -> void:
 	_say_line("Do not use strong words.", 1.4)
 	await _wait(1.0)
 
+
+
+## One of Goryutenmetsu's two flame dragons, rising from `root` to `head`, facing
+## `dir` (inward), its jaws closing as `bite` goes 0 to 1.
+func _draw_flame_dragon(canvas: Node2D, root: Vector2, head: Vector2, dir: float, bite: float) -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	var core := Color(0.95, 0.85, 1.0)
+	var flame := Color(0.62, 0.3, 0.98)
+	var deep := Color(0.25, 0.06, 0.45)
+	# Burning ground where it bursts out.
+	canvas.draw_set_transform(root + Vector2(0, -36), 0.0, Vector2(1.0, 0.3))
+	canvas.draw_circle(Vector2.ZERO, 110.0, Color(flame, 0.25), true, -1.0, true)
+	canvas.draw_arc(Vector2.ZERO, 110.0, 0.0, TAU, 40, Color(core, 0.6), 4.0, true)
+	canvas.draw_set_transform(Vector2.ZERO)
+	# The body: an S-curved serpent, thickest at the base, tapering to the neck.
+	var count := 18
+	var spine := PackedVector2Array()
+	for i in count:
+		var u := i / float(count - 1)
+		var sway := sin(u * PI * 1.6 + t * 4.0) * 26.0 * (1.0 - u)
+		spine.append(root.lerp(head, u) + Vector2(dir * sin(u * PI) * 110.0 + sway, 0))
+	for i in count - 1:
+		var u := i / float(count - 1)
+		var width := lerpf(96.0, 44.0, u)
+		canvas.draw_line(spine[i], spine[i + 1], Color(flame, 0.22), width * 1.7, true)
+	for i in count - 1:
+		var u := i / float(count - 1)
+		var width := lerpf(96.0, 44.0, u)
+		canvas.draw_line(spine[i], spine[i + 1], deep, width + 8.0, true)
+		canvas.draw_line(spine[i], spine[i + 1], flame, width, true)
+		canvas.draw_line(spine[i], spine[i + 1], core, width * 0.28, true)
+	# Flames licking up off its back, and scale ridges across the belly.
+	for i in range(1, count - 1):
+		var u := i / float(count - 1)
+		var along := (spine[i + 1] - spine[i - 1]).normalized()
+		var out := along.orthogonal() * (-dir)
+		var width := lerpf(96.0, 44.0, u)
+		var lick := 0.7 + 0.3 * sin(t * 12.0 + i * 1.7)
+		var base := spine[i] + out * width * 0.42
+		canvas.draw_colored_polygon(PackedVector2Array([base - along * 12.0, base + out * 34.0 * lick - along * 18.0, base + along * 8.0]), Color(core, 0.75))
+		if i % 2 == 0:
+			canvas.draw_arc(spine[i], width * 0.38, out.angle() + PI - 1.0, out.angle() + PI + 1.0, 8, Color(deep, 0.7), 3.0, true)
+	# The head: a long wedge of a skull with swept-back horns and a burning mane.
+	var fwd := Vector2(-dir, 0).rotated(-dir * 0.15)
+	var up := Vector2(0, -1)
+	var skull := PackedVector2Array([head - fwd * 40.0 + up * 34.0, head + fwd * 30.0 + up * 30.0, head + fwd * 92.0 + up * 10.0, head + fwd * 98.0, head + fwd * 30.0 - up * 4.0, head - fwd * 44.0 - up * 6.0])
+	for k in 6:
+		var a := fwd.angle() + PI + (k - 2.5) * 0.32
+		var tip := head - fwd * 30.0 + up * 20.0 + Vector2.from_angle(a) * (60.0 + 14.0 * sin(t * 10.0 + k))
+		canvas.draw_colored_polygon(PackedVector2Array([head - fwd * 26.0 + up * 34.0, tip, head - fwd * 40.0]), Color(flame, 0.85))
+	for horn in 2:
+		var start := head + fwd * (10.0 - horn * 16.0) + up * 30.0
+		canvas.draw_polyline(PackedVector2Array([start, start - fwd * 40.0 + up * 34.0, start - fwd * 80.0 + up * 30.0]), deep, 11.0 - horn * 3.0, true)
+		canvas.draw_polyline(PackedVector2Array([start, start - fwd * 40.0 + up * 34.0, start - fwd * 80.0 + up * 30.0]), core, 3.0, true)
+	canvas.draw_colored_polygon(skull, flame)
+	var rim := skull.duplicate()
+	rim.append(skull[0])
+	canvas.draw_polyline(rim, deep, 4.0, true)
+	# Jaws: the lower one swings open, both lined with teeth, a glow in the throat.
+	var open := (1.0 - bite) * 0.75
+	var hinge := head - fwd * 20.0 - up * 2.0
+	var jaw_dir := fwd.rotated(dir * open)
+	var lower := PackedVector2Array([hinge, hinge + jaw_dir * 108.0, hinge + jaw_dir * 100.0 - jaw_dir.orthogonal() * dir * 22.0, hinge - jaw_dir.orthogonal() * dir * 26.0])
+	canvas.draw_colored_polygon(PackedVector2Array([hinge, head + fwd * 90.0, hinge + jaw_dir * 100.0]), Color(1.0, 0.85, 0.5, 0.7 * open / 0.75))
+	canvas.draw_colored_polygon(lower, flame)
+	var jaw_rim := lower.duplicate()
+	jaw_rim.append(lower[0])
+	canvas.draw_polyline(jaw_rim, deep, 4.0, true)
+	for k in 6:
+		var top_at := head + fwd * (24.0 + k * 13.0) - up * 2.0
+		canvas.draw_colored_polygon(PackedVector2Array([top_at - fwd * 4.0, top_at + fwd * 4.0, top_at - up * 13.0]), Color.WHITE)
+		var low_at := hinge + jaw_dir * (36.0 + k * 12.0)
+		canvas.draw_colored_polygon(PackedVector2Array([low_at - jaw_dir * 4.0, low_at + jaw_dir * 4.0, low_at + jaw_dir.orthogonal() * dir * -1.0 * -11.0]), Color.WHITE)
+	# A burning eye.
+	var eye := head + fwd * 26.0 + up * 16.0
+	canvas.draw_circle(eye, 14.0, Color(1.0, 0.85, 0.3, 0.35), true, -1.0, true)
+	canvas.draw_colored_polygon(PackedVector2Array([eye - fwd * 11.0, eye + up * 4.0, eye + fwd * 11.0, eye - up * 3.0]), Color(1.0, 0.9, 0.35))
+	canvas.draw_line(eye - up * 4.0, eye + up * 4.0, Color(0.2, 0.05, 0.1), 2.5, true)
 
 ## A speech bubble that follows `at()` (anyone's head), for `seconds`.
 func _bubble(at: Callable, text: String, seconds: float) -> void:

@@ -113,7 +113,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 70.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.22, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.35, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -225,6 +225,8 @@ var _turn_count := 0
 var _extra_throw := false
 ## The current throw is a special: a knockout from it goes straight to the fatality.
 var _special_this_turn := false
+## This turn's hits have already charged the special meters.
+var _turn_charged := false
 ## Kyoka Suigetsu turned a throw back on its thrower and knocked them out.
 var _mirror_ko := false
 ## Aqwa's blessing: lucky throws left for each side (they find the enemy wherever aimed).
@@ -241,6 +243,8 @@ var _analysis := [0, 0]
 var _drop_orb: Projectile
 var _drop_ai_offset := 0.0
 var _drop_guide := false
+## Aizon's Reiatsu in flight, which a press detonates.
+var _det_orb: Projectile
 const LUCKY_THROWS := 2
 
 ## Subaro's Emilla icefall: the target circle's size, sweep speed, and how long you get.
@@ -267,13 +271,15 @@ const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop"
 const ILLUSION_TRIGGER := 160.0
 ## Aizon gets this much health back each time Kyoka Suigetsu fools someone.
 const KYOKA_HEAL := 5
-## Aizon's Reiatsu: two hits in a row put them under pressure, and his next hit does
-## this much more damage.
+## Aizon's Reiatsu: this many hits in a row put them under pressure (no aim guide).
 const PRESSURE_HITS := 2
-const PRESSURE_BONUS := 1.3
-## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
+## Detonating his Reiatsu mid-air: blast radius, and how close the AI waits to get.
+const DETONATE_RADIUS := 110.0
+const DETONATE_AI_RANGE := 70.0
+## Aizon evolves once, the first time he drops to EVOLVE_HEALTH. From then on the
+## enemy's defence is down (his hits do EVOLVED_DAMAGE times as much).
 const EVOLVE_HEALTH := 50
-const EVOLVED_DAMAGE := 1.5
+const EVOLVED_DAMAGE := 1.3
 ## Evolved Aizon takes this share of every enemy hit.
 const EVOLVED_DEFENCE := 0.8
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
@@ -489,6 +495,7 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	_det_orb = null
 	_drop_orb = null
 	_mirror_ko = false
 	if not _icefall.is_empty() and is_instance_valid(_icefall.get("marker")):
@@ -846,8 +853,10 @@ func _knife_storm(fighter: Fighter, angle: float, power: float) -> void:
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power * rng.randf_range(0.97, 1.03), weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
 		projectile.set_meta("knifestorm", true)
-		projectile.stop_short = true
-		projectile.stopped_short.connect(_on_stopped_short)
+		# On a finishing throw the knives just strike: there is no next turn to wait for.
+		if not _special_finisher():
+			projectile.stop_short = true
+			projectile.stopped_short.connect(_on_stopped_short)
 		_track(projectile)
 		await get_tree().create_timer(0.06, false).timeout
 		if id != _match_id:
@@ -1290,7 +1299,7 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	fighter.data = evolved_data
 	fighter.power_up(2.0)
 	_hud.announce("AIZON EVOLVES!", Color(0.85, 0.7, 1.0))
-	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "POWER x1.5", Color(0.85, 0.7, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "ENEMY DEFENCE DOWN  (+%d%%)" % roundi((EVOLVED_DAMAGE - 1.0) * 100.0), Color(0.85, 0.7, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.97, 0.95, 1.0), 60, 700.0, 180.0, 2.0)
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 500.0, 180.0, 1.8)
 	Audio.play("voice_charge", 2.0, fighter.voice_pitch(), 0.0)
@@ -1376,6 +1385,10 @@ func _process_icefall(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	var pressed: bool = (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event.is_action_pressed("ui_accept")
 	if not pressed:
+		return
+	if _det_orb != null and is_instance_valid(_det_orb) and _det_orb.is_flying() and not _det_orb.thrower.is_ai and state == State.FLYING:
+		get_viewport().set_input_as_handled()
+		_detonate()
 		return
 	if _drop_orb != null and is_instance_valid(_drop_orb) and not _drop_orb.thrower.is_ai and state == State.FLYING:
 		get_viewport().set_input_as_handled()
@@ -1613,26 +1626,90 @@ func _set_floating(fighter: Fighter, up: bool) -> void:
 	await move.finished
 
 
-## Each Reiatsu hit adds to the weight on them; at PRESSURE_HITS in a row their
-## defence drops until his next hit, which spends it.
+## Each Reiatsu hit adds to the weight on them; at PRESSURE_HITS in a row they are
+## under Spiritual Pressure and throw their next shot with no aim guide.
 func _build_pressure(target: Fighter) -> void:
+	if target.pressured:
+		return
 	var view := _camera.visible_rect()
 	var at := target.aim_point(true) + Vector2(0, -100)
-	if target.pressured:
-		target.pressured = false
-		target.pressure_stacks = 0
-		Effects.popup(_actors, at, "CRUSHED!", Color(0.85, 0.6, 1.0), 34, 1.0 / _camera.zoom.x, view)
-		Effects.burst(_actors, target.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
-		_camera.shake(0.6)
-		return
 	target.pressure_stacks += 1
 	if target.pressure_stacks >= PRESSURE_HITS:
 		target.pressured = true
 		target.pressure_stacks = 0
-		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  DEF DOWN", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
+		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
 		Audio.play("ko", -6.0, 0.4, 0.0)
 	else:
 		Effects.popup(_actors, at, "PRESSURE %d / %d" % [target.pressure_stacks, PRESSURE_HITS], Color(0.75, 0.55, 1.0), 26, 1.0 / _camera.zoom.x, view)
+
+
+## Aizon's Reiatsu detonated mid-air: a wider burst of crushing pressure.
+func _detonate() -> void:
+	var orb := _det_orb
+	_det_orb = null
+	if not is_instance_valid(orb) or not orb.is_flying():
+		return
+	_flash_pressure_ring(orb.global_position)
+	orb.detonate(DETONATE_RADIUS)
+
+
+## The AI detonates once its Reiatsu is close to the enemy.
+func _watch_det_orb() -> void:
+	if _det_orb == null:
+		return
+	if not is_instance_valid(_det_orb) or not _det_orb.is_flying():
+		_det_orb = null
+		return
+	if not _det_orb.thrower.is_ai:
+		return
+	var foe: Fighter = _det_orb.target
+	# Only when it is about to miss: a direct hit does more.
+	if foe != null and is_instance_valid(foe) and _det_orb.global_position.distance_to(foe.aim_point(false)) < DETONATE_AI_RANGE and not _will_hit(_det_orb, foe):
+		_detonate()
+
+
+func _flash_pressure_ring(at: Vector2) -> void:
+	var ring := Node2D.new()
+	ring.z_index = 20
+	ring.position = at
+	var size := {"r": 10.0}
+	ring.draw.connect(func() -> void:
+		ring.draw_circle(Vector2.ZERO, size["r"], Color(0.55, 0.3, 0.95, 0.25), true, -1.0, true)
+		ring.draw_arc(Vector2.ZERO, size["r"], 0.0, TAU, 40, Color(0.8, 0.6, 1.0, 0.9), 6.0, true))
+	_actors.add_child(ring)
+	var grow := ring.create_tween()
+	grow.tween_method(func(r: float) -> void:
+		size["r"] = r
+		ring.queue_redraw(), 10.0, DETONATE_RADIUS, 0.25).set_ease(Tween.EASE_OUT)
+	grow.parallel().tween_property(ring, "modulate:a", 0.0, 0.35)
+	grow.tween_callback(ring.queue_free)
+	Audio.play("ko", -6.0, 0.6, 0.0)
+	_camera.shake(0.5)
+
+
+## Aizon's ultimate: he lets his spiritual pressure flood the whole arena. The screen
+## dims violet and the enemy is crushed straight into Spiritual Pressure.
+func _arena_pressure(aizon: Fighter) -> void:
+	var foe := fighters[1 - fighters.find(aizon)]
+	var veil := ColorRect.new()
+	veil.color = Color(0.3, 0.12, 0.5, 0.0)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(veil)
+	_hud.move_child(veil, 0)
+	var fade := veil.create_tween()
+	fade.tween_property(veil, "color:a", 0.35, 0.3)
+	fade.tween_interval(0.8)
+	fade.tween_property(veil, "color:a", 0.0, 0.6)
+	fade.tween_callback(veil.queue_free)
+	Audio.play("ko", 2.0, 0.35, 0.0)
+	_camera.shake(1.0)
+	if mode == Mode.PRACTICE or foe.is_knocked_out():
+		return
+	foe.pressured = true
+	foe.pressure_stacks = 0
+	Effects.popup(_actors, foe.aim_point(true) + Vector2(0, -100), "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, foe.aim_point(false), Color(0.6, 0.35, 0.95), 40, 500.0, 180.0, 1.6)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -2015,6 +2092,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
+	_turn_charged = false
 	# Frierin's barrier comes back up whenever her enemy starts a turn.
 	for other in fighters:
 		if other != fighter and other.data.base_id() == &"frierin":
@@ -2078,6 +2156,7 @@ func _begin_turn() -> void:
 		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
 		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current] >= ANALYSIS_STEPS
 		_aim.guide_boost = float(_analysis[current]) / ANALYSIS_STEPS
+		_aim.hide_guide = fighter.pressured
 		if _analysis[current] > 0:
 			var label := "MANA ANALYSIS: FULL" if _analysis[current] >= ANALYSIS_STEPS else "MANA ANALYSIS %d / %d" % [_analysis[current], ANALYSIS_STEPS]
 			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), label, Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2106,6 +2185,9 @@ func _begin_turn() -> void:
 	var shot := brain.aim(fighter.throw_origin(), target, fighter.data.weapon.max_speed, fighter.facing, _obstacle_rects, _wind_for(fighter), Rules.GRAVITY * fighter.data.weapon.gravity_scale)
 	if _special_armed and is_straight_special(fighter.data.weapon.special):
 		shot = {"angle": beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(brain.wants_headshot()), fighter.facing) + brain.rng.randfn(0.0, 2.0), "power": 1.0}
+	# Under Aizon's pressure the AI aims blind, and its throw wanders.
+	if fighter.pressured:
+		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-7.0, 7.0), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.9, 1.1), 0.1, 1.0)}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -2137,6 +2219,7 @@ func _process(delta: float) -> void:
 func _physics_process(_delta: float) -> void:
 	_pull_toward_purple(_delta)
 	_watch_drop_orb()
+	_watch_det_orb()
 	_watch_illusion()
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
@@ -2187,7 +2270,6 @@ func _on_special_toggled(armed: bool) -> void:
 				_stop_time(fighters[current])
 			elif not armed and _hud.time_stopped() and _stopper == fighters[current]:
 				_resume_time()
-			_aim.full_guide = armed
 		_aim.full_guide = (armed and data.weapon.special == &"timestop") or (_hud.time_stopped() and fighters[current] == _stopper)
 		_aim.set_special(data.special_name if armed else "", data.body_color)
 		if armed:
@@ -2219,6 +2301,7 @@ func _apply_instant_special(fighter: Fighter, special: StringName) -> void:
 			_bless(fighter)
 		&"illusion":
 			fighter.illusion = true
+			_arena_pressure(fighter)
 			_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
 			Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
 		&"timestop":
@@ -2380,12 +2463,16 @@ func _throw(angle: float, power: float) -> void:
 			projectile.explode_radius = VOLL_RADIUS
 			projectile.set_meta("voll", true)
 			projectile.set_trail_color(Color(0.75, 0.9, 1.0))
-		if _hud.time_stopped() and fighter == _stopper:
+		if _hud.time_stopped() and fighter == _stopper and not _special_finisher():
 			projectile.stop_short = true
 			projectile.set_meta("timestop", true)
 			projectile.stopped_short.connect(_on_stopped_short)
 		if weapon.id == &"zoltraak" and special == &"" and i == 0:
 			_arm_drop_orb(projectile, fighter)
+		if weapon.shape in [&"reiatsu", &"dark_hado"] and i == 0:
+			_det_orb = projectile
+			if not fighter.is_ai:
+				Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "PRESS TO DETONATE!", Color(0.75, 0.55, 1.0), 24, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -2442,10 +2529,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
-	# Under Aizon's spiritual pressure their defence is down: his next Reiatsu hits harder.
 	var reiatsu: bool = projectile.weapon != null and projectile.weapon.shape in [&"reiatsu", &"dark_hado"] and not mirrored
-	if reiatsu and target.pressured:
-		damage = roundi(damage * PRESSURE_BONUS)
 	if projectile.thrower != null and projectile.thrower.evolved:
 		damage = roundi(damage * EVOLVED_DAMAGE)
 	# Levels from duplicate chest finds: a little more damage on your side.
@@ -2466,8 +2550,11 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		Audio.play("tick", 0.0, 0.6, 0.0)
 		_camera.shake(0.3)
 		return
-	# Charge the special meters: the thrower for landing a hit, the target a little.
-	if side >= 0 and mode != Mode.PRACTICE and not projectile.get_meta("barrage", false) and not projectile.get_meta("rain", false) and not projectile.get_meta("knifestorm", false) and not projectile.get_meta("timestop", false) and not projectile.get_meta("icefall", false) and not projectile.get_meta("zoltraak", false) and not mirrored:
+	# Charge the special meters, once per turn: the thrower for landing a hit, the target
+	# a little. Many projectiles (Klakla's stones, a special's volley) still count once,
+	# and a turn spent on a special never refills it.
+	if side >= 0 and mode != Mode.PRACTICE and not mirrored and not _special_this_turn and not _turn_charged:
+		_turn_charged = true
 		_add_charge(side, CHARGE_HEADSHOT if part == Rules.HEAD else CHARGE_HIT)
 		_add_charge(1 - side, CHARGE_WHEN_HIT)
 	var was_healthy := target.health > LAST_STAND_HEALTH
@@ -2741,11 +2828,12 @@ func _after_throw() -> void:
 		if not _finisher["done"]:
 			_resolve_finisher(false)
 		return
-	# Aizon's pressure needs hits in a row: a miss loses it all.
+	# Aizon's pressure needs hits in a row: a miss loses the build-up.
 	if not _turn_hit and fighters[current].data.base_id() == &"aizon":
-		var foe := fighters[1 - current]
-		foe.pressure_stacks = 0
-		foe.pressured = false
+		fighters[1 - current].pressure_stacks = 0
+	# Spiritual pressure lasts for one blind throw.
+	if fighters[current].pressured:
+		fighters[current].pressured = false
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
@@ -3148,6 +3236,8 @@ func _finisher_launch(angle: float, power: float) -> void:
 		if weapon.id == &"zoltraak" and i == 0:
 			_drop_guide = false
 			_arm_drop_orb(projectile, winner)
+		if weapon.shape in [&"reiatsu", &"dark_hado"] and i == 0:
+			_det_orb = projectile
 	state = State.FLYING
 
 
@@ -3198,6 +3288,15 @@ func _resolve_finisher(hit: bool) -> void:
 		return
 	_finisher["done"] = true
 	_finisher["hit"] = hit
+	# Whatever was stopped in time is over now.
+	if _hud.time_stopped():
+		_hud.set_time_stop(false)
+	_time_stop_left = 0
+	_held.clear()
+	for mark in _marks:
+		if is_instance_valid(mark):
+			mark.queue_free()
+	_marks.clear()
 	state = State.GAME_OVER
 	finisher_resolved.emit()
 

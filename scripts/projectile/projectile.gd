@@ -691,3 +691,12 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 static func _stick(canvas: CanvasItem, from: Vector2, to: Vector2, width: float, color: Color) -> void:
 	canvas.draw_line(from, to, INK, width + 4.0, true)
 	canvas.draw_line(from, to, color, width, true)
+
+
+## Blows up where it is now (Aizon detonating his Reiatsu), with blast `radius`.
+func detonate(radius: float) -> void:
+	if _done:
+		return
+	explode_radius = radius
+	exploded.emit(self, global_position, null, Rules.BODY, null)
+	_finish(false)
