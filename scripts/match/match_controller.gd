@@ -159,6 +159,7 @@ const THROW_SOUNDS := {
 	&"dark_hado": ["zap", 0.9],
 	&"zoltraak": ["zap", 1.3],
 	&"mana_orb": ["zap", 1.5],
+	&"reiatsu": ["whoosh", 0.7],
 	&"spear": ["whoosh", 1.1],
 	&"arrow": ["twang", 1.0],
 }
@@ -266,9 +267,15 @@ const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop"
 const ILLUSION_TRIGGER := 160.0
 ## Aizon gets this much health back each time Kyoka Suigetsu fools someone.
 const KYOKA_HEAL := 5
+## Aizon's Reiatsu: two hits in a row put them under pressure, and his next hit does
+## this much more damage.
+const PRESSURE_HITS := 2
+const PRESSURE_BONUS := 1.3
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH, and hits harder after.
 const EVOLVE_HEALTH := 50
 const EVOLVED_DAMAGE := 1.5
+## Evolved Aizon takes this share of every enemy hit.
+const EVOLVED_DEFENCE := 0.8
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -610,7 +617,8 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		_lightning(at)
 	if projectile.get_meta("elephant", false):
 		_elephant_drop(at)
-	if projectile.get_meta("zoltraak", false) or projectile.get_meta("zoltraak_drop", false):
+	var violet: bool = projectile.get_meta("zoltraak", false) or projectile.get_meta("zoltraak_drop", false) or projectile.weapon.shape in [&"reiatsu", &"dark_hado"]
+	if violet:
 		Effects.burst(_actors, at, Color(0.75, 0.6, 1.0), 26, 500.0, 180.0, 1.2)
 		Effects.burst(_actors, at, Color.WHITE, 10, 260.0, 180.0, 0.9)
 	elif projectile.get_meta("icefall", false):
@@ -621,7 +629,7 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		Effects.burst(_actors, at, Color(1.0, 0.6, 0.2), 40, 700.0, 180.0, 1.8)
 		Effects.burst(_actors, at, Color(0.15, 0.12, 0.14, 0.9), 26, 320.0, 180.0, 2.2)
 		Effects.popup(_actors, at + Vector2(0, -50), "BOOM!", Color(1.0, 0.6, 0.25), 48, 1.0 / _camera.zoom.x, _camera.visible_rect())
-	Audio.play("zap" if projectile.get_meta("zoltraak", false) else "boom", -4.0 if projectile.get_meta("zoltraak", false) else 0.0, 1.0, 0.1)
+	Audio.play("zap" if violet else "boom", -4.0 if violet else 0.0, 1.0, 0.1)
 	Audio.play("ground", 2.0, 0.45, 0.0)
 	Device.vibrate(90)
 	Audio.play("hit_body", -2.0, 0.6, 0.0)
@@ -642,7 +650,7 @@ func _on_projectile_exploded(projectile: Projectile, at: Vector2, direct: Fighte
 		var obstacle := child as Obstacle
 		if obstacle != null and not obstacle.is_destroyed and (obstacle == collider or obstacle.rect.grow(radius * 0.5).has_point(at)):
 			obstacle.damage(2)
-	if not projectile.get_meta("zoltraak", false):
+	if not violet:
 		_blast_crater(at, radius)
 
 
@@ -1603,6 +1611,28 @@ func _set_floating(fighter: Fighter, up: bool) -> void:
 	var move := fighter.create_tween()
 	move.tween_property(fighter, "position:y", goal, 0.5 if up else 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT if up else Tween.EASE_IN_OUT)
 	await move.finished
+
+
+## Each Reiatsu hit adds to the weight on them; at PRESSURE_HITS in a row their
+## defence drops until his next hit, which spends it.
+func _build_pressure(target: Fighter) -> void:
+	var view := _camera.visible_rect()
+	var at := target.aim_point(true) + Vector2(0, -100)
+	if target.pressured:
+		target.pressured = false
+		target.pressure_stacks = 0
+		Effects.popup(_actors, at, "CRUSHED!", Color(0.85, 0.6, 1.0), 34, 1.0 / _camera.zoom.x, view)
+		Effects.burst(_actors, target.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
+		_camera.shake(0.6)
+		return
+	target.pressure_stacks += 1
+	if target.pressure_stacks >= PRESSURE_HITS:
+		target.pressured = true
+		target.pressure_stacks = 0
+		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  DEF DOWN", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
+		Audio.play("ko", -6.0, 0.4, 0.0)
+	else:
+		Effects.popup(_actors, at, "PRESSURE %d / %d" % [target.pressure_stacks, PRESSURE_HITS], Color(0.75, 0.55, 1.0), 26, 1.0 / _camera.zoom.x, view)
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -2412,11 +2442,18 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
+	# Under Aizon's spiritual pressure their defence is down: his next Reiatsu hits harder.
+	var reiatsu: bool = projectile.weapon != null and projectile.weapon.shape in [&"reiatsu", &"dark_hado"] and not mirrored
+	if reiatsu and target.pressured:
+		damage = roundi(damage * PRESSURE_BONUS)
 	if projectile.thrower != null and projectile.thrower.evolved:
 		damage = roundi(damage * EVOLVED_DAMAGE)
 	# Levels from duplicate chest finds: a little more damage on your side.
 	if side >= 0:
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
+	# Evolved, Aizon shrugs off part of every enemy hit.
+	if target.evolved and not mirrored and side >= 0 and side != fighters.find(target):
+		damage = maxi(1, roundi(damage * EVOLVED_DEFENCE))
 	if target.mana_released and not mirrored and side >= 0 and side != fighters.find(target):
 		damage = ceili(damage * MANA_BARRIER)
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -%d%%" % roundi((1.0 - MANA_BARRIER) * 100.0), Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2469,6 +2506,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		if projectile.weapon.shape == &"iggi":
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -95), "CHOMP!", Color(1.0, 0.9, 0.85), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
 			Audio.play("crunch", -4.0, 1.4, 0.05)
+	if reiatsu and not target.is_knocked_out():
+		_build_pressure(target)
 	if projectile.get_meta("freeze", false) and not target.is_knocked_out() and not target.pinned:
 		target.pinned = true
 		_hud.announce("FROZEN!", Color(0.7, 0.9, 1.0))
@@ -2702,6 +2741,11 @@ func _after_throw() -> void:
 		if not _finisher["done"]:
 			_resolve_finisher(false)
 		return
+	# Aizon's pressure needs hits in a row: a miss loses it all.
+	if not _turn_hit and fighters[current].data.base_id() == &"aizon":
+		var foe := fighters[1 - current]
+		foe.pressure_stacks = 0
+		foe.pressured = false
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0

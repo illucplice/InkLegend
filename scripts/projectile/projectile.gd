@@ -480,6 +480,14 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_circle(Vector2.ZERO, s * 0.55, Color(w.color, 0.35), true, -1.0, true)
 			canvas.draw_circle(Vector2.ZERO, s * 0.38, w.color, true, -1.0, true)
 			canvas.draw_circle(Vector2.ZERO, s * 0.18, Color.WHITE, true, -1.0, true)
+		&"reiatsu":
+			# A sphere of crushing spiritual pressure: violet rings pulsing round a dark core.
+			var pulse := 1.0 + 0.12 * sin(Time.get_ticks_msec() * 0.02)
+			canvas.draw_circle(Vector2.ZERO, s * 0.62 * pulse, Color(w.color, 0.22), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.5 * pulse, 0.0, TAU, 24, Color(w.color, 0.8), 3.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.34, Color(0.15, 0.06, 0.25), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.34, 0.0, TAU, 20, w.color.lightened(0.3), 2.0, true)
+			canvas.draw_circle(Vector2(-s * 0.08, -s * 0.08), s * 0.12, Color(0.9, 0.8, 1.0), true, -1.0, true)
 		&"nue":
 			# Nue: a shadow bird with a white mask and spread wings.
 			var flap := sin(Time.get_ticks_msec() * 0.02) * s * 0.18
@@ -653,7 +661,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb":
+		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))

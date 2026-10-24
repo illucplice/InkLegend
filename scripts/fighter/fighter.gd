@@ -70,6 +70,9 @@ var pinned := false
 var illusion := false
 ## Aizon has evolved (once per match): wings, a white robe, harder hits.
 var evolved := false
+## Aizon's Reiatsu: hits landed in a row, and whether the pressure (defence down) is on.
+var pressure_stacks := 0
+var pressured := false
 ## Frierin's barrier: halves the first hit she takes each enemy turn.
 var barrier_ready := true
 ## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.
@@ -241,7 +244,7 @@ func play_throw() -> void:
 
 
 func _is_ranged() -> bool:
-	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb"]
+	return data != null and data.weapon.shape in [&"pebble", &"arrow", &"ki", &"fist", &"quincy", &"blue_orb", &"hadoken", &"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu"]
 
 
 func _add_hitbox(part: StringName, shape: Shape2D, at: Vector2) -> void:
@@ -359,6 +362,16 @@ func _posed_points() -> Dictionary:
 		&"felbow": elbow,
 		&"fhand": hand,
 	}
+	# Crushed by spiritual pressure: hunched, head hanging, knees buckling, panting.
+	if pressured and not is_knocked_out():
+		var pant := sin(_time * 6.0) * 1.5
+		body[&"hip"] = (body[&"hip"] as Vector2) + Vector2(-2, 8)
+		body[&"neck"] = (body[&"neck"] as Vector2) + Vector2(5, 7 + pant)
+		body[&"head"] = (body[&"head"] as Vector2) + Vector2(9, 12 + pant)
+		body[&"fknee"] = (body[&"fknee"] as Vector2) + Vector2(4, 6)
+		body[&"bknee"] = (body[&"bknee"] as Vector2) + Vector2(-2, 6)
+		body[&"belbow"] = (body[&"belbow"] as Vector2) + Vector2(2, 14)
+		body[&"bhand"] = (body[&"bhand"] as Vector2) + Vector2(6, 30)
 	if victory_pose != &"" and not is_knocked_out():
 		_apply_victory_pose(body, bob)
 	var points := {}
@@ -401,6 +414,8 @@ func _draw() -> void:
 		_draw_mana_release(p)
 	if illusion and not is_knocked_out():
 		_draw_reiatsu(p)
+	if pressured and not is_knocked_out():
+		_draw_pressure(p)
 	if form == &"ssj3" and _is_anime() and not is_knocked_out():
 		_draw_ssj3_mane(p)
 	if _gear2():
@@ -1813,3 +1828,37 @@ func _draw_mana_release(p: Dictionary) -> void:
 			var at: Vector2 = ribbon[j]
 			var dir := (ribbon[j] - ribbon[j - 1]).normalized().rotated(0.9 if (k + j) % 2 == 0 else -0.9)
 			draw_line(at, at + dir * 22.0, Color(0.9, 0.96, 1.0, 0.4), 2.0, true)
+
+
+## Under Aizon's spiritual pressure: a column of crushing violet force pours down
+## over the whole body, streaks driving through it into rings at the feet.
+func _draw_pressure(p: Dictionary) -> void:
+	var head: Vector2 = p[&"head"]
+	var feet: Vector2 = ((p[&"bfoot"] as Vector2) + (p[&"ffoot"] as Vector2)) * 0.5
+	var top := head + Vector2(0, -90)
+	var height := feet.y - top.y
+	var throb := 0.75 + 0.25 * sin(_time * 7.0)
+	# The column itself, brightest at its core.
+	for layer in 3:
+		var half := 46.0 - layer * 13.0
+		draw_colored_polygon(PackedVector2Array([Vector2(top.x - half * 0.6, top.y), Vector2(top.x + half * 0.6, top.y), Vector2(feet.x + half, feet.y), Vector2(feet.x - half, feet.y)]), Color(0.55, 0.3, 0.95, (0.13 + layer * 0.08) * throb))
+	# Streaks falling the whole way down through the body.
+	for k in 9:
+		var x := (k - 4) * 9.0 + sin(k * 2.3) * 4.0
+		var fall := fmod(_time * 2.4 + k * 0.137, 1.0)
+		var y := top.y + fall * height
+		var a := Vector2(lerpf(top.x, feet.x, fall) + x * (0.6 + fall * 0.6), y)
+		draw_line(a, a + Vector2(0, 26), Color(0.85, 0.7, 1.0, 0.85 * sin(fall * PI)), 2.5, true)
+	# Shock rings pressed into the ground.
+	draw_set_transform(feet, 0.0, Vector2(1.0, 0.28))
+	for ring in 2:
+		var spread := fmod(_time * 1.5 + ring * 0.5, 1.0)
+		draw_arc(Vector2.ZERO, 26.0 + spread * 40.0, 0.0, TAU, 28, Color(0.65, 0.4, 1.0, 0.8 * (1.0 - spread)), 3.0, true)
+	draw_set_transform(Vector2.ZERO)
+	# A weight pressing on the head.
+	draw_arc(head + Vector2(0, -22), 18.0, PI * 1.1, PI * 1.9, 12, Color(0.75, 0.55, 1.0, 0.9 * throb), 4.0, true)
+	# Sweat flying off.
+	for drop in 3:
+		var t := fmod(_time * 1.2 + drop * 0.33, 1.0)
+		var at := head + Vector2(facing * (6.0 + drop * 7.0) + facing * t * 18.0, -12.0 + t * 26.0 - sin(t * PI) * 12.0)
+		draw_circle(at, 3.0 * (1.0 - t * 0.4), Color(0.6, 0.85, 1.0, 0.9 * (1.0 - t)), true, -1.0, true)
