@@ -669,7 +669,7 @@ func _test_practice_fatality() -> void:
 	await process_frame
 
 
-## Aizon evolves once, the first time he drops to 50 health.
+## Aizon evolves once, the first time he drops to 40 health.
 func _test_aizon_evolves() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	game.autoplay = true
@@ -681,7 +681,7 @@ func _test_aizon_evolves() -> void:
 	aizon.take_hit(Rules.BODY, 30, Vector2.ZERO)
 	_check(not aizon.evolved, "Aizon has not evolved at 70 health")
 	aizon.take_hit(Rules.BODY, 35, Vector2.ZERO)
-	_check(aizon.evolved, "Aizon evolves once he drops to 50 health or less")
+	_check(aizon.evolved, "Aizon evolves once he drops to 40 health or less")
 	_check(aizon.data.weapon.shape == &"dark_hado" and aizon.data.base_id() == &"aizon", "his basic becomes the dark Hado sphere")
 	var other: Fighter = game.fighters[1]
 	other.take_hit(Rules.BODY, 70, Vector2.ZERO)

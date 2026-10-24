@@ -73,6 +73,8 @@ var evolved := false
 ## Aizon's Reiatsu: hits landed in a row, and whether the pressure (defence down) is on.
 var pressure_stacks := 0
 var pressured := false
+## Pressured for good (Aizon has evolved): it never wears off this match.
+var pressure_locked := false
 ## Frierin's barrier: halves the first hit she takes each enemy turn.
 var barrier_ready := true
 ## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.

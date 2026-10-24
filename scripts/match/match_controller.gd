@@ -245,6 +245,8 @@ var _drop_ai_offset := 0.0
 var _drop_guide := false
 ## Aizon's Reiatsu in flight, which a press detonates.
 var _det_orb: Projectile
+## The violet haze left over the arena once Aizon evolves.
+var _pressure_veil: ColorRect
 const LUCKY_THROWS := 2
 
 ## Subaro's Emilla icefall: the target circle's size, sweep speed, and how long you get.
@@ -276,12 +278,14 @@ const PRESSURE_HITS := 2
 ## Detonating his Reiatsu mid-air: blast radius, and how close the AI waits to get.
 const DETONATE_RADIUS := 160.0
 const DETONATE_AI_RANGE := 70.0
+## A special that hits the ground bursts over this radius.
+const SPECIAL_IMPACT_RADIUS := 90.0
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH. From then on the
 ## enemy's defence is down (his hits do EVOLVED_DAMAGE times as much).
-const EVOLVE_HEALTH := 50
-const EVOLVED_DAMAGE := 1.3
+const EVOLVE_HEALTH := 40
+const EVOLVED_DAMAGE := 1.0
 ## Evolved Aizon takes this share of every enemy hit.
-const EVOLVED_DEFENCE := 0.8
+const EVOLVED_DEFENCE := 1.0
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -495,6 +499,9 @@ static func _empty_stats() -> Dictionary:
 
 func _clear_match() -> void:
 	_match_id += 1
+	if is_instance_valid(_pressure_veil):
+		_pressure_veil.queue_free()
+	_pressure_veil = null
 	_det_orb = null
 	_drop_orb = null
 	_mirror_ko = false
@@ -1286,6 +1293,14 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
 		return
 	fighter.evolved = true
+	# His evolution weighs on the whole arena: the enemy is under pressure for good.
+	var foe := fighters[1 - fighters.find(fighter)]
+	if not foe.is_knocked_out():
+		foe.pressured = true
+		foe.pressure_locked = true
+		foe.pressure_stacks = 0
+		Effects.popup(_actors, foe.aim_point(true) + Vector2(0, -100), "SPIRITUAL PRESSURE  ·  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		_arena_pressure_wash()
 	# His basic changes with him: a sphere of violet-black reishi that bursts.
 	var evolved_data := fighter.data.duplicate() as FighterData
 	var hado := fighter.data.weapon.duplicate() as WeaponData
@@ -1687,10 +1702,9 @@ func _flash_pressure_ring(at: Vector2) -> void:
 	_camera.shake(0.7)
 
 
-## Aizon's ultimate: he lets his spiritual pressure flood the whole arena. The screen
-## dims violet and the enemy is crushed straight into Spiritual Pressure.
-func _arena_pressure(aizon: Fighter) -> void:
-	var foe := fighters[1 - fighters.find(aizon)]
+## His spiritual pressure floods the whole arena: the screen dims violet, and a faint
+## haze stays for the rest of the match.
+func _arena_pressure_wash() -> void:
 	var veil := ColorRect.new()
 	veil.color = Color(0.3, 0.12, 0.5, 0.0)
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1700,16 +1714,26 @@ func _arena_pressure(aizon: Fighter) -> void:
 	var fade := veil.create_tween()
 	fade.tween_property(veil, "color:a", 0.35, 0.3)
 	fade.tween_interval(0.8)
-	fade.tween_property(veil, "color:a", 0.0, 0.6)
-	fade.tween_callback(veil.queue_free)
+	# A faint haze stays for the rest of the match.
+	fade.tween_property(veil, "color:a", 0.1, 0.6)
+	if is_instance_valid(_pressure_veil):
+		_pressure_veil.queue_free()
+	_pressure_veil = veil
 	Audio.play("ko", 2.0, 0.35, 0.0)
 	_camera.shake(1.0)
-	if mode == Mode.PRACTICE or foe.is_knocked_out():
-		return
-	foe.pressured = true
-	foe.pressure_stacks = 0
-	Effects.popup(_actors, foe.aim_point(true) + Vector2(0, -100), "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
-	Effects.burst(_actors, foe.aim_point(false), Color(0.6, 0.35, 0.95), 40, 500.0, 180.0, 1.6)
+
+
+
+
+## Whether this projectile came from a special (not a basic throw, a lucky arrow or a
+## time-stopped throw).
+func _is_special_shot(projectile: Projectile) -> bool:
+	if not _special_this_turn or projectile.thrower != fighters[current] or projectile.get_meta("mirrored", false):
+		return false
+	for skip: String in ["lucky", "timestop", "voll"]:
+		if projectile.get_meta(skip, false):
+			return false
+	return true
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -2187,7 +2211,7 @@ func _begin_turn() -> void:
 		shot = {"angle": beam_angle(fighter.throw_origin(), fighters[1 - current].aim_point(brain.wants_headshot()), fighter.facing) + brain.rng.randfn(0.0, 2.0), "power": 1.0}
 	# Under Aizon's pressure the AI aims blind, and its throw wanders.
 	if fighter.pressured:
-		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-7.0, 7.0), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.9, 1.1), 0.1, 1.0)}
+		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-5.0, 5.0), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.93, 1.07), 0.1, 1.0)}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -2270,6 +2294,7 @@ func _on_special_toggled(armed: bool) -> void:
 				_stop_time(fighters[current])
 			elif not armed and _hud.time_stopped() and _stopper == fighters[current]:
 				_resume_time()
+			_aim.full_guide = armed
 		_aim.full_guide = (armed and data.weapon.special == &"timestop") or (_hud.time_stopped() and fighters[current] == _stopper)
 		_aim.set_special(data.special_name if armed else "", data.body_color)
 		if armed:
@@ -2301,7 +2326,10 @@ func _apply_instant_special(fighter: Fighter, special: StringName) -> void:
 			_bless(fighter)
 		&"illusion":
 			fighter.illusion = true
-			_arena_pressure(fighter)
+			# His spiritual pressure leans on them: one stack of pressure.
+			var foe := fighters[1 - fighters.find(fighter)]
+			if mode != Mode.PRACTICE and not foe.is_knocked_out():
+				_build_pressure(foe)
 			_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
 			Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
 		&"timestop":
@@ -2653,6 +2681,10 @@ func _on_projectile_hit_ground(projectile: Projectile, collider: Object) -> void
 	var weapon := projectile.weapon
 	var at := projectile.global_position
 	_ki_burst(projectile)
+	# A special that slams into the ground still makes an impact: a crater and a splash.
+	if _is_special_shot(projectile) and projectile.explode_radius <= 0.0 and projectile.bounces <= 0 and not (collider is Obstacle):
+		projectile.explode_radius = SPECIAL_IMPACT_RADIUS
+		_on_projectile_exploded(projectile, at, null, Rules.BODY, collider)
 	if projectile.bounces > 0:
 		Effects.popup(_actors, at + Vector2(0, -40), "SHOCKWAVE!", Color(1.0, 0.8, 0.35), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, at, Color(1.0, 0.85, 0.4, 0.95), 18, 420.0, 70.0, 1.1)
@@ -2757,6 +2789,16 @@ func _fire_beam(fighter: Fighter, angle: float, kind: StringName = &"beam") -> v
 		carrier.set_meta("purple" if kind == &"purple" else "beam", true)
 		_on_projectile_hit(carrier, victim, part, 1.0, direction * 1500.0 + Vector2(0, -300))
 		carrier.free()
+	elif struck_target == null and end.y >= Terrain.height_at(end.x) - 20.0:
+		# The beam slammed into the ground: a crater and a splash around it.
+		var blast := Projectile.new()
+		blast.weapon = fighter.data.weapon
+		blast.thrower = fighter
+		blast.position = end
+		blast.explode_radius = SPECIAL_IMPACT_RADIUS
+		blast.set_meta("purple" if kind == &"purple" else "beam", true)
+		_on_projectile_exploded(blast, end, null, Rules.BODY, null)
+		blast.free()
 	if struck_target != null and is_instance_valid(struck_target):
 		var marker := Projectile.new()
 		marker.weapon = fighter.data.weapon
@@ -2831,8 +2873,8 @@ func _after_throw() -> void:
 	# Aizon's pressure needs hits in a row: a miss loses the build-up.
 	if not _turn_hit and fighters[current].data.base_id() == &"aizon":
 		fighters[1 - current].pressure_stacks = 0
-	# Spiritual pressure lasts for one blind throw.
-	if fighters[current].pressured:
+	# Spiritual pressure lasts for one blind throw (for good once Aizon has evolved).
+	if fighters[current].pressured and not fighters[current].pressure_locked:
 		fighters[current].pressured = false
 	state = State.SETTLING
 	if not _turn_hit:
