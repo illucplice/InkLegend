@@ -274,7 +274,7 @@ const KYOKA_HEAL := 5
 ## Aizon's Reiatsu: this many hits in a row put them under pressure (no aim guide).
 const PRESSURE_HITS := 2
 ## Detonating his Reiatsu mid-air: blast radius, and how close the AI waits to get.
-const DETONATE_RADIUS := 110.0
+const DETONATE_RADIUS := 160.0
 const DETONATE_AI_RANGE := 70.0
 ## Aizon evolves once, the first time he drops to EVOLVE_HEALTH. From then on the
 ## enemy's defence is down (his hits do EVOLVED_DAMAGE times as much).
@@ -1683,8 +1683,8 @@ func _flash_pressure_ring(at: Vector2) -> void:
 		ring.queue_redraw(), 10.0, DETONATE_RADIUS, 0.25).set_ease(Tween.EASE_OUT)
 	grow.parallel().tween_property(ring, "modulate:a", 0.0, 0.35)
 	grow.tween_callback(ring.queue_free)
-	Audio.play("ko", -6.0, 0.6, 0.0)
-	_camera.shake(0.5)
+	Audio.play("reiatsu_burst", 2.0, 1.0, 0.05)
+	_camera.shake(0.7)
 
 
 ## Aizon's ultimate: he lets his spiritual pressure flood the whole arena. The screen

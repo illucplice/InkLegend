@@ -25,6 +25,7 @@ func _initialize() -> void:
 		"voice_charge": _voice_charge(),
 		"voice_laugh": _voice_laugh(),
 		"special_ready": _special_ready(),
+		"reiatsu_burst": _reiatsu_burst(),
 	}
 	for name: String in sfx:
 		_save("res://audio/sfx/%s.wav" % name, sfx[name], 0.9)
@@ -279,6 +280,24 @@ func _special_ready() -> PackedFloat32Array:
 		_mix(b, bell, 0.08 + i * 0.07, 0.45)
 	var shimmer := _noise(1.0, 3000.0, 11000.0, 3.0, true)
 	_mix(b, shimmer, 0.1, 0.25)
+	return b
+
+
+## Aizon's detonated Reiatsu: a quick rising rush that slams into a deep, crushing
+## boom, with a glassy ring left hanging over it.
+func _reiatsu_burst() -> PackedFloat32Array:
+	var b := _buffer(1.3)
+	# The rush in: noise sweeping up into the hit.
+	var rush := _noise(0.18, 400.0, 6000.0, 0.5)
+	for i in rush.size():
+		rush[i] *= float(i) / rush.size()
+	_mix(b, rush, 0.0, 0.6)
+	# The crush: a sub-bass drop and a dark rumble.
+	_mix(b, _tone(0.9, 95.0, 28.0, 3.5), 0.16, 1.3)
+	_mix(b, _noise(0.9, 700.0, 90.0, 4.0), 0.16, 0.7)
+	# The ring: two detuned glassy tones fading out.
+	for f: float in [1180.0, 1245.0, 1860.0]:
+		_mix(b, _tone(1.0, f, f * 0.97, 4.5), 0.18, 0.12)
 	return b
 
 # --- music ---
