@@ -1644,12 +1644,10 @@ func _set_floating(fighter: Fighter, up: bool) -> void:
 	await move.finished
 
 
-## Each Reiatsu hit adds to the weight on them. At PRESSURE_HITS in a row: before he
-## evolves they are under Spiritual Pressure (their next throw has no aim guide);
-## after, the pressure crushes them for CRUSH_DAMAGE a turn for CRUSH_TURNS turns.
+## Every PRESSURE_HITS Reiatsu hits (in a row or not) weigh them down. Before Aizon
+## evolves, their next throw is wobbly; after, they take crushing damage for
+## CRUSH_TURNS turns and their next throw has no aim guide.
 func _build_pressure(target: Fighter, aizon: Fighter) -> void:
-	if target.pressured:
-		return
 	var view := _camera.visible_rect()
 	var at := target.aim_point(true) + Vector2(0, -100)
 	target.pressure_stacks += 1
@@ -1660,10 +1658,11 @@ func _build_pressure(target: Fighter, aizon: Fighter) -> void:
 	Audio.play("ko", -6.0, 0.4, 0.0)
 	if aizon != null and aizon.evolved:
 		target.crush_turns = CRUSH_TURNS
-		Effects.popup(_actors, at, "CRUSHING PRESSURE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
-	else:
 		target.pressured = true
-		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
+		Effects.popup(_actors, at, "CRUSHING PRESSURE  ·  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
+	else:
+		target.shaken = true
+		Effects.popup(_actors, at, "SPIRITUAL PRESSURE  ·  WOBBLY AIM", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
 
 
 ## Aizon's Reiatsu detonated mid-air: a wider burst of crushing pressure.
@@ -2198,7 +2197,7 @@ func _begin_turn() -> void:
 		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current] >= ANALYSIS_STEPS
 		_aim.guide_boost = float(_analysis[current]) / ANALYSIS_STEPS
 		_aim.hide_guide = fighter.pressured
-		_aim.heavy = fighter.heavy_aim
+		_aim.heavy = fighter.heavy_aim or fighter.shaken
 		if _analysis[current] > 0:
 			var label := "MANA ANALYSIS: FULL" if _analysis[current] >= ANALYSIS_STEPS else "MANA ANALYSIS %d / %d" % [_analysis[current], ANALYSIS_STEPS]
 			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), label, Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2230,7 +2229,7 @@ func _begin_turn() -> void:
 	# Under Aizon's pressure the AI aims blind, and its throw wanders.
 	if fighter.pressured:
 		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-5.0, 5.0), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.93, 1.07), 0.1, 1.0)}
-	elif fighter.heavy_aim:
+	elif fighter.heavy_aim or fighter.shaken:
 		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-2.5, 2.5), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.96, 1.04), 0.1, 1.0)}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
@@ -2895,12 +2894,9 @@ func _after_throw() -> void:
 		if not _finisher["done"]:
 			_resolve_finisher(false)
 		return
-	# Aizon's pressure needs hits in a row: a miss loses the build-up.
-	if not _turn_hit and fighters[current].data.base_id() == &"aizon":
-		fighters[1 - current].pressure_stacks = 0
-	# Spiritual pressure lasts for one blind throw.
-	if fighters[current].pressured:
-		fighters[current].pressured = false
+	# Spiritual pressure (no guide, or a wobbly aim) lasts for one throw.
+	fighters[current].pressured = false
+	fighters[current].shaken = false
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0

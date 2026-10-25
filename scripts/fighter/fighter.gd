@@ -73,6 +73,8 @@ var evolved := false
 ## Aizon's Reiatsu: hits landed in a row, and whether the pressure (defence down) is on.
 var pressure_stacks := 0
 var pressured := false
+## Spiritual pressure from normal Aizon: their next throw is wobbly.
+var shaken := false
 ## Pressured for good (Aizon has evolved): it never wears off this match.
 ## Under evolved Aizon's pressure for the rest of the match: aiming is heavy.
 var heavy_aim := false
@@ -368,7 +370,7 @@ func _posed_points() -> Dictionary:
 		&"fhand": hand,
 	}
 	# Crushed by spiritual pressure: hunched, head hanging, knees buckling, panting.
-	if pressured and not is_knocked_out():
+	if (pressured or shaken) and not is_knocked_out():
 		var pant := sin(_time * 6.0) * 1.5
 		body[&"hip"] = (body[&"hip"] as Vector2) + Vector2(-2, 8)
 		body[&"neck"] = (body[&"neck"] as Vector2) + Vector2(5, 7 + pant)
@@ -419,7 +421,7 @@ func _draw() -> void:
 		_draw_mana_release(p)
 	if illusion and not is_knocked_out():
 		_draw_reiatsu(p)
-	if pressured and not is_knocked_out():
+	if (pressured or shaken) and not is_knocked_out():
 		_draw_pressure(p)
 	if crush_turns > 0 and not is_knocked_out():
 		_draw_crush(p)
