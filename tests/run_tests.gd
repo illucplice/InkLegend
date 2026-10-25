@@ -32,6 +32,7 @@ func _initialize() -> void:
 	await _test_fatalities()
 	await _test_practice_fatality()
 	await _test_aizon_evolves()
+	await _test_rimiru()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -496,7 +497,7 @@ func _test_practice_specials() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
-	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon", "frierin"]:
+	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon", "frierin", "rimiru"]:
 		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
 		game.start_practice(pick)
 		for frame in 300:
@@ -683,5 +684,45 @@ func _test_aizon_evolves() -> void:
 	var other: Fighter = game.fighters[1]
 	other.take_hit(Rules.BODY, 70, Vector2.ZERO)
 	_check(not other.evolved, "only Aizon evolves")
+	game.queue_free()
+	await process_frame
+
+
+## Rimiru: blade hits leave Predator Marks (two burst) and build Adaptation, a miss
+## fades a stack, a recalled blade turns for home, and at 40 health he becomes the
+## Shadow Sovereign.
+func _test_rimiru() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	game.start_match(load("res://data/fighters/rimiru.tres"), load("res://data/fighters/quotuk.tres"), game.Mode.VS_AI, 1)
+	await process_frame
+	var rimiru: Fighter = game.fighters[0]
+	var foe: Fighter = game.fighters[1]
+	var blade := Projectile.new()
+	blade.weapon = rimiru.data.weapon
+	blade.thrower = rimiru
+	blade.position = foe.aim_point(false)
+	blade.set_meta("slime", true)
+	game._on_projectile_hit(blade, foe, Rules.BODY)
+	_check(foe.predator_marks == 1 and rimiru.adapt_stacks == 1, "a Slime Blade hit leaves a Predator Mark and an Adaptation stack")
+	var before := foe.health
+	game._on_projectile_hit(blade, foe, Rules.BODY)
+	_check(foe.predator_marks == 0 and before - foe.health >= 18 + game.MARK_BURST, "the second mark bursts for extra damage")
+	_check(rimiru.adapt_stacks == 2, "Adaptation stacks up with each hit")
+	game._fade_adaptation(rimiru)
+	_check(rimiru.adapt_stacks == 1, "a miss fades a stack")
+	blade.free()
+	var thrown: Projectile = game.PROJECTILE_SCENE.instantiate()
+	game._actors.add_child(thrown)
+	thrown.launch(rimiru.data.weapon, rimiru, rimiru.throw_origin(), Vector2(700.0 * rimiru.facing, -500.0), 0.0)
+	game._arm_recall(thrown, rimiru)
+	for frame in 10:
+		await physics_frame
+	game._recall()
+	_check(thrown.recall_to != Vector2.INF and (rimiru.throw_origin() - thrown.global_position).dot(thrown._velocity) > 0.0, "a recalled blade flies straight back to him")
+	rimiru.take_hit(Rules.BODY, 65, Vector2.ZERO)
+	_check(rimiru.evolved and rimiru.data.weapon.shape == &"maw_blade" and rimiru.data.base_id() == &"rimiru", "at 40 health he becomes the Shadow Sovereign with Gluttony's Maw")
 	game.queue_free()
 	await process_frame

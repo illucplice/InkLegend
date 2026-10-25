@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/slime_blade.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"rimiru"
+display_name = "Rimiru"
+short_name = "Rimiru"
+body_color = Color(0.4, 0.82, 1, 1)
+accent_color = Color(0.07, 0.07, 0.09, 1)
+skin_color = Color(1, 0.89, 0.8, 1)
+cape_color = Color(0.1, 0.13, 0.25, 1)
+hair_color = Color(0.6, 0.8, 0.92, 1)
+style = &"slime"
+special_name = "Beelzebuth"
+special_description = "Basic: a Slime Blade that arcs with gravity and wind; press while it flies to recall it, and it flies straight back to him and can hit on the way. Each hit leaves a Predator Mark; two marks burst for 12 more. Adaptation: every hit gives a stack (up to 3, +3% damage each), and each miss fades a mark and a stack. Special: Beelzebuth throws a black orb that opens a devouring vortex where it lands, dragging the enemy in before it collapses for 44 (more with marks, which it eats). Below 40 HP he becomes the Shadow Sovereign: he rises into the air on great wings in his cracked mask, with faster Gluttony's Maw blades for 20, a recall hit slows the enemy's next throw, two marks snap shut for 20 and heal him 3, and Abyssal Adaptation stacks to 4 (+4% each). Beelzebuth hits for 50."
+price = 1000
+rarity = &"mythic"

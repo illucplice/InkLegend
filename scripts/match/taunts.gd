@@ -30,6 +30,7 @@ const INTRO := {
 	&"subaro": ["I'll save everyone this time!", "Nice to meet you!"],
 	&"aizon": ["Since when were you under the impression...", "Do not use strong words."],
 	&"frierin": ["I'll get this over with.", "...I'm sleepy."],
+	&"rimiru": ["Let's settle this peacefully. Or not.", "I'm not a bad slime!"],
 	&"dyo": ["You thought it would be easy?", "I reject my humanity!"],
 }
 
@@ -47,6 +48,7 @@ const HIT := {
 	&"subaro": ["Nailed it!", "Beatris, thanks!"],
 	&"aizon": ["All according to plan.", "Predictable."],
 	&"frierin": ["Zoltraak.", "Ordinary offensive magic."],
+	&"rimiru": ["Predator.", "Analysis complete."],
 	&"dyo": ["MUDA!", "Useless!"],
 	&"thundr": ["Ha! Another!", "Thunder!"],
 	&"akum": ["Weak!", "Shun goku!"],

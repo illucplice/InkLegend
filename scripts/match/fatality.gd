@@ -23,7 +23,7 @@ const NAMES := {
 	&"uryo": "SPRENGER!", &"yuj": "DISMANTLED!", &"megu": "MAHORAGA!", &"goj": "INFINITY!", &"ryo": "METSU HADOKEN!", &"akum": "SHUN GOKU SATSU!",
 	&"thundr": "STRUCK DOWN!", &"capt": "SHIELD SLICED!", &"spydr": "WEB SMASHED!", &"batz": "ROADKILL!",
 	&"jotar": "ORA ORA ORA!", &"dyo": "WRYYY!",
-	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!", &"frierin": "REALITY SHATTER!",
+	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!", &"frierin": "REALITY SHATTER!", &"rimiru": "ABSOLUTE CONSUMPTION!",
 }
 
 var _screamed := false
@@ -138,6 +138,8 @@ func _run(intro: bool) -> void:
 			await _kurohitsugi()
 		&"frierin":
 			await _zoltraak_storm()
+		&"rimiru":
+			await _imaginary_space()
 		_:
 			await _kaboom()
 	if _done:
@@ -167,6 +169,9 @@ func _finish() -> void:
 		winner.stand_barrage = false
 		winner._dazed = false
 		winner.illusion = false
+		winner.mask_off = false
+		winner.eye_glow = 0.0
+		winner.z_index = 0
 		if is_instance_valid(hud):
 			hud.set_time_stop(false)
 		winner.global_position.y = Terrain.height_at(winner.global_position.x)
@@ -3159,3 +3164,188 @@ func _sfx(sound: String, volume_db: float, pitch: float) -> void:
 		return
 	_last_sfx[sound] = now
 	Audio.play(sound, volume_db, pitch, 0.05)
+
+
+## Rimiru: Imaginary Space. The wind dies and the arena goes dark, cyan cracks run
+## through the ground and the debris lifts. His golden eyes light the dark (the Shadow
+## Sovereign takes off his mask). A colossal portal opens behind them, its layers
+## close like jaws and swallow them whole in a flash of cyan. No gore: they are simply
+## gone. The portal collapses in a silent shockwave, the mask goes back on, he turns away.
+func _imaginary_space() -> void:
+	var sovereign := winner.evolved
+	var side := _toward_loser()
+	# He steps through space to stand a short way off, then does not move again.
+	if absf(loser.global_position.x - winner.global_position.x) > 360.0:
+		Effects.burst(self, winner.aim_point(false), Color(0.45, 0.9, 1.0), 20, 300.0, 180.0, 1.0)
+		_place_winner(loser.global_position.x - side * 340.0)
+		Effects.burst(self, winner.aim_point(false), Color(0.45, 0.9, 1.0), 20, 300.0, 180.0, 1.0)
+		Audio.play("whoosh", -2.0, 1.6, 0.0)
+	var ground := Terrain.height_at(loser.global_position.x)
+	var edge := Color(0.6, 0.3, 0.95) if sovereign else Color(0.3, 0.6, 1.0)
+	var cyan := Color(0.45, 1.0, 1.0)
+	var mid := (winner.global_position.x + loser.global_position.x) * 0.5
+	_frame_around(Vector2(mid + side * 80.0, ground), absf(loser.global_position.x - winner.global_position.x) * 0.5 + 320.0, 560.0)
+	winner.z_index = 20
+	loser.z_index = 20
+	# The Silent World: darkness, cracks of light, the debris floating up.
+	_wash(Color(0.01, 0.01, 0.04) if sovereign else Color(0.02, 0.04, 0.1), 0.78, 0.8, 5.4, 0.9, 3)
+	Audio.play("whoosh", -6.0, 0.3, 0.0)
+	var world := {"cracks": 0.0, "lift": 0.0, "pull": 0.0, "fade": 1.0}
+	var centre := loser.aim_point(false) + Vector2(side * 130.0, -40.0)
+	var rocks := []
+	for k in 14:
+		var x := loser.global_position.x + randf_range(-320.0, 320.0)
+		rocks.append([Vector2(x, Terrain.height_at(x) - 4.0), randf_range(3.0, 9.0), randf_range(60.0, 220.0), randf_range(-2.0, 2.0)])
+	var cracks := []
+	for k in 7:
+		var a := randf_range(-0.35, 0.35) + (0.0 if k % 2 == 0 else PI)
+		var path := PackedVector2Array([Vector2.ZERO])
+		for step in 6:
+			path.append(path[path.size() - 1] + Vector2.from_angle(a + randf_range(-0.6, 0.6)) * randf_range(30.0, 60.0))
+		cracks.append(path)
+	var silence := _prop(func(canvas: Node2D) -> void:
+		var shown: float = world["cracks"]
+		var fade: float = world["fade"]
+		var root := Vector2(loser.global_position.x, ground)
+		for path: PackedVector2Array in cracks:
+			var count := maxi(2, int(path.size() * shown))
+			var line := PackedVector2Array()
+			for i in count:
+				var p := root + path[i]
+				line.append(Vector2(p.x, Terrain.height_at(p.x) - 1.0))
+			canvas.draw_polyline(line, Color(cyan, 0.35 * fade), 7.0, true)
+			canvas.draw_polyline(line, Color(cyan, 0.9 * fade), 2.0, true)
+		for rock: Array in rocks:
+			var lifted := (rock[0] as Vector2) + Vector2(0, -float(rock[2]) * float(world["lift"]))
+			var at := lifted.lerp(centre, float(world["pull"]))
+			if float(world["pull"]) >= 0.98:
+				continue
+			canvas.draw_circle(at, float(rock[1]) + 1.5, INK, true, -1.0, true)
+			canvas.draw_circle(at, float(rock[1]), Color(0.45, 0.42, 0.5), true, -1.0, true))
+	silence.z_index = 5
+	get_tree().process_frame.connect(silence.queue_redraw)
+	var rise := silence.create_tween().set_parallel()
+	rise.tween_method(func(v: float) -> void: world["cracks"] = v, 0.0, 1.0, 1.2)
+	rise.tween_method(func(v: float) -> void: world["lift"] = v, 0.0, 1.0, 2.4).set_trans(Tween.TRANS_SINE)
+	if not await _wait(1.3):
+		return
+	# The Imaginary Space: his eyes light up, and the mask comes off.
+	var glow := winner.create_tween()
+	glow.tween_property(winner, "eye_glow", 1.0, 0.5)
+	_say_line("Imaginary Space.", 1.3)
+	if sovereign:
+		if not await _wait(0.6):
+			return
+		winner.mask_off = true
+		Effects.burst(self, winner.aim_point(true), Color(0.06, 0.05, 0.08), 12, 160.0, 180.0, 0.8)
+		Audio.play("tick", -4.0, 0.6, 0.0)
+	if not await _wait(0.6):
+		return
+	hud.announce("IMAGINARY SPACE", cyan)
+	var portal := {"open": 0.0, "jaw": 0.0}
+	var gate := _prop(func(canvas: Node2D) -> void:
+		var open: float = portal["open"]
+		if open <= 0.0:
+			return
+		var t := float(Time.get_ticks_msec()) / 1000.0
+		var r := 240.0 * open
+		canvas.draw_circle(centre, r * 1.15, Color(edge, 0.12), true, -1.0, true)
+		canvas.draw_circle(centre, r, Color(0.01, 0.0, 0.03, 0.92), true, -1.0, true)
+		if loser.visible:
+			canvas.draw_circle(loser.aim_point(false), 60.0 * loser.scale.x, Color(cyan, 0.3), true, -1.0, true)
+		for layer in 5:
+			var rr := r * (1.0 - layer * 0.16)
+			var a := t * (1.2 + layer * 0.5) * (1.0 if layer % 2 == 0 else -1.0)
+			for gap in 3:
+				var from := a + gap * TAU / 3.0
+				canvas.draw_arc(centre, rr, from, from + 1.6, 18, Color(edge.lightened(layer * 0.08), 0.85), 5.0 - layer * 0.6, true)
+		canvas.draw_circle(centre, 30.0 * open + 6.0 * sin(t * 12.0), Color(cyan, 0.9), true, -1.0, true)
+		canvas.draw_circle(centre, 14.0 * open, Color.WHITE, true, -1.0, true)
+		# The jaws: two great arcs of the outer layer closing over the centre.
+		var jaw: float = portal["jaw"]
+		if jaw > 0.0:
+			for upper: float in [-1.0, 1.0]:
+				var lip := PackedVector2Array()
+				for i in 17:
+					var a := lerpf(PI * 0.1, PI * 0.9, i / 16.0)
+					var y := sin(a) * r * (1.0 - jaw) * upper
+					lip.append(centre + Vector2(cos(a) * r, y))
+				var shape := lip.duplicate()
+				for i in range(16, -1, -1):
+					var a := lerpf(PI * 0.1, PI * 0.9, i / 16.0)
+					shape.append(centre + Vector2(cos(a) * r, sin(a) * r * upper))
+				canvas.draw_colored_polygon(shape, Color(0.02, 0.0, 0.05, 0.95))
+				canvas.draw_polyline(lip, edge, 6.0, true)
+				for k in range(2, 16, 3):
+					var at: Vector2 = lip[k]
+					canvas.draw_colored_polygon(PackedVector2Array([at + Vector2(-7, 0), at + Vector2(0, -upper * 18.0), at + Vector2(7, 0)]), Color(0.85, 0.8, 1.0)))
+	gate.z_index = 8
+	get_tree().process_frame.connect(gate.queue_redraw)
+	Audio.play("ko", -2.0, 0.35, 0.0)
+	var opening := gate.create_tween()
+	opening.tween_method(func(v: float) -> void: portal["open"] = v, 0.0, 1.0, 1.0).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	camera.shake(0.3)
+	if not await _wait(0.7):
+		return
+	var drag := silence.create_tween()
+	drag.tween_method(func(v: float) -> void: world["pull"] = v, 0.0, 1.0, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if not await _wait(0.6):
+		return
+	# Absolute Consumption: they are drawn in, and the jaws close.
+	_frame_around(centre + Vector2(0, 60.0), 360.0, 520.0)
+	var swallow := loser.create_tween().set_parallel()
+	swallow.tween_property(loser, "global_position", centre + Vector2(0, 50.0), 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	swallow.tween_property(loser, "scale", Vector2.ONE * 0.25, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	for k in 6:
+		loser._tilt_velocity += side * 3.0
+		loser._flash = 0.4
+		if not await _wait(0.1):
+			return
+	var bite := gate.create_tween()
+	bite.tween_method(func(v: float) -> void: portal["jaw"] = v, 0.0, 1.0, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await bite.finished
+	if _done:
+		return
+	loser.visible = false
+	for box in loser.get_children():
+		if box is Hitbox:
+			(box as Hitbox).collision_layer = 0
+	_wash(cyan, 0.75, 0.04, 0.12, 0.5, 14)
+	Audio.play("crunch", 2.0, 0.5, 0.0)
+	Audio.play("zap", 0.0, 0.4, 0.0)
+	camera.shake(0.6)
+	if not await _wait(0.5):
+		return
+	# The Sovereign's Verdict: the portal collapses into a silent shockwave.
+	var collapse := gate.create_tween()
+	collapse.tween_method(func(v: float) -> void: portal["open"] = v, 1.0, 0.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await collapse.finished
+	if _done:
+		return
+	var wave := {"r": 0.0}
+	var ring := _prop(func(canvas: Node2D) -> void:
+		var r: float = wave["r"]
+		var fade := 1.0 - r / 900.0
+		canvas.draw_arc(centre, r, 0.0, TAU, 64, Color(edge, fade), 14.0 * fade + 2.0, true)
+		canvas.draw_arc(centre, r * 0.92, 0.0, TAU, 64, Color(cyan, 0.8 * fade), 3.0, true))
+	ring.z_index = 9
+	var roll := ring.create_tween()
+	roll.tween_method(func(r: float) -> void:
+		wave["r"] = r
+		ring.queue_redraw(), 0.0, 900.0, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	roll.tween_callback(ring.queue_free)
+	Audio.play("ground", -6.0, 0.35, 0.0)
+	var settle := silence.create_tween()
+	settle.tween_method(func(v: float) -> void: world["fade"] = v, 1.0, 0.0, 0.8)
+	settle.tween_callback(silence.queue_free)
+	gate.queue_free()
+	if not await _wait(0.8):
+		return
+	var dim := winner.create_tween()
+	dim.tween_property(winner, "eye_glow", 0.0, 0.5)
+	if sovereign:
+		winner.mask_off = false
+		Audio.play("tick", -4.0, 0.8, 0.0)
+	winner.z_index = 0
+	if not await _wait(0.4):
+		return

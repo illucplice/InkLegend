@@ -84,6 +84,18 @@ var crush_turns := 0
 var barrier_ready := true
 ## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.
 var mana_released := false
+## Rimiru's Predator Marks on this fighter (two burst), and his Adaptation stacks.
+var predator_marks := 0
+var adapt_stacks := 0
+## Slowed by a recalled Gluttony's Maw: their next throw flies slowly.
+var slowed := false
+## Rimiru's Imaginary Space: the half-mask is off, and his eyes light the dark.
+var mask_off := false
+var eye_glow := 0.0
+## The Shadow Sovereign floats (0..1 of HOVER_LIFT off the ground); his hitboxes, hand
+## and aim points rise with him.
+var hover := 0.0
+const HOVER_LIFT := 24.0
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
 var powered := false
@@ -147,11 +159,11 @@ func setup(fighter_data: FighterData, facing_dir: int, ai: bool, with_hitboxes: 
 
 
 func throw_origin() -> Vector2:
-	return global_position + Vector2(HAND_REST.x * facing, HAND_REST.y)
+	return global_position + Vector2(HAND_REST.x * facing, HAND_REST.y - hover * HOVER_LIFT)
 
 
 func aim_point(head: bool) -> Vector2:
-	return global_position + (HEAD_CENTER if head else BODY_CENTER)
+	return global_position + (HEAD_CENTER if head else BODY_CENTER) + Vector2(0, -hover * HOVER_LIFT)
 
 
 func is_knocked_out() -> bool:
@@ -289,6 +301,10 @@ func _knock_down(part: StringName, impact_velocity: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if hover > 0.0 and is_knocked_out():
+		hover = 0.0
+	for box in _hitboxes:
+		box.position.y = -hover * HOVER_LIFT
 	if has_stand():
 		_update_stand()
 	var accel := -SPRING * _tilt - DAMPING * _tilt_velocity
@@ -341,6 +357,8 @@ func _posed_points() -> Dictionary:
 	if _dazed:
 		sway = sin(_time * 3.1) * 0.16
 	var hop := -absf(sin(_time * 7.0)) * 16.0 if _celebrating else 0.0
+	if hover > 0.0:
+		hop -= hover * (HOVER_LIFT + sin(_time * 2.0) * 3.0)
 	var turned := -1.0 if victory_pose in BACK_POSES else 1.0
 	var xf := Transform2D(_tilt + sway + wobble, Vector2(facing * turned * stretch.x, stretch.y), 0.0, Vector2(0, hop))
 	var bob := breathe * 1.2
@@ -415,8 +433,10 @@ func _draw() -> void:
 		_draw_aura(p)
 	if form == &"vollstandig" and not is_knocked_out():
 		_draw_light_wings(p)
-	if evolved and not is_knocked_out():
+	if evolved and data.style == &"lord" and not is_knocked_out():
 		_draw_butterfly_wings(p)
+	if data.style == &"slime" and not is_knocked_out():
+		_draw_sovereign_back(p)
 	if mana_released and not is_knocked_out():
 		_draw_mana_release(p)
 	if illusion and not is_knocked_out():
@@ -460,7 +480,7 @@ func _draw() -> void:
 	if _skin_head():
 		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
 		if data.style in HERO_STYLES:
-			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13), &"elf": Color(0.3, 0.2, 0.15)}[data.style]
+			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13), &"elf": Color(0.3, 0.2, 0.15), &"slime": Color(0.08, 0.08, 0.12)}[data.style]
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
@@ -525,6 +545,12 @@ func _draw() -> void:
 	if form == &"mugetsu":
 		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
 	_draw_sukuna_marks(p)
+	if data.style == &"slime" and not knocked:
+		_draw_slime_hands(p)
+	if predator_marks > 0 and not knocked:
+		_draw_predator_marks(p)
+	if slowed and not knocked:
+		_draw_slowed(p)
 	_draw_burning(p)
 	_draw_bleeding(p)
 
@@ -1037,7 +1063,7 @@ func _skin_head() -> bool:
 
 # --- Uryo, Yuj, Megu, Goj, Ryo and Akum ---
 
-const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf"]
+const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime"]
 
 
 ## Special charged (or firing): changes Goj's eyes, Yuj's face and so on.
@@ -1242,6 +1268,8 @@ func _new_aura_color() -> Color:
 			return Color(0.6, 0.35, 0.95)
 		&"elf":
 			return Color(0.75, 0.88, 1.0)
+		&"slime":
+			return Color(0.55, 0.3, 0.95) if evolved else Color(0.45, 0.88, 1.0)
 		&"quincy":
 			return Color(0.55, 0.85, 1.0)
 		&"jujutsu":
@@ -1321,7 +1349,7 @@ func _draw_bleeding(p: Dictionary) -> void:
 
 # --- Thundr, Capt, Spydr and Batz ---
 
-const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf"]
+const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime"]
 
 
 ## Outfits for the four heroes.
@@ -1459,6 +1487,63 @@ func _draw_hero_outfit(p: Dictionary) -> void:
 			draw_line(neck - side * 10.0, hip - side * 11.0, Color(0.85, 0.7, 0.3), 2.0, true)
 			_poly([neck + side * 12.0, neck + side * 6.0 + spine * 10.0, neck - side * 6.0 + spine * 10.0, neck - side * 12.0], Color(0.96, 0.96, 0.98), 1.5)
 			draw_circle(neck.lerp(hip, 0.2), 2.5, Color(0.85, 0.7, 0.3), true, -1.0, true)
+		&"slime":
+			# Like the reference: a black coat with a white stripe down the front and a
+			# spiky black fur collar, grey trousers and dark boots. The Shadow Sovereign
+			# is all in black with a shaggy grey fur collar, a belt and a katana at his hip
+			# (his great cape and wings hang behind him).
+			var coat_black := Color(0.07, 0.07, 0.09)
+			_draw_pants(p, Color(0.08, 0.08, 0.1) if evolved else Color(0.45, 0.45, 0.5))
+			for leg: Array in [[&"bknee", &"bfoot"], [&"fknee", &"ffoot"]]:
+				var knee: Vector2 = p[leg[0]]
+				var ankle: Vector2 = knee.lerp(p[leg[1]], 0.85)
+				var top := knee.lerp(ankle, 0.1 if evolved else 0.35)
+				_taper(top, ankle, 14.0, 13.0, OUTLINE)
+				_taper(top, ankle, 11.0, 10.0, Color(0.04, 0.04, 0.05) if evolved else Color(0.27, 0.23, 0.25))
+				_taper(top - (ankle - top).normalized() * 2.0, top + (ankle - top).normalized() * 2.0, 12.0, 12.0, Color(0.1, 0.1, 0.12))
+			var hem_y: float = hip.y + 30.0
+			var coat := Geometry2D.convex_hull(PackedVector2Array([neck + side * 12.0, neck - side * 12.0, hip + side * 14.0, hip - side * 14.0, Vector2(hip.x - 20.0, hem_y), Vector2(hip.x + 20.0, hem_y)]))
+			coat.remove_at(coat.size() - 1)
+			_poly(coat, coat_black, 2.5)
+			if evolved:
+				# A V of pale piping down the front, the belt, and a sheathed katana with a
+				# white diamond-wrapped hilt slung across the hip.
+				draw_polyline(PackedVector2Array([neck + side * 8.0, neck.lerp(hip, 0.75), neck - side * 8.0]), Color(0.55, 0.55, 0.6), 1.5, true)
+				_taper(hip + side * 14.0 + spine * 3.0, hip - side * 14.0 + spine * 3.0, 6.0, 6.0, Color(0.35, 0.35, 0.4))
+				draw_circle(hip + spine * 3.0, 4.0, OUTLINE, true, -1.0, true)
+				draw_circle(hip + spine * 3.0, 2.8, Color(0.8, 0.82, 0.88), true, -1.0, true)
+				var sheath_from := hip + Vector2(-facing * 34.0, 22.0)
+				var sheath_to := hip + Vector2(facing * 10.0, -6.0)
+				_taper(sheath_from, sheath_to, 7.0, 6.0, OUTLINE)
+				_taper(sheath_from, sheath_to, 4.5, 4.0, Color(0.05, 0.05, 0.07))
+				var grip := sheath_to + (sheath_to - sheath_from).normalized() * 16.0
+				_taper(sheath_to, grip, 6.5, 6.5, OUTLINE)
+				_taper(sheath_to, grip, 4.0, 4.0, Color(0.92, 0.92, 0.95))
+				for k in 3:
+					var at := sheath_to.lerp(grip, 0.2 + k * 0.3)
+					draw_circle(at, 1.4, OUTLINE, true, -1.0, true)
+				draw_line(sheath_to + (sheath_to - sheath_from).orthogonal().normalized() * 5.0, sheath_to - (sheath_to - sheath_from).orthogonal().normalized() * 5.0, Color(0.7, 0.72, 0.78), 2.5, true)
+			else:
+				draw_line(Vector2(neck.x + facing * 4.0, neck.y + 6.0), Vector2(hip.x + facing * 5.0, hem_y - 1.0), Color(0.95, 0.95, 0.97), 3.0, true)
+				draw_line(Vector2(neck.x + facing * 8.0, neck.y + 8.0), Vector2(hip.x + facing * 10.0, hip.y), Color(0.35, 0.35, 0.4), 1.5, true)
+			# The fur collar: spikes standing up round the neck, black, or grey and shaggy
+			# on the Shadow Sovereign.
+			var fur := Color(0.6, 0.6, 0.68) if evolved else Color(0.05, 0.05, 0.07)
+			var collar := PackedVector2Array()
+			for k in 11:
+				var a := lerpf(PI * 0.95, TAU + PI * 0.05, k / 10.0)
+				var reach := 22.0 if k % 2 == 0 else 12.0
+				collar.append(neck + Vector2(0, 6.0) + Vector2(cos(a) * reach * 1.1, sin(a) * reach * 0.8))
+			collar.append(neck + Vector2(14, 12))
+			collar.append(neck + Vector2(-14, 12))
+			if Geometry2D.triangulate_polygon(collar).is_empty():
+				collar = Geometry2D.convex_hull(collar)
+				collar.remove_at(collar.size() - 1)
+			_poly(collar, fur, 1.5)
+			for k in range(0, 11, 2):
+				var a := lerpf(PI * 0.95, TAU + PI * 0.05, k / 10.0)
+				draw_line(neck + Vector2(0, 6.0) + Vector2(cos(a), sin(a) * 0.7) * 10.0, neck + Vector2(0, 6.0) + Vector2(cos(a) * 1.1, sin(a) * 0.8) * 20.0, fur.lightened(0.25), 1.5, true)
+
 
 
 ## A cape hanging from the shoulders down the back, rippling.
@@ -1563,6 +1648,51 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_polyline(PackedVector2Array([Vector2(r * 0.45, -r * 0.9), Vector2(r * 0.7, -r * 0.45), Vector2(r * 0.55, r * 0.05)]), data.hair_color.darkened(0.15), 2.5, true)
 			draw_line(Vector2(r * 0.3, -r * 0.12), Vector2(r * 0.75, -r * 0.16), OUTLINE, 2.0, true)
 			draw_line(Vector2(r * 0.45, r * 0.4), Vector2(r * 0.7, r * 0.36), OUTLINE, 1.5, true)
+		&"slime":
+			# Like the reference: long, straight light-blue hair hanging down his back to
+			# the waist, and a heavy fringe falling over his eyes with a lock in front.
+			var hair := data.hair_color if not evolved else Color(0.5, 0.55, 1.0)
+			_poly([Vector2(-r * 0.2, -r * 1.05), Vector2(-r * 1.1, -r * 0.6), Vector2(-r * 1.3, r * 1.5), Vector2(-r * 1.2, r * 4.2), Vector2(-r * 0.55, r * 4.0), Vector2(-r * 0.35, r * 1.3), Vector2(-r * 0.1, r * 0.4)], hair.darkened(0.08), 1.5)
+			var cap := PackedVector2Array()
+			for i in 13:
+				cap.append(Vector2.from_angle(lerpf(PI, TAU, i / 12.0)) * (r + 1.5))
+			for point: Vector2 in [Vector2(r * 1.06, r * 0.38), Vector2(r * 0.82, r * 0.12), Vector2(r * 0.7, r * 0.42), Vector2(r * 0.46, r * 0.08), Vector2(r * 0.3, r * 0.32), Vector2(r * 0.02, -r * 0.1), Vector2(-r * 0.6, r * 0.2), Vector2(-r * 1.0, r * 0.1)]:
+				cap.append(point)
+			if Geometry2D.triangulate_polygon(cap).is_empty():
+				cap = Geometry2D.convex_hull(cap)
+				cap.remove_at(cap.size() - 1)
+			_poly(cap, hair, 1.5)
+			_poly([Vector2(r * 0.55, -r * 0.1), Vector2(r * 0.95, r * 0.6), Vector2(r * 0.88, r * 1.75), Vector2(r * 0.62, r * 0.8)], hair, 1.5)
+			for strand: float in [-0.6, -0.15, 0.3]:
+				draw_line(Vector2(r * strand, -r * 0.95), Vector2(r * (strand + 0.2), -r * 0.1), hair.lightened(0.25), 1.2, true)
+			if evolved and not mask_off:
+				# The Shadow Sovereign wears the cracked mask of the references: white, over
+				# the face below the fringe, squiggled shut eyes, a dot, a crack running down
+				# it and a long stitched seam of a mouth with a fang at each end.
+				var mask := PackedVector2Array([Vector2(-r * 0.1, r * 0.3), Vector2(r * 0.4, r * 0.36), Vector2(r * 1.07, r * 0.3), Vector2(r * 0.98, r * 0.66), Vector2(r * 0.62, r * 0.98), Vector2(r * 0.1, r * 1.03), Vector2(-r * 0.2, r * 0.6)])
+				_poly(mask, Color(0.93, 0.93, 0.96), 1.8)
+				for eye_x: float in [0.35, 0.82]:
+					var squiggle := PackedVector2Array()
+					for i in 5:
+						squiggle.append(Vector2(r * (eye_x - 0.14 + i * 0.07), r * (0.44 + (0.05 if i % 2 == 0 else -0.03))))
+					draw_polyline(squiggle, OUTLINE, 1.1, true)
+				draw_circle(Vector2(r * 0.64, r * 0.56), 1.4, OUTLINE, true, -1.0, true)
+				var seam := PackedVector2Array([Vector2(r * 0.05, r * 0.74), Vector2(r * 0.4, r * 0.8), Vector2(r * 0.72, r * 0.77), Vector2(r * 0.98, r * 0.66)])
+				draw_polyline(seam, OUTLINE, 1.5, true)
+				for k in 6:
+					var at := seam[0].lerp(seam[3], (k + 0.5) / 6.0) + Vector2(0, r * 0.05 * sin((k + 0.5) / 6.0 * PI))
+					draw_line(at + Vector2(0, -r * 0.08), at + Vector2(0, r * 0.08), OUTLINE, 1.0, true)
+				for fang: Vector2 in [Vector2(r * 0.1, r * 0.75), Vector2(r * 0.93, r * 0.68)]:
+					draw_colored_polygon(PackedVector2Array([fang + Vector2(-1.8, 0), fang + Vector2(1.8, 0), fang + Vector2(0, 4.0)]), OUTLINE)
+				draw_polyline(PackedVector2Array([Vector2(r * 0.5, r * 0.33), Vector2(r * 0.44, r * 0.5), Vector2(r * 0.5, r * 0.62), Vector2(r * 0.42, r * 0.95)]), OUTLINE, 1.0, true)
+			else:
+				# Golden eyes only show through the fringe when they glow (in Imaginary
+				# Space, the Shadow Sovereign's mask comes off).
+				var glow := eye_glow
+				if glow > 0.0:
+					var eye := Vector2(r * 0.6, r * 0.18)
+					draw_circle(eye, 7.0, Color(1.0, 0.8, 0.3, 0.35 * glow), true, -1.0, true)
+					draw_circle(eye, 2.2, Color(1.0, 0.82, 0.3, glow), true, -1.0, true)
 		&"elf":
 			# Long silver twin-tails, a fringe, a pointed elf ear and a red drop earring.
 			var hair := data.hair_color
@@ -1614,7 +1744,7 @@ func _draw_heart(at: Vector2, size: float, color: Color) -> void:
 
 ## How high their voice is: big bruisers growl low, little ones squeak.
 const VOICE_PITCH := {
-	&"frierin": 1.18, &"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
+	&"rimiru": 1.14, &"frierin": 1.18, &"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
 	&"bomba": 0.86, &"ryo": 0.88, &"egita": 0.98, &"goj": 0.95, &"ichi": 0.92, &"uryo": 1.02, &"megu": 0.96,
 	&"yuj": 1.0, &"gok": 1.04, &"lufi": 1.12, &"spydr": 1.1, &"rango": 0.9, &"quotuk": 1.0, &"fentuk": 1.08,
 	&"klakla": 1.35, &"pipmo": 1.5, &"plopo": 1.6,
@@ -1758,6 +1888,7 @@ const POSES := {
 	&"sleep_lie": {&"hip": Vector2(4, -10), &"neck": Vector2(-36, -12), &"head": Vector2(-54, -16), &"fknee": Vector2(22, -12), &"ffoot": Vector2(42, -6),
 		&"bknee": Vector2(20, -6), &"bfoot": Vector2(40, -2), &"belbow": Vector2(-30, -4), &"bhand": Vector2(-50, -6), &"felbow": Vector2(-14, -22), &"fhand": Vector2(-2, -14)},
 	&"slick_back": {&"felbow": Vector2(15, -104), &"fhand": Vector2(0, -119), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
+	&"slime_palm": {&"felbow": Vector2(14, -72), &"fhand": Vector2(30, -78), &"belbow": Vector2(-10, -70), &"bhand": Vector2(-4, -56)},
 }
 
 ## Poses struck with the back to the camera.
@@ -1777,6 +1908,7 @@ const VICTORY := {
 	&"spydr": [&"kneel", &"point"], &"batz": [&"arms_crossed", &"kneel"], &"jotar": [&"point", &"back_turned"],
 	&"dyo": [&"arms_crossed", &"wryyy"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
 	&"aizon": [&"slick_back", &"float_wide"], &"frierin": [&"doze", &"sleep_lie"],
+	&"rimiru": [&"slime_palm", &"back_turned"],
 }
 
 
@@ -1934,3 +2066,160 @@ func _draw_zzz(p: Dictionary) -> void:
 		var at := head + Vector2(facing * (14.0 + t * 30.0), -18.0 - t * 50.0)
 		draw_string_outline(font, at, "Z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 + t * 10), 4, Color(0.1, 0.08, 0.14, 1.0 - t))
 		draw_string(font, at, "Z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 + t * 10), Color(0.75, 0.88, 1.0, 1.0 - t))
+
+
+# --- Rimiru ---
+
+## Behind Rimiru: blue motes drifting about him; as the Shadow Sovereign, a shadow halo
+## behind his head, cyan filaments and black motes being drawn in toward him.
+func _draw_sovereign_back(p: Dictionary) -> void:
+	var head: Vector2 = p[&"head"]
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(head, 0.45)
+	if not evolved:
+		for k in 6:
+			var rise := fmod(_time * 0.5 + k / 6.0, 1.0)
+			var at := centre + Vector2(sin(k * 2.4 + _time) * 34.0, 30.0 - rise * 90.0)
+			draw_circle(at, 2.5, Color(0.5, 0.9, 1.0, 0.7 * sin(rise * PI)), true, -1.0, true)
+		return
+	# A purple aura: tongues of violet flame licking up around him.
+	for k in 9:
+		var x := (k - 4) * 13.0
+		var lick := fmod(_time * 0.9 + k * 0.37, 1.0)
+		var base := Vector2(centre.x + x, centre.y + 50.0)
+		var tip := base + Vector2(sin(_time * 3.0 + k) * 14.0, -110.0 - lick * 50.0)
+		draw_colored_polygon(PackedVector2Array([base + Vector2(-10, 0), tip, base + Vector2(10, 0)]), Color(0.62, 0.2, 0.95, 0.22 * (1.0 - lick * 0.5)))
+	_draw_demon_wings(p)
+	_draw_sovereign_cape(p)
+	draw_circle(head, 30.0, Color(0.05, 0.02, 0.1, 0.45), true, -1.0, true)
+	for k in 3:
+		var a := _time * 0.8 + k * TAU / 3.0
+		draw_arc(head, 27.0, a, a + 1.5, 10, Color(0.6, 0.35, 0.95, 0.85), 2.5, true)
+	for k in 4:
+		var a := _time * 1.4 + k * TAU / 4.0
+		var wave := PackedVector2Array()
+		for i in 6:
+			wave.append(centre + Vector2.from_angle(a + i * 0.18) * (40.0 + i * 7.0) + Vector2(0, sin(_time * 5.0 + i + k) * 3.0))
+		draw_polyline(wave, Color(0.4, 0.95, 1.0, 0.45), 1.5, true)
+	for k in 10:
+		var pull := fmod(_time * 0.7 + k * 0.1, 1.0)
+		var a := k * 2.399 + pull * 1.2
+		var at := centre + Vector2.from_angle(a) * lerpf(95.0, 12.0, pull)
+		draw_circle(at, 3.0 * (1.0 - pull * 0.6), Color(0.04, 0.02, 0.06, 0.85), true, -1.0, true)
+
+
+## Slime ribbons curling round his hands, his Adaptation rings round the forearm, and
+## (in his victory pose) a little slime riding on his palm.
+func _draw_slime_hands(p: Dictionary) -> void:
+	var tone := Color(0.6, 0.35, 0.95) if evolved else Color(0.45, 0.9, 1.0)
+	for hand: StringName in [&"bhand", &"fhand"]:
+		var at: Vector2 = p[hand]
+		var a := _time * 3.0 + (0.0 if hand == &"fhand" else PI)
+		draw_arc(at, 9.0, a, a + 2.2, 10, Color(tone, 0.6), 2.0, true)
+		draw_arc(at, 7.0, a + PI, a + PI + 1.6, 8, Color(0.75, 0.97, 1.0, 0.5), 1.5, true)
+	if evolved:
+		# Shaggy grey fur cuffs on the coat sleeves.
+		for arm: Array in [[&"belbow", &"bhand"], [&"felbow", &"fhand"]]:
+			var cuff: Vector2 = (p[arm[0]] as Vector2).lerp(p[arm[1]], 0.6)
+			for k in 6:
+				draw_circle(cuff + Vector2.from_angle(k * TAU / 6.0) * 3.0, 2.6, Color(0.6, 0.6, 0.68), true, -1.0, true)
+			draw_arc(cuff, 5.5, 0.0, TAU, 14, OUTLINE, 1.0, true)
+	var elbow: Vector2 = p[&"felbow"]
+	var wrist: Vector2 = p[&"fhand"]
+	var along := (wrist - elbow).angle()
+	for k in adapt_stacks:
+		var at := elbow.lerp(wrist, 0.25 + k * 0.17)
+		draw_set_transform(at, along + sin(_time * 4.0 + k) * 0.25, Vector2(0.35, 1.0))
+		draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 16, Color(0.04, 0.03, 0.07, 0.9) if evolved else Color(0.3, 0.85, 1.0, 0.9), 3.0, true)
+		draw_arc(Vector2.ZERO, 8.0, _time * 3.0, _time * 3.0 + 2.0, 8, Color(0.65, 0.4, 1.0) if evolved else Color(0.85, 1.0, 1.0), 1.5, true)
+		draw_set_transform(Vector2.ZERO)
+	if victory_pose == &"slime_palm":
+		var hop := absf(sin(_time * 4.0)) * 6.0
+		var base := wrist + Vector2(0, -6.0)
+		var squash := 1.0 + 0.12 * cos(_time * 8.0)
+		var blob := PackedVector2Array()
+		for i in 16:
+			var u := i / 15.0 * PI
+			blob.append(base + Vector2(cos(u) * 11.0 * squash, -sin(u) * 12.0 / squash - hop))
+		_poly(blob, Color(0.45, 0.8, 1.0), 2.0)
+		draw_circle(base + Vector2(-3.0 * facing, -6.0 - hop), 1.4, OUTLINE, true, -1.0, true)
+		draw_circle(base + Vector2(3.5 * facing, -6.0 - hop), 1.4, OUTLINE, true, -1.0, true)
+		draw_circle(base + Vector2(-5.0, -9.0 - hop), 2.0, Color(1, 1, 1, 0.7), true, -1.0, true)
+
+
+## Rimiru's Predator Marks: cyan glyph rings hovering beside the chest, one per mark.
+func _draw_predator_marks(p: Dictionary) -> void:
+	var chest: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.3)
+	var pulse := 0.8 + 0.2 * sin(_time * 6.0)
+	for k in predator_marks:
+		var at := chest + Vector2(-facing * (26.0 + k * 18.0), -8.0 + sin(_time * 3.0 + k) * 3.0)
+		draw_circle(at, 9.0, Color(0.3, 0.9, 1.0, 0.18), true, -1.0, true)
+		draw_arc(at, 7.5 * pulse, 0.0, TAU, 16, Color(0.4, 0.95, 1.0), 2.0, true)
+		for t in 4:
+			var a := _time * 2.0 + t * PI / 2.0
+			draw_line(at + Vector2.from_angle(a) * 9.0, at + Vector2.from_angle(a) * 12.0, Color(0.4, 0.95, 1.0), 1.5, true)
+		draw_circle(at, 2.5, Color(0.85, 1.0, 1.0), true, -1.0, true)
+
+
+## Slowed by Gluttony's Maw: slow violet ripples dragging at the throwing hand.
+func _draw_slowed(p: Dictionary) -> void:
+	var hand: Vector2 = p[&"fhand"]
+	for ring in 3:
+		var spread := fmod(_time * 0.6 + ring / 3.0, 1.0)
+		draw_arc(hand, 6.0 + spread * 22.0, 0.0, TAU, 18, Color(0.6, 0.35, 0.95, 0.8 * (1.0 - spread)), 2.0, true)
+
+
+## The Shadow Sovereign's great bat wings, spread behind his shoulders and beating
+## slowly: dark membranes stretched between long finger bones.
+func _draw_demon_wings(p: Dictionary) -> void:
+	var root: Vector2 = (p[&"neck"] as Vector2).lerp(p[&"hip"], 0.2)
+	var beat := sin(_time * 2.2)
+	for wing: float in [-1.0, 1.0]:
+		var reach := 0.8 if wing * facing < 0.0 else 0.65
+		var shoulder := root + Vector2(wing * 6.0, -4.0)
+		var wrist := shoulder + Vector2(wing * 48.0 * reach, -40.0 - beat * 8.0)
+		var tips: Array[Vector2] = [
+			wrist + Vector2(wing * 70.0 * reach, -26.0 - beat * 6.0),
+			wrist + Vector2(wing * 82.0 * reach, 18.0 - beat * 4.0),
+			wrist + Vector2(wing * 60.0 * reach, 62.0),
+			wrist + Vector2(wing * 22.0 * reach, 90.0),
+		]
+		var membrane := PackedVector2Array([shoulder, wrist, tips[0]])
+		var last := tips[0]
+		for k in range(1, tips.size()):
+			membrane.append(last.lerp(tips[k], 0.5) + (wrist - last.lerp(tips[k], 0.5)).normalized() * 16.0)
+			membrane.append(tips[k])
+			last = tips[k]
+		membrane.append(shoulder + Vector2(0, 40.0))
+		if Geometry2D.triangulate_polygon(membrane).is_empty():
+			membrane = Geometry2D.convex_hull(membrane)
+			membrane.remove_at(membrane.size() - 1)
+		draw_colored_polygon(membrane, Color(0.07, 0.06, 0.09, 0.95))
+		var rim := membrane.duplicate()
+		rim.append(membrane[0])
+		draw_polyline(rim, Color(0.35, 0.3, 0.42), 1.5, true)
+		_taper(shoulder, wrist, 6.0, 4.0, OUTLINE)
+		for tip in tips:
+			_taper(wrist, tip, 3.5, 1.5, OUTLINE)
+		draw_colored_polygon(PackedVector2Array([wrist + Vector2(-3, 0), wrist + Vector2(wing * 4.0, -12.0), wrist + Vector2(3, 0)]), OUTLINE)
+
+
+## The Shadow Sovereign's long black cape, flowing from the shoulders and spreading out
+## across the ground behind him.
+func _draw_sovereign_cape(p: Dictionary) -> void:
+	var neck: Vector2 = p[&"neck"]
+	var hip: Vector2 = p[&"hip"]
+	var back := Vector2(-facing, 0)
+	var floor_y := ((p[&"bfoot"] as Vector2).y + (p[&"ffoot"] as Vector2).y) * 0.5 + hover * HOVER_LIFT
+	var wave := sin(_time * 2.4) * 6.0
+	var cape := PackedVector2Array([
+		neck + back * 3.0, neck + back * 12.0 + Vector2(0, 4), hip + back * 30.0 + Vector2(wave * 0.5, 10),
+		Vector2(hip.x, floor_y) + back * 110.0 + Vector2(wave, -2), Vector2(hip.x, floor_y) + back * 70.0 + Vector2(wave * 0.6, 2),
+		Vector2(hip.x, floor_y) + back * 20.0 + Vector2(0, -4), hip + back * 2.0 + Vector2(0, 14),
+	])
+	if Geometry2D.triangulate_polygon(cape).is_empty():
+		cape = Geometry2D.convex_hull(cape)
+		cape.remove_at(cape.size() - 1)
+	_poly(cape, Color(0.04, 0.04, 0.06), 2.0)
+	for k in 3:
+		var u := 0.3 + k * 0.22
+		draw_line(neck.lerp(hip, 0.4) + back * (8.0 + k * 4.0), Vector2(hip.x, floor_y - 6.0) + back * (30.0 + u * 80.0) + Vector2(wave, 0), Color(0.2, 0.2, 0.25), 1.2, true)

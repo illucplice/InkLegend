@@ -49,6 +49,7 @@ const ROSTER := [
 	preload("res://data/fighters/subaro.tres"),
 	preload("res://data/fighters/aizon.tres"),
 	preload("res://data/fighters/frierin.tres"),
+	preload("res://data/fighters/rimiru.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -247,6 +248,10 @@ var _drop_ai_offset := 0.0
 var _drop_guide := false
 ## Aizon's Reiatsu in flight, which a press detonates.
 var _det_orb: Projectile
+## Rimiru's blade in flight, which a press recalls; whether Gluttony's Maw has healed
+## him this turn.
+var _recall_blade: Projectile
+var _maw_healed := false
 ## The violet haze left over the arena once Aizon evolves.
 var _pressure_veil: ColorRect
 const LUCKY_THROWS := 2
@@ -291,6 +296,27 @@ const EVOLVE_HEALTH := 40
 const EVOLVED_DAMAGE := 1.0
 ## Evolved Aizon takes this share of every enemy hit.
 const EVOLVED_DEFENCE := 1.0
+## Rimiru: how fast his recalled blade flies home (faster as the Shadow Sovereign),
+## the two-mark burst (and the Sovereign's Gluttony Detonation and its heal),
+## Adaptation per stack and most stacks (normal, evolved), and how slowly a slowed
+## enemy's next throw flies. He evolves at EVOLVE_HEALTH like Aizon.
+const RECALL_SPEED := 1150.0
+const MAW_RECALL_SPEED := 1650.0
+const MARK_BURST := 12
+const MAW_BURST := 20
+const MAW_HEAL := 3
+const ADAPT_BONUS := [0.03, 0.04]
+const ADAPT_MAX := [3, 4]
+const SLOWED_SPEED := 0.6
+## How close the AI lets the returning blade's line come to the enemy before recalling.
+const RECALL_AI_RANGE := 34.0
+## Beelzebuth: the vortex's damage (normal, evolved), its reach, how far it drags
+## the enemy in, and what each Predator Mark it eats adds.
+const VORTEX_DAMAGE := [44, 50]
+const VORTEX_RADIUS := 190.0
+const VORTEX_PULL := 90.0
+const VORTEX_MARK_DAMAGE := 5
+const VORTEX_MARK_RADIUS := 35.0
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -1297,6 +1323,9 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	if fighter.data.base_id() == &"frierin" and not fighter.mana_released and health > 0 and health <= MANA_RELEASE_HEALTH and mode != Mode.PRACTICE:
 		_release_mana(fighter)
 		return
+	if fighter.data.base_id() == &"rimiru" and not fighter.evolved and health > 0 and health <= EVOLVE_HEALTH and mode != Mode.PRACTICE:
+		_become_sovereign(fighter)
+		return
 	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
 		return
 	fighter.evolved = true
@@ -1409,6 +1438,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _det_orb != null and is_instance_valid(_det_orb) and _det_orb.is_flying() and not _det_orb.thrower.is_ai and state == State.FLYING:
 		get_viewport().set_input_as_handled()
 		_detonate()
+		return
+	if _recall_blade != null and is_instance_valid(_recall_blade) and _recall_blade.is_flying() and not _recall_blade.thrower.is_ai and state == State.FLYING:
+		get_viewport().set_input_as_handled()
+		_recall()
 		return
 	if _drop_orb != null and is_instance_valid(_drop_orb) and not _drop_orb.thrower.is_ai and state == State.FLYING:
 		get_viewport().set_input_as_handled()
@@ -2135,6 +2168,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
+	_maw_healed = false
 	_turn_charged = false
 	# Frierin's barrier comes back up whenever her enemy starts a turn.
 	for other in fighters:
@@ -2275,6 +2309,7 @@ func _physics_process(_delta: float) -> void:
 	_pull_toward_purple(_delta)
 	_watch_drop_orb()
 	_watch_det_orb()
+	_watch_recall()
 	_watch_illusion()
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
@@ -2458,6 +2493,10 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_start_icefall(fighter)
 		return
+	if special == &"beelzebuth":
+		fighter.powered = false
+		_beelzebuth(fighter, angle, power)
+		return
 	if special in INSTANT_SPECIALS:
 		_apply_instant_special(fighter, special)
 	if special == &"orb":
@@ -2532,6 +2571,10 @@ func _throw(angle: float, power: float) -> void:
 			_det_orb = projectile
 			if not fighter.is_ai:
 				Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "PRESS TO DETONATE!", Color(0.75, 0.55, 1.0), 24, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		if weapon.shape in [&"slime_blade", &"maw_blade"] and i == 0:
+			_arm_recall(projectile, fighter)
+		if fighter.slowed:
+			projectile.time_scale = SLOWED_SPEED
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -2599,6 +2642,10 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	# Levels from duplicate chest finds: a little more damage on your side.
 	if side >= 0:
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
+	# Rimiru's Adaptation: each stack he has built adds a little to every hit he lands.
+	var adapting := side >= 0 and fighters[side].data.base_id() == &"rimiru" and not mirrored and target != fighters[side]
+	if adapting and fighters[side].adapt_stacks > 0:
+		damage = roundi(damage * (1.0 + fighters[side].adapt_stacks * float(ADAPT_BONUS[1 if fighters[side].evolved else 0])))
 	# Evolved, Aizon shrugs off part of every enemy hit.
 	if target.evolved and not mirrored and side >= 0 and side != fighters.find(target):
 		damage = maxi(1, roundi(damage * EVOLVED_DEFENCE))
@@ -2659,6 +2706,8 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Audio.play("crunch", -4.0, 1.4, 0.05)
 	if reiatsu and not target.is_knocked_out():
 		_build_pressure(target, projectile.thrower)
+	if adapting:
+		_adapt(fighters[side], target, projectile)
 	if projectile.get_meta("freeze", false) and not target.is_knocked_out() and not target.pinned:
 		target.pinned = true
 		_hud.announce("FROZEN!", Color(0.7, 0.9, 1.0))
@@ -2909,6 +2958,9 @@ func _after_throw() -> void:
 	# Spiritual pressure (no guide, or a wobbly aim) lasts for one throw.
 	fighters[current].pressured = false
 	fighters[current].shaken = false
+	fighters[current].slowed = false
+	if not _turn_hit and fighters[current].data.base_id() == &"rimiru":
+		_fade_adaptation(fighters[current])
 	state = State.SETTLING
 	if not _turn_hit:
 		_combo[current] = 0
@@ -3320,6 +3372,8 @@ func _finisher_launch(angle: float, power: float) -> void:
 			_arm_drop_orb(projectile, winner)
 		if weapon.shape in [&"reiatsu", &"dark_hado"] and i == 0:
 			_det_orb = projectile
+		if weapon.shape in [&"slime_blade", &"maw_blade"] and i == 0:
+			_arm_recall(projectile, winner)
 	state = State.FLYING
 
 
@@ -3664,3 +3718,293 @@ func _lightning(at: Vector2) -> void:
 	Effects.burst(_actors, at, Color(0.7, 0.88, 1.0), 40, 700.0, 180.0, 1.6)
 	Audio.play("hit_head", 4.0, 0.35, 0.0)
 	_camera.shake(0.9)
+
+
+# --- Rimiru ---
+
+## His Slime Blade is in the air: a press (or the AI) can call it back.
+func _arm_recall(projectile: Projectile, fighter: Fighter) -> void:
+	_recall_blade = projectile
+	projectile.set_meta("slime", true)
+	if not fighter.is_ai:
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "PRESS TO RECALL!", Color(0.45, 0.9, 1.0), 24, 1.0 / _camera.zoom.x, _camera.visible_rect())
+
+
+## The blade turns and flies straight back to him; anyone in the way is hit. The
+## Shadow Sovereign's tears a rift open and comes back faster.
+func _recall() -> void:
+	var blade := _recall_blade
+	_recall_blade = null
+	if not is_instance_valid(blade) or not blade.is_flying():
+		return
+	var rimiru := blade.thrower
+	var at := blade.global_position
+	blade.recall(rimiru.throw_origin(), MAW_RECALL_SPEED if rimiru.evolved else RECALL_SPEED)
+	blade.set_meta("recalled", true)
+	if rimiru.evolved:
+		_spatial_tear(at)
+		Effects.burst(_actors, at, Color(0.6, 0.3, 0.95), 22, 420.0, 180.0, 1.2)
+		Audio.play("zap", -4.0, 0.6, 0.0)
+	else:
+		Effects.burst(_actors, at, Color(0.5, 0.9, 1.0), 16, 300.0, 180.0, 1.0)
+	Audio.play("whoosh", -2.0, 1.4, 0.0)
+
+
+## The AI calls its blade back once it has flown past the enemy and the straight line
+## home runs through them.
+func _watch_recall() -> void:
+	if _recall_blade == null:
+		return
+	if not is_instance_valid(_recall_blade) or not _recall_blade.is_flying() or _recall_blade.recall_to != Vector2.INF:
+		_recall_blade = null
+		return
+	if not _recall_blade.thrower.is_ai:
+		return
+	var foe: Fighter = _finisher["loser"] if not _finisher.is_empty() else _recall_blade.target
+	if foe == null or not is_instance_valid(foe) or foe.is_knocked_out() or _will_hit(_recall_blade, foe):
+		return
+	var home := _recall_blade.thrower.throw_origin()
+	var here := _recall_blade.global_position
+	if signf(here.x - foe.global_position.x) != signf(foe.global_position.x - home.x):
+		return
+	var body := foe.aim_point(false)
+	if Geometry2D.get_closest_point_to_segment(body, here, home).distance_to(body) < RECALL_AI_RANGE:
+		_recall()
+
+
+## A violet rift ripped in the air where the Shadow Sovereign recalls his blade.
+func _spatial_tear(at: Vector2) -> void:
+	var tear := Node2D.new()
+	tear.z_index = 5
+	tear.position = at
+	tear.rotation = randf_range(-0.6, 0.6)
+	var state := {"t": 0.0}
+	tear.draw.connect(func() -> void:
+		var t: float = state["t"]
+		var open := sin(t * PI)
+		var edge := PackedVector2Array([Vector2(0, -46), Vector2(8 * open, -16), Vector2(5 * open, 14), Vector2(0, 46), Vector2(-6 * open, 16), Vector2(-9 * open, -12)])
+		tear.draw_colored_polygon(edge, Color(0.03, 0.01, 0.06, 0.9 * open))
+		edge.append(edge[0])
+		tear.draw_polyline(edge, Color(0.6, 0.35, 0.95, open), 2.5, true)
+		tear.draw_line(Vector2(0, -40), Vector2(0, 40), Color(0.45, 1.0, 1.0, 0.8 * open), 1.5, true))
+	_actors.add_child(tear)
+	var tween := tear.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		state["t"] = t
+		tear.queue_redraw(), 0.0, 1.0, 0.5)
+	tween.tween_callback(tear.queue_free)
+
+
+## Every hit Rimiru lands: one more Adaptation stack, and a blade hit leaves a Predator
+## Mark (two burst). A recalled Gluttony's Maw also slows their next throw.
+func _adapt(rimiru: Fighter, target: Fighter, projectile: Projectile) -> void:
+	var view := _camera.visible_rect()
+	var most: int = ADAPT_MAX[1 if rimiru.evolved else 0]
+	if rimiru.adapt_stacks < most:
+		rimiru.adapt_stacks += 1
+		Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -80), "%s %d / %d" % ["ABYSSAL ADAPTATION" if rimiru.evolved else "ADAPTATION", rimiru.adapt_stacks, most], Color(0.45, 0.9, 1.0), 24, 1.0 / _camera.zoom.x, view)
+	if target.is_knocked_out() or not projectile.get_meta("slime", false):
+		return
+	if rimiru.evolved and projectile.get_meta("recalled", false) and not target.slowed:
+		target.slowed = true
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -130), "SLOWED", Color(0.7, 0.5, 1.0), 26, 1.0 / _camera.zoom.x, view)
+	target.predator_marks += 1
+	if target.predator_marks < 2:
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -100), "PREDATOR MARK 1 / 2", Color(0.45, 0.95, 1.0), 26, 1.0 / _camera.zoom.x, view)
+		return
+	target.predator_marks = 0
+	_mark_burst(target, rimiru)
+
+
+## Two marks: they burst for extra damage. As the Shadow Sovereign it is Gluttony
+## Detonation: a maw of dark energy snaps shut on them, and he heals a little.
+func _mark_burst(target: Fighter, rimiru: Fighter) -> void:
+	var view := _camera.visible_rect()
+	var at := target.aim_point(false)
+	var bonus := MAW_BURST if rimiru.evolved else MARK_BURST
+	_vortex_fx(at, 70.0, rimiru.evolved, 0.55)
+	target.take_hit(Rules.BODY, bonus, Vector2(0, -300))
+	var side := fighters.find(rimiru)
+	if side >= 0:
+		_stats[side]["damage"] += bonus
+	Effects.popup(_actors, at + Vector2(0, -120), "%s  +%d" % ["GLUTTONY DETONATION" if rimiru.evolved else "PREDATOR BURST", bonus], Color(0.7, 0.5, 1.0) if rimiru.evolved else Color(0.45, 0.95, 1.0), 32, 1.0 / _camera.zoom.x, view)
+	Audio.play("crunch", 0.0, 0.7, 0.0)
+	Audio.play("zap", -4.0, 0.5, 0.0)
+	_camera.shake(0.5)
+	if rimiru.evolved and not _maw_healed and not rimiru.is_knocked_out():
+		_maw_healed = true
+		rimiru.heal(MAW_HEAL)
+		Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -110), "+%d" % MAW_HEAL, Color(0.5, 1.0, 0.7), 28, 1.0 / _camera.zoom.x, view)
+
+
+## A throw of his that hit nothing: one mark on the enemy and one Adaptation stack fade.
+func _fade_adaptation(rimiru: Fighter) -> void:
+	rimiru.adapt_stacks = maxi(0, rimiru.adapt_stacks - 1)
+	var foe := fighters[1 - fighters.find(rimiru)]
+	foe.predator_marks = maxi(0, foe.predator_marks - 1)
+
+
+## Below EVOLVE_HEALTH he becomes the Shadow Sovereign (once a match): he rises on great
+## bat wings in his cracked mask, Gluttony's Maw for a basic and deeper Adaptation.
+func _become_sovereign(fighter: Fighter) -> void:
+	fighter.evolved = true
+	var sovereign := fighter.data.duplicate() as FighterData
+	var maw := fighter.data.weapon.duplicate() as WeaponData
+	maw.shape = &"maw_blade"
+	maw.display_name = "Gluttony's Maw"
+	maw.color = Color(0.6, 0.3, 0.95)
+	maw.size = 50.0
+	maw.max_speed = 1550.0
+	maw.body_damage = 20
+	maw.head_damage = 34
+	sovereign.weapon = maw
+	fighter.data = sovereign
+	fighter.power_up(2.0)
+	# He rises off the ground, wings spread, and stays aloft.
+	fighter.create_tween().tween_property(fighter, "hover", 1.0, 0.9).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_hud.announce("SHADOW SOVEREIGN!", Color(0.7, 0.5, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "GLUTTONY'S MAW  ·  ABYSSAL ADAPTATION", Color(0.45, 0.95, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	_vortex_fx(fighter.aim_point(false), 120.0, true, 1.0)
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.05, 0.02, 0.08), 50, 600.0, 180.0, 2.0)
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.45, 0.95, 1.0), 30, 450.0, 180.0, 1.4)
+	Audio.play("voice_charge", 2.0, fighter.voice_pitch(), 0.0)
+	Audio.play("ko", -4.0, 0.5, 0.0)
+	_camera.shake(0.6)
+
+
+## Beelzebuth: a compact black orb, thrown on an arc like his blade. Wherever it lands
+## it opens a devouring vortex.
+func _beelzebuth(fighter: Fighter, angle: float, power: float) -> void:
+	fighter.power_up(1.4)
+	var weapon := fighter.data.weapon
+	var orb := weapon.duplicate() as WeaponData
+	orb.shape = &"abyss_orb"
+	orb.display_name = "Beelzebuth"
+	orb.size = 40.0
+	orb.spin = 0.0
+	orb.sticks = false
+	orb.color = Color(0.6, 0.3, 0.95) if fighter.evolved else Color(0.3, 0.65, 1.0)
+	orb.body_damage = VORTEX_DAMAGE[1 if fighter.evolved else 0]
+	orb.head_damage = orb.body_damage
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
+	_actors.add_child(projectile)
+	projectile.launch(orb, fighter, fighter.throw_origin(), Rules.launch_velocity(angle, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
+	projectile.target = fighters[1 - current]
+	projectile.explode_radius = VORTEX_RADIUS * 0.6
+	projectile.set_meta("beelzebuth", true)
+	projectile.set_trail_color(orb.color)
+	projectile.exploded.connect(_on_abyss_impact)
+	projectile.hit_crate.connect(_on_projectile_hit_crate)
+	projectile.hit_target.connect(_on_practice_target_hit)
+	projectile.finished.connect(_on_projectile_finished)
+	_in_flight.append(projectile)
+	Audio.play("whoosh", 0.0, 0.45, 0.0)
+
+
+## The orb lands: the vortex drags the enemy toward its centre, then collapses into a
+## shockwave. It eats any Predator Marks on them for more damage and a bigger blast.
+func _on_abyss_impact(projectile: Projectile, at: Vector2, direct: Fighter, _part: StringName, _collider: Object) -> void:
+	var rimiru := projectile.thrower
+	var foe := fighters[1 - fighters.find(rimiru)]
+	var marks := foe.predator_marks
+	var radius := VORTEX_RADIUS + marks * VORTEX_MARK_RADIUS + (30.0 if rimiru.evolved else 0.0)
+	if _special_finisher():
+		_vortex_fx(at, radius, rimiru.evolved, 0.8)
+		var loser: Fighter = _finisher["loser"]
+		if direct == loser or loser.aim_point(false).distance_to(at) < radius:
+			_resolve_finisher(true)
+		return
+	foe.predator_marks = 0
+	var weapon := projectile.weapon.duplicate() as WeaponData
+	weapon.body_damage += marks * VORTEX_MARK_DAMAGE
+	weapon.head_damage = weapon.body_damage
+	_launching = true
+	var match_id := _match_id
+	_vortex_fx(at, radius, rimiru.evolved, 1.2)
+	Audio.play("whoosh", 2.0, 0.3, 0.0)
+	if marks > 0:
+		Effects.popup(_actors, at + Vector2(0, -radius * 0.6), "DEVOURED %d MARK%s" % [marks, "" if marks == 1 else "S"], Color(0.45, 0.95, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	# The pull: along the ground toward the centre, never past it or into the obstacles.
+	if mode != Mode.PRACTICE and not foe.is_knocked_out() and foe.aim_point(false).distance_to(at) < radius:
+		var nearest := 450.0
+		for box in _obstacle_rects:
+			nearest = maxf(nearest, maxf(absf(box.position.x), absf(box.end.x)) + 150.0)
+		var x := move_toward(foe.position.x, at.x, VORTEX_PULL)
+		if absf(x) < nearest:
+			x = signf(foe.position.x) * nearest
+		foe.create_tween().tween_property(foe, "position", Vector2(x, Terrain.height_at(x)), 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		foe._tilt_velocity += signf(at.x - foe.position.x) * 2.0
+	await get_tree().create_timer(0.7, false).timeout
+	if match_id != _match_id:
+		return
+	_camera.shake(0.9)
+	Audio.play("boom", -2.0, 0.6, 0.0)
+	Audio.play("ground", 2.0, 0.4, 0.0)
+	Device.vibrate(120)
+	var carrier := Projectile.new()
+	carrier.weapon = weapon
+	carrier.thrower = rimiru
+	carrier.position = at
+	carrier.set_meta("beelzebuth", true)
+	if mode == Mode.PRACTICE:
+		if _practice_target != null and is_instance_valid(_practice_target) and _practice_target.global_position.distance_to(at) < radius:
+			_on_practice_target_hit(carrier, _practice_target)
+	elif not foe.is_knocked_out():
+		var distance := 0.0 if direct == foe else foe.aim_point(false).distance_to(at)
+		if distance <= radius:
+			var push := (foe.aim_point(false) - at).normalized() * 700.0 + Vector2(0, -450)
+			_on_projectile_hit(carrier, foe, Rules.BODY, lerpf(1.0, 0.4, distance / radius), push)
+	carrier.free()
+	for child in _obstacle_layer.get_children():
+		var obstacle := child as Obstacle
+		if obstacle != null and not obstacle.is_destroyed and obstacle.rect.grow(radius * 0.5).has_point(at):
+			obstacle.damage(2)
+	_launching = false
+	if _in_flight.is_empty() and state == State.FLYING:
+		_after_throw()
+
+
+## A devouring vortex at `at`: layered rings and spiral arms swirling in round a cyan
+## core, motes drawn inward, then it collapses to a point and a shockwave rolls out.
+## Blue-black for Rimiru, black-violet for the Shadow Sovereign.
+func _vortex_fx(at: Vector2, radius: float, sovereign: bool, seconds: float) -> void:
+	var fx := Node2D.new()
+	fx.z_index = 5
+	fx.position = at
+	var edge := Color(0.6, 0.3, 0.95) if sovereign else Color(0.3, 0.6, 1.0)
+	var state := {"t": 0.0}
+	fx.draw.connect(func() -> void:
+		var t: float = state["t"]
+		var spin := t * 9.0
+		if t < 0.65:
+			var r := radius * minf(t / 0.2, 1.0)
+			fx.draw_circle(Vector2.ZERO, r, Color(0.02, 0.01, 0.05, 0.45), true, -1.0, true)
+			for ring in 4:
+				var a := spin * (1.0 + ring * 0.4)
+				fx.draw_arc(Vector2.ZERO, r * (1.0 - ring * 0.2), a, a + 3.6, 24, Color(edge, 0.75 - ring * 0.12), 4.0 - ring * 0.6, true)
+			for arm in 5:
+				var spiral := PackedVector2Array()
+				for i in 10:
+					var u := i / 9.0
+					spiral.append(Vector2.from_angle(spin + arm * TAU / 5.0 + u * 2.4) * r * (1.0 - u * 0.9))
+				fx.draw_polyline(spiral, Color(0.4, 0.95, 1.0, 0.5), 2.0, true)
+			for k in 16:
+				var pull := fmod(t * 3.0 + k / 16.0, 1.0)
+				fx.draw_circle(Vector2.from_angle(k * 2.399 + pull * 2.0) * r * (1.2 - pull), 3.0 * (1.0 - pull), Color(0.04, 0.02, 0.06, 0.9), true, -1.0, true)
+			fx.draw_circle(Vector2.ZERO, 14.0 + 4.0 * sin(t * 40.0), Color(0.45, 1.0, 1.0, 0.9), true, -1.0, true)
+			fx.draw_circle(Vector2.ZERO, 7.0, Color.WHITE, true, -1.0, true)
+		elif t < 0.75:
+			var shrink := 1.0 - (t - 0.65) / 0.1
+			fx.draw_circle(Vector2.ZERO, radius * shrink, Color(0.02, 0.01, 0.05, 0.6), true, -1.0, true)
+			fx.draw_arc(Vector2.ZERO, radius * shrink, 0.0, TAU, 32, edge, 5.0, true)
+			fx.draw_circle(Vector2.ZERO, 20.0, Color(0.6, 1.0, 1.0), true, -1.0, true)
+		else:
+			var wave := (t - 0.75) / 0.25
+			fx.draw_arc(Vector2.ZERO, radius * (0.3 + wave * 1.1), 0.0, TAU, 40, Color(edge, 1.0 - wave), 10.0 * (1.0 - wave) + 2.0, true)
+			fx.draw_arc(Vector2.ZERO, radius * (0.2 + wave * 0.9), 0.0, TAU, 40, Color(0.5, 1.0, 1.0, 0.8 * (1.0 - wave)), 3.0, true))
+	_actors.add_child(fx)
+	var tween := fx.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		state["t"] = t
+		fx.queue_redraw(), 0.0, 1.0, seconds)
+	tween.tween_callback(fx.queue_free)

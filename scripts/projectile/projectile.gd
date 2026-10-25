@@ -61,6 +61,10 @@ var pierce := false
 var homing_target: Node2D
 var homing_range := 0.0
 var homing_turn := 0.0
+## Rimiru's recalled blade: flies straight back to this point and ends there.
+var recall_to := Vector2.INF
+## Slowed (Gluttony's Maw): the same path, flown at this share of the speed.
+var time_scale := 1.0
 
 var _origin := Vector2.ZERO
 var _velocity := Vector2.ZERO
@@ -99,7 +103,7 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	fade.set_color(1, Color(1, 1, 1, 0.55))
 	_trail.gradient = fade
 	_trail.z_index = -1
-	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow"]:
+	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow", &"slime_blade", &"maw_blade", &"abyss_orb"]:
 		set_trail_color(weapon.color)
 		_trail.width = 16.0
 	add_child(_trail)
@@ -129,6 +133,7 @@ func current_velocity() -> Vector2:
 func _physics_process(delta: float) -> void:
 	if _done or frozen:
 		return
+	delta *= time_scale
 	_t += delta
 	flight_time += delta
 	if target != null:
@@ -146,6 +151,9 @@ func _physics_process(delta: float) -> void:
 		hit = _inside_hitbox()
 	if hit.is_empty():
 		global_position = next
+		if recall_to != Vector2.INF and (next.distance_to(recall_to) < 30.0 or (recall_to - next).dot(_velocity) <= 0.0):
+			_finish(false)
+			return
 		if weapon.spin != 0.0:
 			rotation += weapon.spin * delta * signf(_velocity.x)
 		else:
@@ -635,6 +643,54 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_colored_polygon(shape, Color(0.08, 0.04, 0.12))
 			canvas.draw_polyline(outer, w.color.lightened(0.2), 4.0, true)
 			canvas.draw_polyline(outer, Color(1, 0.85, 0.85, 0.7), 1.5, true)
+		&"slime_blade", &"maw_blade":
+			# Rimiru's blade: a crescent of living slime, cyan and wobbling, with drops
+			# shed behind it. Evolved (Gluttony's Maw): black-violet with a brilliant cyan
+			# core and teeth along its inner edge.
+			var maw := w.shape == &"maw_blade"
+			var wobble := sin(Time.get_ticks_msec() * 0.015) * 0.06
+			var outer := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for i in 17:
+				var a := lerpf(-1.3, 1.3, i / 16.0)
+				outer.append(Vector2(cos(a) * s * (0.5 + wobble), sin(a) * s))
+				inner.append(Vector2(cos(a) * s * 0.14 - s * 0.16, sin(a) * s * 0.78))
+			var blade := outer.duplicate()
+			for i in range(inner.size() - 1, -1, -1):
+				blade.append(inner[i])
+			var glow := Color(0.6, 0.3, 0.95) if maw else Color(0.35, 0.85, 1.0)
+			for ring in 3:
+				var halo := PackedVector2Array()
+				for point in blade:
+					halo.append(point * (1.24 - ring * 0.07))
+				canvas.draw_colored_polygon(halo, Color(glow, 0.12 + ring * 0.07))
+			canvas.draw_colored_polygon(blade, Color(0.06, 0.03, 0.1) if maw else Color(0.45, 0.88, 1.0, 0.85))
+			if maw:
+				for k in range(2, 15, 2):
+					var at := inner[k]
+					var into := (outer[k] - at).normalized()
+					canvas.draw_colored_polygon(PackedVector2Array([at + into.orthogonal() * 3.0, at - into * 7.0, at - into.orthogonal() * 3.0]), Color(0.75, 0.6, 1.0))
+				canvas.draw_polyline(outer, Color(0.6, 0.3, 0.95), 4.0, true)
+				canvas.draw_polyline(outer, Color(0.45, 1.0, 1.0), 1.8, true)
+			else:
+				canvas.draw_polyline(outer, Color(0.85, 0.98, 1.0), 3.0, true)
+				canvas.draw_circle(Vector2(s * 0.2, -s * 0.45), s * 0.07, Color(1, 1, 1, 0.8), true, -1.0, true)
+			for k in 3:
+				canvas.draw_circle(Vector2(-s * (0.35 + k * 0.22), s * (0.5 - k * 0.45)), s * (0.08 - k * 0.015), Color(glow, 0.7), true, -1.0, true)
+		&"abyss_orb":
+			# Beelzebuth: a compact black orb with a bright cyan core, motes and light
+			# bending in toward it (violet once he has evolved).
+			var spin := Time.get_ticks_msec() * 0.004
+			for k in 8:
+				var pull := fmod(spin * 0.5 + k / 8.0, 1.0)
+				var at := Vector2.from_angle(k * 2.399 + spin) * s * lerpf(1.3, 0.55, pull)
+				canvas.draw_circle(at, s * 0.06, Color(w.color, 0.8 * pull), true, -1.0, true)
+			for k in 3:
+				canvas.draw_arc(Vector2.ZERO, s * (0.62 + k * 0.12), spin * (1.0 + k * 0.3), spin * (1.0 + k * 0.3) + 2.0, 12, Color(w.color, 0.55 - k * 0.12), 2.5, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.5, Color(0.03, 0.02, 0.05), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.5, 0.0, TAU, 24, w.color, 2.5, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.2, Color(0.4, 0.95, 1.0), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.1, Color.WHITE, true, -1.0, true)
 		_:
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 + 1.5, ink, true, -1.0, true)
 			canvas.draw_circle(Vector2.ZERO, s * 0.5 - 1.0, Color(0.32, 0.3, 0.34), true, -1.0, true)
@@ -696,10 +752,14 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu":
+		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu", &"abyss_orb":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))
+		&"slime_blade", &"maw_blade":
+			# A small blade of slime forming in the palm, growing as he winds up.
+			if loaded:
+				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.32 + pull * 0.2)))
 		&"cleaver":
 			# Gripped by the hilt with the blade running back along the arm.
 			if loaded:
@@ -753,3 +813,17 @@ func _inside_hitbox() -> Dictionary:
 		if found["collider"] is Hitbox:
 			return {"collider": found["collider"], "position": global_position, "normal": Vector2.ZERO}
 	return {}
+
+
+## Rimiru recalls his blade: it turns and flies straight back to `to` at `speed`,
+## free of gravity and wind, and can still hit whatever is in the way.
+func recall(to: Vector2, speed: float) -> void:
+	if _done:
+		return
+	recall_to = to
+	_origin = global_position
+	_velocity = (to - global_position).normalized() * speed
+	_t = 0.0
+	gravity = 0.0
+	wind = 0.0
+	homing_target = null
