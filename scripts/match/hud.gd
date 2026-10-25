@@ -48,6 +48,10 @@ var _top_bar: Control
 var _plates: Array[HBoxContainer] = []
 var _names: Array[Label] = []
 var _bars: Array[ProgressBar] = []
+## The fighter each plate shows (so a tag can let go of the one before), and the
+## partner waiting on each side in 2v2.
+var _bound: Array = [null, null]
+var _partner_labels: Array[Label] = []
 var _ghosts: Array[ProgressBar] = []
 var _hp_labels: Array[Label] = []
 var _turn_ribbon: PanelContainer
@@ -244,7 +248,13 @@ func bind_fighters(fighters: Array[Fighter], player_names: Array[String]) -> voi
 		_bars[i].value = fighter.health
 		_ghosts[i].value = fighter.health
 		_hp_labels[i].text = str(fighter.health)
-		fighter.health_changed.connect(_on_health_changed.bind(i))
+		var was: Fighter = _bound[i] if is_instance_valid(_bound[i]) else null
+		if was != null and was.health_changed.is_connected(_on_health_changed.bind(i)):
+			was.health_changed.disconnect(_on_health_changed.bind(i))
+		if not fighter.health_changed.is_connected(_on_health_changed.bind(i)):
+			fighter.health_changed.connect(_on_health_changed.bind(i))
+		_bound[i] = fighter
+	set_partners(["", ""])
 
 
 ## Target Practice has no opponent, so hide the right-hand plate.
@@ -847,7 +857,7 @@ func _build_title() -> Control:
 	right.add_theme_constant_override("separation", 14)
 	screen.add_child(right)
 	var play := _button("", 18)
-	play.custom_minimum_size = Vector2(400, 150)
+	play.custom_minimum_size = Vector2(400, 118)
 	UiStyle.paint_button(play, UiStyle.GREEN)
 	play.pressed.connect(_open_select.bind(MatchController.Mode.VS_AI))
 	var play_stack := VBoxContainer.new()
@@ -865,6 +875,10 @@ func _build_title() -> Control:
 	play.add_child(play_stack)
 	right.add_child(play)
 	_play_button = play
+	var tag := _mode_button(&"duo", "2v2 Tag", "Two fighters each, taking turns", UiStyle.ORANGE)
+	tag.custom_minimum_size.x = 400
+	tag.pressed.connect(_open_select.bind(MatchController.Mode.TAG))
+	right.add_child(tag)
 
 	var chests := PanelContainer.new()
 	var chest_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.78), 18, 3)
@@ -1377,6 +1391,9 @@ func _refresh_select() -> void:
 	elif _select_mode == MatchController.Mode.BOSS_RUSH:
 		label.text = "BOSS RUSH: CHOOSE YOUR FIGHTER"
 		color = UiStyle.PURPLE
+	elif _select_mode == MatchController.Mode.TAG:
+		label.text = "2V2: FIRST FIGHTER" if _select_step == 0 else "2V2: YOUR PARTNER"
+		color = UiStyle.ORANGE if _select_step == 0 else UiStyle.GREEN
 	elif _select_mode == MatchController.Mode.PRACTICE:
 		label.text = "TARGET PRACTICE"
 		color = UiStyle.BLUE
@@ -1387,8 +1404,8 @@ func _refresh_select() -> void:
 		label.text = "PLAYER %d, CHOOSE!" % (_select_step + 1)
 		color = UiStyle.BLUE if _select_step == 0 else UiStyle.RED
 	_select_ribbon.add_theme_stylebox_override("panel", UiStyle.candy(color))
-	_difficulty_box.visible = vs_ai
-	var two_player := _select_mode == MatchController.Mode.LOCAL_2P
+	_difficulty_box.visible = vs_ai or _select_mode == MatchController.Mode.TAG
+	var two_player := _select_mode == MatchController.Mode.LOCAL_2P or _select_mode == MatchController.Mode.TAG
 	var picks_map := (vs_ai or two_player) and _select_step == 1
 	_go_label.text = "Next" if picks_map or ((two_player or vs_ai) and _select_step == 0) else "Start!"
 	_random_button.visible = vs_ai and _select_step == 1
@@ -1436,7 +1453,7 @@ func _select_back() -> void:
 
 
 func _select_next() -> void:
-	var two_step := _select_mode == MatchController.Mode.LOCAL_2P or _select_mode == MatchController.Mode.VS_AI
+	var two_step := _select_mode in [MatchController.Mode.LOCAL_2P, MatchController.Mode.VS_AI, MatchController.Mode.TAG]
 	if two_step and _select_step == 0:
 		_select_step = 1
 		_random_foe = false
@@ -1445,14 +1462,17 @@ func _select_next() -> void:
 		_refresh_select()
 		return
 	# Vs AI and 1v1 go on to choose a map; tournaments and practice start straight away.
-	if _select_mode == MatchController.Mode.VS_AI or _select_mode == MatchController.Mode.LOCAL_2P:
+	if _select_mode in [MatchController.Mode.VS_AI, MatchController.Mode.LOCAL_2P, MatchController.Mode.TAG]:
+		if _select_mode == MatchController.Mode.TAG and _picks[1] == _picks[0]:
+			toast("Pick a different partner", Color(1.0, 0.6, 0.5))
+			return
 		_show_screen(_map_screen)
 		return
 	_start_selected()
 
 
 func _start_selected() -> void:
-	var right := _picks[1] if _select_mode == MatchController.Mode.LOCAL_2P or (_select_mode == MatchController.Mode.VS_AI and not _random_foe) else null
+	var right := _picks[1] if _select_mode in [MatchController.Mode.LOCAL_2P, MatchController.Mode.TAG] or (_select_mode == MatchController.Mode.VS_AI and not _random_foe) else null
 	play_requested.emit(_picks[0], right, _select_mode, _difficulty, _map_choice)
 
 
@@ -2371,7 +2391,7 @@ func _refresh_skin_button() -> void:
 	if _skin_button == null:
 		return
 	var picked: FighterData = _picks[_select_step]
-	var mine := _select_step == 0 or _select_mode == MatchController.Mode.LOCAL_2P
+	var mine := _select_step == 0 or _select_mode in [MatchController.Mode.LOCAL_2P, MatchController.Mode.TAG]
 	var count := Mastery.skin_count(Save.mastery_level(String(picked.id))) if picked != null else 1
 	_skin_button.visible = mine and count > 1 and Save.is_unlocked(picked)
 	if _skin_button.visible:
@@ -2470,3 +2490,19 @@ func gallery_playback() -> void:
 	_hint.hide()
 	_pause_button.hide()
 	_show_screen(null)
+
+
+# --- 2v2 ---
+
+## The partner each side has waiting (empty text: none, as outside 2v2).
+func set_partners(texts: Array) -> void:
+	if _partner_labels.is_empty():
+		for i in 2:
+			var label := UiStyle.game_label("", 18, true)
+			label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.6))
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i == 1 else HORIZONTAL_ALIGNMENT_LEFT
+			_names[i].get_parent().add_child(label)
+			_partner_labels.append(label)
+	for i in 2:
+		_partner_labels[i].text = texts[i]
+		_partner_labels[i].visible = texts[i] != ""

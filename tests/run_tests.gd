@@ -34,6 +34,7 @@ func _initialize() -> void:
 	await _test_aizon_evolves()
 	await _test_rimiru()
 	_test_mastery()
+	await _test_tag()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -766,3 +767,24 @@ func _test_mastery() -> void:
 	var gok: FighterData = load("res://data/fighters/gok.tres")
 	var gold := Mastery.skinned(gok, 3)
 	_check(gold.body_color != gok.body_color and gold.weapon == gok.weapon and gold.base_id() == &"gok", "a colour scheme changes only colours, never the kit")
+
+
+## 2v2 tag: each side has a partner off the field; a knockout brings them in, and the
+## match only ends when both of a side are down.
+func _test_tag() -> void:
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	game.start_tag(load("res://data/fighters/gok.tres"), load("res://data/fighters/lufi.tres"), 1, null)
+	await process_frame
+	_check(game._teams[0].size() == 2 and game._teams[1].size() == 2, "2v2: both sides have two fighters")
+	var first: Fighter = game.fighters[0]
+	var partner: Fighter = game._partner_of(0)
+	_check(not partner.visible and partner.data.id == &"lufi", "your partner waits off the field")
+	first.take_hit(Rules.BODY, 100, Vector2.ZERO)
+	_check(game._tag_rescue() and game.fighters[0] == partner and partner.visible, "a knocked-out fighter's partner jumps in")
+	partner.take_hit(Rules.BODY, 100, Vector2.ZERO)
+	_check(not game._tag_rescue(), "with both down, the match is over")
+	game.queue_free()
+	await process_frame

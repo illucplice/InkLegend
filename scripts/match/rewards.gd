@@ -12,6 +12,7 @@ extends RefCounted
 const MODE_VS_AI := 0
 const MODE_TOURNAMENT := 2
 const MODE_PRACTICE := 3
+const MODE_TAG := 6
 const ACHIEVEMENT_COINS := 50
 const DAILY_COINS := 150
 ## Win bonus by AI difficulty (Easy, Normal, Hard, Champion).
@@ -56,7 +57,7 @@ const LEVEL_UP_COINS := 100
 ## XP for a match: more for winning and for harder AI; practice by stars.
 static func xp_for(summary: Dictionary) -> int:
 	match summary["mode"]:
-		MODE_VS_AI, MODE_TOURNAMENT:
+		MODE_VS_AI, MODE_TOURNAMENT, MODE_TAG:
 			return (40 + 10 * int(summary.get("difficulty", 0))) if summary["won"] else 15
 		MODE_PRACTICE:
 			return int(summary.get("practice_stars", 0)) * 3
@@ -66,7 +67,7 @@ static func xp_for(summary: Dictionary) -> int:
 static func coins_for(summary: Dictionary) -> int:
 	var headshot_bonus: int = summary.get("headshots", 0) * 5
 	match summary["mode"]:
-		MODE_VS_AI:
+		MODE_VS_AI, MODE_TAG:
 			if summary["won"]:
 				return 50 + DIFFICULTY_BONUS[summary["difficulty"]] + headshot_bonus
 			return 10 + headshot_bonus

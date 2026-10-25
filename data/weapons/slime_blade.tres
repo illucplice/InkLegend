@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_script")
 id = &"slime_blade"
-display_name = "Water Cutter"
+display_name = "Slime Spear"
 max_speed = 1400.0
 body_damage = 18
 head_damage = 30

@@ -13,7 +13,7 @@ enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## LOCAL_2P: two players take turns on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
 ## PRACTICE: alone against 10 targets at growing distances (see start_practice).
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH }
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH, TAG }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -260,6 +260,11 @@ var _maw_healed := false
 ## is hung back up.
 var _traps: Array = [null, null]
 var _trap_wait := [0, 0]
+## 2v2 tag: both fighters of each side, the partners picked for the next tag match,
+## and how many turns each side has had (the pair swap every turn after the first).
+var _teams: Array = [[], []]
+var _tag_partners: Array = [null, null]
+var _side_turns := [0, 0]
 ## Predator: Rimiru has devoured the enemy's weapon for his extra throw (his own is kept
 ## in _own_weapon), and whether that throw has been made.
 var _devoured := [false, false]
@@ -522,9 +527,21 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_stats = [_empty_stats(), _empty_stats()]
 	_traps = [null, null]
 	_trap_wait = [0, 0]
+	# 2v2: each side's partner waits off the field.
+	_teams = [[fighters[0]], [fighters[1]]]
+	_side_turns = [0, 0]
+	if match_mode == Mode.TAG:
+		for side in 2:
+			var partner_data: FighterData = _tag_partners[side]
+			if side == 0 and not autoplay:
+				partner_data = Mastery.skinned(partner_data, Save.skin(String(partner_data.id)))
+			var partner := _spawn_fighter(partner_data, fighters[side].position.x, fighters[side].facing, side == 1 or autoplay)
+			_bench(partner)
+			_teams[side].append(partner)
 	for side in 2:
 		_hang_trap(side)
 	_hud.bind_fighters(fighters, names)
+	_update_partners()
 	_hud.show_match()
 	_hud.set_practice(false)
 	_camera.snap()
@@ -638,6 +655,8 @@ func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, 
 		start_arcade(left)
 	elif match_mode == Mode.BOSS_RUSH:
 		start_boss_rush(left)
+	elif match_mode == Mode.TAG:
+		start_tag(left, right, difficulty, map)
 	elif match_mode == Mode.PRACTICE:
 		start_practice(left)
 	else:
@@ -2313,6 +2332,11 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
+	_rest_partner(current)
+	# 2v2: the pair take turns, so after a side's first turn the partner steps in each time.
+	if mode == Mode.TAG and _side_turns[current] > 0 and _tag(current):
+		fighter = fighters[current]
+	_side_turns[current] += 1
 	_tend_traps()
 	_maw_healed = false
 	_turn_charged = false
@@ -2328,7 +2352,10 @@ func _begin_turn() -> void:
 		Effects.burst(_actors, fighter.aim_point(false), Color(1.0, 0.5, 0.15), 20, 300.0, 180.0, 1.2)
 		Audio.play("whoosh", -4.0, 0.6, 0.0)
 		if fighter.is_knocked_out():
-			_end_match()
+			if _tag_rescue():
+				_begin_turn()
+			else:
+				_end_match()
 			return
 	# Bleeding (Dyo's knives): a little blood lost at the start of their turn.
 	if fighter.bleed_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
@@ -2337,7 +2364,10 @@ func _begin_turn() -> void:
 		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "BLEED  -%d" % BLEED_DAMAGE, Color(0.9, 0.15, 0.2), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, fighter.aim_point(false), Color(0.7, 0.02, 0.05), 16, 260.0, 180.0, 1.0)
 		if fighter.is_knocked_out():
-			_end_match()
+			if _tag_rescue():
+				_begin_turn()
+			else:
+				_end_match()
 			return
 	# Crushing pressure (evolved Aizon): a little damage at the start of their turn.
 	if fighter.crush_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
@@ -2346,7 +2376,10 @@ func _begin_turn() -> void:
 		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "PRESSURE  -%d" % CRUSH_DAMAGE, Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 18, 280.0, 180.0, 1.0)
 		if fighter.is_knocked_out():
-			_end_match()
+			if _tag_rescue():
+				_begin_turn()
+			else:
+				_end_match()
 			return
 	# Pin: a pinned fighter loses this turn.
 	if fighter.pinned:
@@ -2372,10 +2405,13 @@ func _begin_turn() -> void:
 		if _turn_count % HAZARD_EVERY == HAZARD_EVERY - 1 and not _hud.time_stopped():
 			var hazard_id := _match_id
 			await _drop_hazard()
-			if hazard_id != _match_id or fighters[0].is_knocked_out() or fighters[1].is_knocked_out():
-				if hazard_id == _match_id:
-					_end_match()
+			if hazard_id != _match_id:
 				return
+			if fighters[0].is_knocked_out() or fighters[1].is_knocked_out():
+				if not _tag_rescue():
+					_end_match()
+					return
+				fighter = fighters[current]
 	_turn_count += 1
 	_turn_hit = false
 	if not fighter.is_ai:
@@ -3187,8 +3223,9 @@ func _after_throw() -> void:
 			return
 		waited += get_process_delta_time()
 	_unswap()
-	for fighter in fighters:
-		if fighter.is_knocked_out():
+	# In 2v2 a knocked-out fighter's partner jumps in; otherwise a knockout ends it.
+	if fighters[0].is_knocked_out() or fighters[1].is_knocked_out():
+		if not _tag_rescue():
 			_end_match()
 			return
 	if _time_stop_left > 0:
@@ -4501,3 +4538,101 @@ func _watch_gluttony() -> void:
 			projectile.visible = false
 			projectile._finish(false)
 			return
+
+
+# --- 2v2 tag ---
+
+## A 2v2 tag match: you bring `first` and `second`; the AI brings two others.
+func start_tag(first: FighterData, second: FighterData, difficulty: int, map: MapData) -> void:
+	var foes: Array[FighterData] = []
+	for fighter in roster():
+		if fighter != first and fighter != second:
+			foes.append(fighter)
+	foes.shuffle()
+	_tag_partners = [second, foes[1]]
+	start_match(first, foes[0], Mode.TAG, difficulty, map)
+
+
+## Takes a fighter off the field: hidden, and nothing can hit them.
+func _bench(fighter: Fighter) -> void:
+	fighter.visible = false
+	fighter.is_turn = false
+	for box in fighter.get_children():
+		if box is Hitbox:
+			(box as Hitbox).collision_layer = 0
+
+
+func _field(fighter: Fighter) -> void:
+	fighter.visible = true
+	for box in fighter.get_children():
+		if box is Hitbox:
+			(box as Hitbox).collision_layer = 2
+
+
+## The partner waiting on `side` (null outside 2v2).
+func _partner_of(side: int) -> Fighter:
+	var team: Array = _teams[side]
+	if team.size() < 2:
+		return null
+	return team[1] if team[0] == fighters[side] else team[0]
+
+
+## The partner steps in where the fighter stood (forced: their fighter was knocked out).
+func _tag(side: int) -> bool:
+	var out := fighters[side]
+	var partner := _partner_of(side)
+	if partner == null or partner.is_knocked_out():
+		return false
+	partner.position = out.position
+	partner.facing = out.facing
+	partner.reset_physics_interpolation()
+	_bench(out)
+	_field(partner)
+	fighters[side] = partner
+	partner.charge = _charge[side]
+	partner.is_turn = side == current and state != State.GAME_OVER
+	if is_instance_valid(_traps[side]):
+		(_traps[side] as Trap).victim = partner
+	_hud.bind_fighters(fighters, _player_names())
+	_update_partners()
+	_hud.announce("TAG! %s IS IN" % partner.data.short_name.to_upper(), partner.data.body_color.lightened(0.3))
+	Effects.burst(_actors, partner.aim_point(false), partner.data.body_color, 30, 420.0, 180.0, 1.3)
+	Audio.play("whoosh", 0.0, 1.3, 0.0)
+	Audio.play("voice_charge", -4.0, partner.voice_pitch(), 0.0)
+	_camera.shake(0.3)
+	return true
+
+
+## After a knockout in 2v2: every knocked-out fighter with a partner still standing is
+## replaced. True if the match can go on.
+func _tag_rescue() -> bool:
+	if mode != Mode.TAG:
+		return false
+	for side in 2:
+		if fighters[side].is_knocked_out() and not _tag(side):
+			return false
+	return true
+
+
+## A partner catches their breath while waiting: a little health back each turn of theirs.
+const TAG_REGEN := 4
+
+
+func _rest_partner(side: int) -> void:
+	var partner := _partner_of(side)
+	if partner != null and not partner.is_knocked_out() and partner.health < Rules.MAX_HEALTH:
+		partner.heal(TAG_REGEN)
+		_update_partners()
+
+
+## The waiting partners under each health bar.
+func _update_partners() -> void:
+	if mode != Mode.TAG:
+		_hud.set_partners(["", ""])
+		return
+	var texts := ["", ""]
+	for side in 2:
+		var partner := _partner_of(side)
+		if partner != null:
+			texts[side] = "⇄ %s  %s" % [partner.data.short_name, "KO" if partner.is_knocked_out() else str(partner.health)]
+	_hud.set_partners(texts)

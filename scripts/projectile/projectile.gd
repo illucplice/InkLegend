@@ -646,66 +646,7 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_polyline(outer, w.color.lightened(0.2), 4.0, true)
 			canvas.draw_polyline(outer, Color(1, 0.85, 0.85, 0.7), 1.5, true)
 		&"slime_blade", &"maw_blade":
-			# Rimiru's Water Cutter: a slim, flat boomerang of high-pressure water seen
-			# edge-on as it slices along, two pointed arms with a white-hot cutting edge,
-			# flickering as it spins, a helix of spray spiralling behind it and pressure
-			# rings at its back. Evolved (Gluttony's Maw): black, glowing violet, with a
-			# serrated cyan edge like rows of teeth.
-			var maw := w.shape == &"maw_blade"
-			var tick := Time.get_ticks_msec() * 0.001
-			var body_color := Color(0.05, 0.02, 0.09) if maw else Color(0.15, 0.45, 1.0)
-			var inner_color := Color(0.45, 0.18, 0.85) if maw else Color(0.45, 0.82, 1.0)
-			var edge_color := Color(0.4, 1.0, 1.0) if maw else Color(0.95, 1.0, 1.0)
-			var glow_color := Color(0.6, 0.3, 1.0) if maw else Color(0.35, 0.8, 1.0)
-			var spin := 0.75 + 0.25 * absf(sin(tick * 14.0))
-			var half := s * 0.1 * spin
-			var count := 20
-			var top := PackedVector2Array()
-			var bottom := PackedVector2Array()
-			for i in count + 1:
-				var u := i / float(count)
-				var x := lerpf(-s * 1.1, s * 0.85, u)
-				# Bent like a flat boomerang: two even arms meeting in a shallow arch, each
-				# tapering to a point.
-				var swell := sqrt(clampf(sin(u * PI) * 1.8, 0.0, 1.0))
-				var bend := -s * 0.34 * sin(u * PI)
-				var notch := (s * 0.05 if i % 2 == 0 else 0.0) if maw else 0.0
-				top.append(Vector2(x, bend - half * swell - notch * swell))
-				bottom.append(Vector2(x, bend + half * swell))
-			var lens := top.duplicate()
-			for i in range(count, -1, -1):
-				lens.append(bottom[i])
-			for ring in 3:
-				var halo := PackedVector2Array()
-				for point in lens:
-					halo.append(Vector2(point.x * (1.08 - ring * 0.02), point.y * (1.35 - ring * 0.1) + s * 0.04 * (2 - ring)))
-				canvas.draw_colored_polygon(halo, Color(glow_color, 0.12 + ring * 0.06))
-			canvas.draw_colored_polygon(lens, body_color)
-			var core := PackedVector2Array()
-			for i in range(2, count - 1):
-				core.append(top[i].lerp(bottom[i], 0.3))
-			for i in range(count - 2, 1, -1):
-				core.append(top[i].lerp(bottom[i], 0.6))
-			canvas.draw_colored_polygon(core, inner_color)
-			# The cutting edge along the top, white-hot, and a bright line down the middle.
-			canvas.draw_polyline(top, edge_color, maxf(2.0, s * 0.035), true)
-			var mid_line := PackedVector2Array()
-			for i in range(3, count - 2):
-				mid_line.append(top[i].lerp(bottom[i], 0.45))
-			canvas.draw_polyline(mid_line, Color(1, 1, 1, 0.75), maxf(1.0, s * 0.015), true)
-			# A helix of spray wound round the jet behind it.
-			for k in 10:
-				var x := -s * (0.55 + k * 0.11)
-				var twist := tick * 16.0 + k * 0.8
-				var y := sin(twist) * s * 0.2
-				var near := cos(twist) > 0.0
-				canvas.draw_circle(Vector2(x, y), s * (0.045 - k * 0.003) * (1.0 if near else 0.7), Color(edge_color if near else inner_color, 0.9 - k * 0.07), true, -1.0, true)
-			# Pressure rings left in its wake.
-			for k in 2:
-				var back := fmod(tick * 2.2 + k * 0.5, 1.0)
-				canvas.draw_set_transform_matrix(xf * Transform2D(0.0, Vector2(-s * (0.9 + back * 0.6), 0)).scaled_local(Vector2(0.3, 1.0)))
-				canvas.draw_arc(Vector2.ZERO, s * (0.18 + back * 0.2), 0.0, TAU, 20, Color(glow_color, 0.7 * (1.0 - back)), maxf(1.5, s * 0.03), true)
-			canvas.draw_set_transform_matrix(xf)
+			_draw_slime_shot(canvas, s, SLIME_STYLE, w.shape == &"maw_blade")
 		&"abyss_orb":
 			# Beelzebuth: a compact black orb with a bright cyan core, motes and light
 			# bending in toward it (violet once he has evolved).
@@ -856,3 +797,112 @@ func recall(to: Vector2, speed: float) -> void:
 	gravity = 0.0
 	wind = 0.0
 	homing_target = null
+
+
+## Rimiru's basic, from his design sheet. Four styles were tried (see SLIME_STYLE):
+## "blade", a sharp fluid blade of slime; "slash", a fast water slash with a hooked
+## edge; "spear", a long concentrated spear of slime; "splash", a rounder slime shot
+## with flowing trails; "lightning", a long arrowhead of slime with jagged barbs;
+## "sphere", a wobbling ball of slime. All have a bright highlight, darker pools and droplets shed
+## behind. Evolved (Gluttony's Maw) they are black and violet with a cyan shine.
+const SLIME_STYLE := "spear"
+
+
+static func _draw_slime_shot(canvas: CanvasItem, s: float, style: String, maw: bool) -> void:
+	var tick := Time.get_ticks_msec() * 0.001
+	var glow_color := Color(0.6, 0.3, 1.0) if maw else Color("6DD7FF")
+	var main_color := Color(0.28, 0.1, 0.5) if maw else Color("3AA6FF")
+	var deep_color := Color(0.05, 0.02, 0.1) if maw else Color("1E6BFF")
+	var light_color := Color(0.45, 1.0, 1.0) if maw else Color("AEEBFF")
+	var wave := sin(tick * 10.0) * 0.03
+	var points: Array = []
+	var pools: Array = []
+	var shine: Array = []
+	match style:
+		"sphere":
+			# Slime sphere: a wobbling ball of slime, stretched a little along its flight,
+			# with a short tail where it is pulled out behind.
+			for i in 24:
+				var a := i / 24.0 * TAU
+				var jiggle := 1.0 + 0.06 * sin(a * 3.0 + tick * 12.0)
+				var stretch := 1.18 if cos(a) > 0.0 else 1.0
+				var r := Vector2(0.42 * stretch, 0.36) * jiggle
+				var point := Vector2(cos(a) * r.x + 0.25, sin(a) * r.y)
+				# Pulled out into a short tail at the back.
+				if absf(a - PI) < 0.5:
+					point.x -= (0.5 - absf(a - PI)) * 0.9
+				points.append(point)
+			pools = [[Vector2(0.2, 0.08), Vector2(0.2, 0.13)]]
+			shine = [Vector2(0.42, -0.25), Vector2(0.2, -0.29), Vector2(0.02, -0.22), Vector2(0.16, -0.2), Vector2(0.36, -0.2)]
+		"lightning":
+			# Lightning slime: a long arrowhead with jagged barbs crackling back from it.
+			if not maw:
+				main_color = Color("4FC3FF")
+				deep_color = Color("2A6BFF")
+			var jag := sin(tick * 22.0) * 0.02
+			points = [Vector2(1.1, 0.0), Vector2(0.7, -0.12), Vector2(0.8, -0.22 + jag), Vector2(0.45, -0.14), Vector2(0.22, -0.24 - jag), Vector2(0.1, -0.12),
+				Vector2(-0.18, -0.18 + jag), Vector2(-0.24, -0.08), Vector2(-0.58, -0.13 - jag), Vector2(-0.54, -0.04), Vector2(-1.15, -0.02),
+				Vector2(-0.6, 0.03), Vector2(-0.7, 0.12 + jag), Vector2(-0.3, 0.07), Vector2(-0.2, 0.18 - jag), Vector2(0.05, 0.1), Vector2(0.3, 0.2 + jag),
+				Vector2(0.4, 0.11), Vector2(0.74, 0.2 - jag), Vector2(0.68, 0.1)]
+			pools = [[Vector2(0.28, -0.01), Vector2(0.32, 0.06)], [Vector2(-0.25, 0.01), Vector2(0.16, 0.035)]]
+			shine = [Vector2(1.0, -0.01), Vector2(0.66, -0.1), Vector2(0.4, -0.12), Vector2(0.1, -0.09), Vector2(0.4, -0.07), Vector2(0.66, -0.05)]
+		"slash":
+			points = [Vector2(1.0, -0.02), Vector2(0.7, -0.2), Vector2(0.35, -0.3), Vector2(0.0, -0.3), Vector2(-0.3, -0.24 + wave), Vector2(-0.15, -0.16),
+				Vector2(-0.55, -0.12 + wave), Vector2(-0.3, -0.06), Vector2(-0.8, 0.0 - wave), Vector2(-0.25, 0.04), Vector2(-0.5, 0.12 + wave), Vector2(0.05, 0.08),
+				Vector2(0.45, 0.06), Vector2(0.8, 0.04)]
+			pools = [[Vector2(0.3, -0.12), Vector2(0.32, 0.06)]]
+			shine = [Vector2(0.92, -0.04), Vector2(0.62, -0.19), Vector2(0.3, -0.26), Vector2(0.0, -0.26), Vector2(0.3, -0.21), Vector2(0.62, -0.13)]
+		"spear":
+			points = [Vector2(1.1, 0.0), Vector2(0.55, -0.1), Vector2(0.2, -0.13), Vector2(-0.2, -0.09), Vector2(-0.45, -0.12 + wave), Vector2(-0.55, -0.05 + wave),
+				Vector2(-1.15, -0.01), Vector2(-0.6, 0.04 - wave), Vector2(-0.5, 0.12 - wave), Vector2(-0.2, 0.08), Vector2(0.2, 0.12), Vector2(0.55, 0.09)]
+			pools = [[Vector2(0.15, 0.0), Vector2(0.45, 0.04)]]
+			shine = [Vector2(1.0, -0.01), Vector2(0.55, -0.08), Vector2(0.15, -0.1), Vector2(0.2, -0.07), Vector2(0.55, -0.05)]
+		"splash":
+			for i in 13:
+				var a := lerpf(-PI * 0.55, PI * 0.55, i / 12.0)
+				points.append(Vector2(0.55 + cos(a) * 0.34, sin(a) * 0.3))
+			for point: Vector2 in [Vector2(0.3, 0.27), Vector2(0.0, 0.16), Vector2(-0.35, 0.1 + wave), Vector2(-0.55, 0.16 + wave), Vector2(-0.62, 0.06), Vector2(-1.05, 0.0 - wave),
+					Vector2(-0.62, -0.05), Vector2(-0.5, -0.14 - wave), Vector2(-0.3, -0.09 - wave), Vector2(0.0, -0.15), Vector2(0.3, -0.27)]:
+				points.append(point)
+			pools = [[Vector2(0.5, 0.04), Vector2(0.18, 0.13)]]
+			shine = [Vector2(0.78, -0.16), Vector2(0.6, -0.24), Vector2(0.4, -0.22), Vector2(0.55, -0.17)]
+		_:
+			points = [Vector2(1.05, 0.0), Vector2(0.75, -0.14), Vector2(0.42, -0.21), Vector2(0.12, -0.2), Vector2(-0.18, -0.13),
+				Vector2(-0.4, -0.1 + wave), Vector2(-0.58, -0.19 + wave), Vector2(-0.64, -0.08 + wave), Vector2(-0.88, -0.05 - wave), Vector2(-1.15, -0.02 - wave),
+				Vector2(-0.9, 0.02), Vector2(-0.72, 0.05 + wave), Vector2(-0.62, 0.16 + wave), Vector2(-0.48, 0.08), Vector2(-0.22, 0.13),
+				Vector2(0.1, 0.17), Vector2(0.42, 0.16), Vector2(0.75, 0.1)]
+			pools = [[Vector2(0.2, 0.02), Vector2(0.3, 0.06)], [Vector2(-0.28, 0.02), Vector2(0.13, 0.04)]]
+			shine = [Vector2(0.9, -0.05), Vector2(0.62, -0.14), Vector2(0.3, -0.18), Vector2(0.0, -0.16), Vector2(0.05, -0.12), Vector2(0.32, -0.13), Vector2(0.62, -0.09)]
+	var outline := PackedVector2Array()
+	for point: Vector2 in points:
+		outline.append(point * s)
+	for ring in 3:
+		var halo := PackedVector2Array()
+		for point in outline:
+			halo.append(Vector2(point.x * (1.06 - ring * 0.02), point.y * (1.45 - ring * 0.15)))
+		canvas.draw_colored_polygon(halo, Color(glow_color, 0.12 + ring * 0.07))
+	canvas.draw_colored_polygon(outline, main_color)
+	# Darker pools inside: [centre, radii].
+	for pool: Array in pools:
+		var blob := PackedVector2Array()
+		for i in 13:
+			var a := i / 12.0 * TAU
+			blob.append(((pool[0] as Vector2) + Vector2(cos(a) * (pool[1] as Vector2).x, sin(a) * (pool[1] as Vector2).y)) * s)
+		canvas.draw_colored_polygon(blob, deep_color)
+	var bright := PackedVector2Array()
+	for point: Vector2 in shine:
+		bright.append(point * s)
+	canvas.draw_colored_polygon(bright, light_color)
+	canvas.draw_circle((shine[1] as Vector2) * s + Vector2(0, s * 0.03), s * 0.03, Color.WHITE, true, -1.0, true)
+	canvas.draw_polyline(PackedVector2Array([outline[0], outline[1], outline[2]]), Color(light_color, 0.9), maxf(1.5, s * 0.02), true)
+	# Droplets shed around it, drifting back.
+	for k in 7:
+		var drift := fmod(tick * 1.8 + k * 0.27, 1.0)
+		var at := Vector2(lerpf(0.2, -1.2, drift) - k * 0.03, (0.26 if k % 2 == 0 else -0.27) * (0.8 + 0.4 * sin(k * 2.1))) * s
+		var size := s * (0.045 - 0.02 * drift) * (1.0 if k % 3 else 1.4)
+		canvas.draw_circle(at, size * 1.4, Color(glow_color, 0.3 * (1.0 - drift)), true, -1.0, true)
+		canvas.draw_circle(at, size, Color(light_color if k % 2 == 0 else main_color, 0.95 * (1.0 - drift)), true, -1.0, true)
+	# The water slash leaves speed streaks.
+	if style == "slash":
+		for k in 3:
+			canvas.draw_line(Vector2(-s * 0.2, -s * (0.36 + k * 0.05)), Vector2(-s * (0.7 + k * 0.1), -s * (0.3 + k * 0.05)), Color(light_color, 0.6), maxf(1.0, s * 0.02), true)
