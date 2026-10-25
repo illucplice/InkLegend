@@ -688,7 +688,7 @@ func _test_aizon_evolves() -> void:
 	await process_frame
 
 
-## Rimiru: blade hits leave Predator Marks (two burst) and build Adaptation, a miss
+## Rimiru: blade hits leave Predator Marks (three in a row burst) and build Adaptation, a miss
 ## fades a stack, a recalled blade turns for home, and at 40 health he becomes the
 ## Shadow Sovereign.
 func _test_rimiru() -> void:
@@ -707,12 +707,17 @@ func _test_rimiru() -> void:
 	blade.set_meta("slime", true)
 	game._on_projectile_hit(blade, foe, Rules.BODY)
 	_check(foe.predator_marks == 1 and rimiru.adapt_stacks == 1, "a Slime Blade hit leaves a Predator Mark and an Adaptation stack")
+	game._on_projectile_hit(blade, foe, Rules.BODY)
+	_check(foe.predator_marks == 2, "two hits are not enough to burst")
+	game._fade_adaptation(rimiru)
+	_check(foe.predator_marks == 0 and rimiru.adapt_stacks == 1, "a miss wipes the marks and fades a stack")
+	game._on_projectile_hit(blade, foe, Rules.BODY)
+	game._on_projectile_hit(blade, foe, Rules.BODY)
+	foe.health = 100
 	var before := foe.health
 	game._on_projectile_hit(blade, foe, Rules.BODY)
-	_check(foe.predator_marks == 0 and before - foe.health >= 18 + game.MARK_BURST, "the second mark bursts for extra damage")
-	_check(rimiru.adapt_stacks == 2, "Adaptation stacks up with each hit")
-	game._fade_adaptation(rimiru)
-	_check(rimiru.adapt_stacks == 1, "a miss fades a stack")
+	_check(foe.predator_marks == 0 and before - foe.health >= 18 + game.MARK_BURST, "the third mark in a row bursts for extra damage")
+	_check(rimiru.adapt_stacks == 3, "Adaptation stacks up to three")
 	blade.free()
 	var thrown: Projectile = game.PROJECTILE_SCENE.instantiate()
 	game._actors.add_child(thrown)

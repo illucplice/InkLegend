@@ -252,6 +252,11 @@ var _det_orb: Projectile
 ## him this turn.
 var _recall_blade: Projectile
 var _maw_healed := false
+## Predator: Rimiru has devoured the enemy's weapon for his extra throw (his own is kept
+## in _own_weapon), and whether that throw has been made.
+var _devoured := [false, false]
+var _devour_spent := [false, false]
+var _own_weapon: Array = [null, null]
 ## The violet haze left over the arena once Aizon evolves.
 var _pressure_veil: ColorRect
 const LUCKY_THROWS := 2
@@ -302,6 +307,8 @@ const EVOLVED_DEFENCE := 1.0
 ## enemy's next throw flies. He evolves at EVOLVE_HEALTH like Aizon.
 const RECALL_SPEED := 1150.0
 const MAW_RECALL_SPEED := 1650.0
+## Predator Marks burst once this many hits land in a row; a miss wipes them.
+const MARKS_NEEDED := 3
 const MARK_BURST := 12
 const MAW_BURST := 20
 const MAW_HEAL := 3
@@ -312,11 +319,13 @@ const SLOWED_SPEED := 0.6
 const RECALL_AI_RANGE := 34.0
 ## Beelzebuth: the vortex's damage (normal, evolved), its reach, how far it drags
 ## the enemy in, and what each Predator Mark it eats adds.
-const VORTEX_DAMAGE := [44, 50]
+const VORTEX_DAMAGE := [38, 44]
 const VORTEX_RADIUS := 190.0
 const VORTEX_PULL := 90.0
 const VORTEX_MARK_DAMAGE := 5
 const VORTEX_MARK_RADIUS := 35.0
+## Predator: the devoured weapon hits this much harder than in its owner's hands.
+const PREDATOR_BOOST := 1.25
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -471,6 +480,8 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_combo = [0, 0]
 	_turn_count = 0
 	_extra_throw = false
+	_devoured = [false, false]
+	_devour_spent = [false, false]
 	_crate = null
 	_maybe_spawn_crate(0.5)
 	_turn_timer = -1.0
@@ -2160,6 +2171,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 	fighter.reset_physics_interpolation()
 	fighter.setup(data, facing, is_ai)
 	fighter.health_changed.connect(_check_evolution)
+	fighter.regenerated.connect(_on_regenerated)
 	if not is_ai:
 		fighter.ink_color = Save.ink_color()
 	return fighter
@@ -2575,6 +2587,10 @@ func _throw(angle: float, power: float) -> void:
 			_arm_recall(projectile, fighter)
 		if fighter.slowed:
 			projectile.time_scale = SLOWED_SPEED
+		if _devoured[current] and special == &"":
+			projectile.set_meta("slime", true)
+			projectile.set_trail_color(Color(0.6, 0.3, 0.95) if fighter.evolved else Color(0.45, 0.9, 1.0))
+			_devour_spent[current] = true
 		if fighter.powered:
 			projectile.set_meta("double", true)
 		projectile.finished.connect(_on_projectile_finished)
@@ -2959,6 +2975,8 @@ func _after_throw() -> void:
 	fighters[current].pressured = false
 	fighters[current].shaken = false
 	fighters[current].slowed = false
+	if _devour_spent[current]:
+		_restore_own_weapon(fighters[current])
 	if not _turn_hit and fighters[current].data.base_id() == &"rimiru":
 		_fade_adaptation(fighters[current])
 	state = State.SETTLING
@@ -3796,7 +3814,7 @@ func _spatial_tear(at: Vector2) -> void:
 
 
 ## Every hit Rimiru lands: one more Adaptation stack, and a blade hit leaves a Predator
-## Mark (two burst). A recalled Gluttony's Maw also slows their next throw.
+## Mark (three in a row burst). A recalled Gluttony's Maw also slows their next throw.
 func _adapt(rimiru: Fighter, target: Fighter, projectile: Projectile) -> void:
 	var view := _camera.visible_rect()
 	var most: int = ADAPT_MAX[1 if rimiru.evolved else 0]
@@ -3809,14 +3827,14 @@ func _adapt(rimiru: Fighter, target: Fighter, projectile: Projectile) -> void:
 		target.slowed = true
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -130), "SLOWED", Color(0.7, 0.5, 1.0), 26, 1.0 / _camera.zoom.x, view)
 	target.predator_marks += 1
-	if target.predator_marks < 2:
-		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -100), "PREDATOR MARK 1 / 2", Color(0.45, 0.95, 1.0), 26, 1.0 / _camera.zoom.x, view)
+	if target.predator_marks < MARKS_NEEDED:
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -100), "PREDATOR MARK %d / %d" % [target.predator_marks, MARKS_NEEDED], Color(0.45, 0.95, 1.0), 26, 1.0 / _camera.zoom.x, view)
 		return
 	target.predator_marks = 0
 	_mark_burst(target, rimiru)
 
 
-## Two marks: they burst for extra damage. As the Shadow Sovereign it is Gluttony
+## Three marks in a row: they burst for extra damage. As the Shadow Sovereign it is Gluttony
 ## Detonation: a maw of dark energy snaps shut on them, and he heals a little.
 func _mark_burst(target: Fighter, rimiru: Fighter) -> void:
 	var view := _camera.visible_rect()
@@ -3837,11 +3855,12 @@ func _mark_burst(target: Fighter, rimiru: Fighter) -> void:
 		Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -110), "+%d" % MAW_HEAL, Color(0.5, 1.0, 0.7), 28, 1.0 / _camera.zoom.x, view)
 
 
-## A throw of his that hit nothing: one mark on the enemy and one Adaptation stack fade.
+## A throw of his that hit nothing: the marks on the enemy are wiped (they need hits in
+## a row) and one Adaptation stack fades.
 func _fade_adaptation(rimiru: Fighter) -> void:
 	rimiru.adapt_stacks = maxi(0, rimiru.adapt_stacks - 1)
 	var foe := fighters[1 - fighters.find(rimiru)]
-	foe.predator_marks = maxi(0, foe.predator_marks - 1)
+	foe.predator_marks = 0
 
 
 ## Below EVOLVE_HEALTH he becomes the Shadow Sovereign (once a match): he rises on great
@@ -3857,7 +3876,12 @@ func _become_sovereign(fighter: Fighter) -> void:
 	maw.max_speed = 1550.0
 	maw.body_damage = 20
 	maw.head_damage = 34
-	sovereign.weapon = maw
+	var side := fighters.find(fighter)
+	if side >= 0 and _devoured[side] and not _devour_spent[side]:
+		# Still holding a devoured weapon: Gluttony's Maw comes back after that throw.
+		_own_weapon[side] = maw
+	else:
+		sovereign.weapon = maw
 	fighter.data = sovereign
 	fighter.power_up(2.0)
 	# He rises off the ground, wings spread, and stays aloft.
@@ -3941,6 +3965,7 @@ func _on_abyss_impact(projectile: Projectile, at: Vector2, direct: Fighter, _par
 	Audio.play("boom", -2.0, 0.6, 0.0)
 	Audio.play("ground", 2.0, 0.4, 0.0)
 	Device.vibrate(120)
+	var devoured := false
 	var carrier := Projectile.new()
 	carrier.weapon = weapon
 	carrier.thrower = rimiru
@@ -3954,11 +3979,14 @@ func _on_abyss_impact(projectile: Projectile, at: Vector2, direct: Fighter, _par
 		if distance <= radius:
 			var push := (foe.aim_point(false) - at).normalized() * 700.0 + Vector2(0, -450)
 			_on_projectile_hit(carrier, foe, Rules.BODY, lerpf(1.0, 0.4, distance / radius), push)
+			devoured = not foe.is_knocked_out() and not rimiru.is_knocked_out()
 	carrier.free()
 	for child in _obstacle_layer.get_children():
 		var obstacle := child as Obstacle
 		if obstacle != null and not obstacle.is_destroyed and obstacle.rect.grow(radius * 0.5).has_point(at):
 			obstacle.damage(2)
+	if devoured:
+		_devour(rimiru, foe)
 	_launching = false
 	if _in_flight.is_empty() and state == State.FLYING:
 		_after_throw()
@@ -4008,3 +4036,49 @@ func _vortex_fx(at: Vector2, radius: float, sovereign: bool, seconds: float) -> 
 		state["t"] = t
 		fx.queue_redraw(), 0.0, 1.0, seconds)
 	tween.tween_callback(fx.queue_free)
+
+
+## Predator: Beelzebuth caught them, so Rimiru devours their skill. He throws again
+## at once with their weapon, harder than they ever threw it, and it still marks them.
+func _devour(rimiru: Fighter, foe: Fighter) -> void:
+	var side := fighters.find(rimiru)
+	if side < 0 or mode == Mode.PRACTICE:
+		return
+	var copy := foe.data.weapon.duplicate() as WeaponData
+	copy.body_damage = roundi(copy.body_damage * PREDATOR_BOOST)
+	copy.head_damage = roundi(copy.head_damage * PREDATOR_BOOST)
+	copy.special = rimiru.data.weapon.special
+	copy.display_name = "Devoured " + foe.data.weapon.display_name
+	if copy.shape != &"getsuga":
+		copy.color = Color(0.6, 0.3, 0.95) if rimiru.evolved else Color(0.45, 0.9, 1.0)
+	_own_weapon[side] = rimiru.data.weapon
+	var hungry := rimiru.data.duplicate() as FighterData
+	hungry.weapon = copy
+	rimiru.data = hungry
+	_devoured[side] = true
+	_devour_spent[side] = false
+	_extra_throw = true
+	Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -100), "PREDATOR: DEVOURED %s" % foe.data.weapon.display_name.to_upper(), Color(0.45, 0.95, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, rimiru.aim_point(false), Color(0.45, 0.9, 1.0), 24, 360.0, 180.0, 1.2)
+	Audio.play("crunch", -2.0, 1.2, 0.0)
+
+
+## The devoured throw is made: his own blade comes back.
+func _restore_own_weapon(rimiru: Fighter) -> void:
+	var side := fighters.find(rimiru)
+	_devoured[side] = false
+	_devour_spent[side] = false
+	if _own_weapon[side] == null:
+		return
+	var own := rimiru.data.duplicate() as FighterData
+	own.weapon = _own_weapon[side]
+	rimiru.data = own
+	_own_weapon[side] = null
+
+
+## Rimiru survived a finishing blow as a slime: tell everyone.
+func _on_regenerated(fighter: Fighter) -> void:
+	_hud.announce("SLIME REGENERATION!", Color(0.45, 0.9, 1.0))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "1 HP", Color(0.45, 0.95, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(0.45, 0.85, 1.0), 40, 420.0, 180.0, 1.6)
+	Audio.play("whoosh", 0.0, 0.6, 0.0)

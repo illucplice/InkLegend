@@ -648,6 +648,8 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			# shed behind it. Evolved (Gluttony's Maw): black-violet with a brilliant cyan
 			# core and teeth along its inner edge.
 			var maw := w.shape == &"maw_blade"
+			# Lying flat along its flight: a horizontal slash, not an upright one.
+			canvas.draw_set_transform_matrix(xf * Transform2D(-PI / 2.0, Vector2.ZERO))
 			var wobble := sin(Time.get_ticks_msec() * 0.015) * 0.06
 			var outer := PackedVector2Array()
 			var inner := PackedVector2Array()
@@ -675,8 +677,9 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			else:
 				canvas.draw_polyline(outer, Color(0.85, 0.98, 1.0), 3.0, true)
 				canvas.draw_circle(Vector2(s * 0.2, -s * 0.45), s * 0.07, Color(1, 1, 1, 0.8), true, -1.0, true)
+			canvas.draw_set_transform_matrix(xf)
 			for k in 3:
-				canvas.draw_circle(Vector2(-s * (0.35 + k * 0.22), s * (0.5 - k * 0.45)), s * (0.08 - k * 0.015), Color(glow, 0.7), true, -1.0, true)
+				canvas.draw_circle(Vector2(-s * (0.45 + k * 0.25), (k - 1) * s * 0.12), s * (0.08 - k * 0.015), Color(glow, 0.7), true, -1.0, true)
 		&"abyss_orb":
 			# Beelzebuth: a compact black orb with a bright cyan core, motes and light
 			# bending in toward it (violet once he has evolved).

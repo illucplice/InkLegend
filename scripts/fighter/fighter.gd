@@ -9,6 +9,8 @@ extends Node2D
 
 signal health_changed(fighter: Fighter, health: int)
 signal knocked_out(fighter: Fighter)
+## Rimiru's Slime Regeneration: a hit that would have knocked him out left him on 1.
+signal regenerated(fighter: Fighter)
 
 const OUTLINE := Color(0.12, 0.1, 0.14)
 ## The silhouette colour, like a heavy ink pen.
@@ -84,7 +86,7 @@ var crush_turns := 0
 var barrier_ready := true
 ## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.
 var mana_released := false
-## Rimiru's Predator Marks on this fighter (two burst), and his Adaptation stacks.
+## Rimiru's Predator Marks on this fighter (three in a row burst), and his Adaptation stacks.
 var predator_marks := 0
 var adapt_stacks := 0
 ## Slowed by a recalled Gluttony's Maw: their next throw flies slowly.
@@ -95,6 +97,9 @@ var eye_glow := 0.0
 ## The Shadow Sovereign floats (0..1 of HOVER_LIFT off the ground); his hitboxes, hand
 ## and aim points rise with him.
 var hover := 0.0
+## Slime Regeneration is spent (once a match), and how much of the melt still shows.
+var regenerated_once := false
+var _slime_melt := 0.0
 const HOVER_LIFT := 24.0
 ## Crate buffs: a shield that blocks the next hit, and double damage on the next throw.
 var shielded := false
@@ -194,7 +199,15 @@ func get_hitbox_rids() -> Array[RID]:
 func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 	if is_knocked_out():
 		return
-	health = maxi(0, health - damage)
+	var left := maxi(0, health - damage)
+	# Slime Regeneration: the first blow that would finish Rimiru melts him into slime
+	# instead, and he pulls himself back together on 1 health.
+	var regen := left == 0 and not regenerated_once and data != null and data.base_id() == &"rimiru"
+	if regen:
+		left = 1
+		regenerated_once = true
+		_slime_melt = 1.0
+	health = left
 	_flash = 1.0
 	_squash = 1.0
 	_ouch = 1.0
@@ -209,6 +222,8 @@ func take_hit(part: StringName, damage: int, impact_velocity: Vector2) -> void:
 		_tilt_velocity += clampf(impact_velocity.x * 0.0055, -6.0, 6.0) * (1.6 if part == Rules.HEAD else 1.0)
 	if health == 0:
 		knocked_out.emit(self)
+	if regen:
+		regenerated.emit(self)
 
 
 ## Leaves a copy of a sticking weapon in the body where it hit, angled along its flight.
@@ -301,6 +316,7 @@ func _knock_down(part: StringName, impact_velocity: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	_slime_melt = maxf(0.0, _slime_melt - delta * 0.6)
 	if hover > 0.0 and is_knocked_out():
 		hover = 0.0
 	for box in _hitboxes:
@@ -574,6 +590,8 @@ func _draw() -> void:
 			_draw_star(head + Vector2(cos(a) * 24.0, sin(a) * 8.0 - 28.0), 7.0)
 	if victory_pose in SLEEP_POSES:
 		_draw_zzz(p)
+	if _slime_melt > 0.0 and not knocked:
+		_draw_slime_melt(p)
 
 
 ## Pin: a stake in the ground with a chain looped round the legs.
@@ -1652,7 +1670,10 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			# Like the reference: long, straight light-blue hair hanging down his back to
 			# the waist, and a heavy fringe falling over his eyes with a lock in front.
 			var hair := data.hair_color if not evolved else Color(0.5, 0.55, 1.0)
-			_poly([Vector2(-r * 0.2, -r * 1.05), Vector2(-r * 1.1, -r * 0.6), Vector2(-r * 1.3, r * 1.5), Vector2(-r * 1.2, r * 4.2), Vector2(-r * 0.55, r * 4.0), Vector2(-r * 0.35, r * 1.3), Vector2(-r * 0.1, r * 0.4)], hair.darkened(0.08), 1.5)
+			# Outlined only along its outside edge, so no seam runs down through the hair.
+			var curtain := PackedVector2Array([Vector2(-r * 0.2, -r * 1.05), Vector2(-r * 1.1, -r * 0.6), Vector2(-r * 1.3, r * 1.5), Vector2(-r * 1.2, r * 4.2), Vector2(-r * 0.55, r * 4.0), Vector2(-r * 0.35, r * 1.3), Vector2(-r * 0.1, r * 0.4)])
+			draw_colored_polygon(curtain, hair.darkened(0.08))
+			draw_polyline(curtain.slice(0, 6), OUTLINE, 1.5, true)
 			var cap := PackedVector2Array()
 			for i in 13:
 				cap.append(Vector2.from_angle(lerpf(PI, TAU, i / 12.0)) * (r + 1.5))
@@ -1661,8 +1682,12 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			if Geometry2D.triangulate_polygon(cap).is_empty():
 				cap = Geometry2D.convex_hull(cap)
 				cap.remove_at(cap.size() - 1)
-			_poly(cap, hair, 1.5)
-			_poly([Vector2(r * 0.55, -r * 0.1), Vector2(r * 0.95, r * 0.6), Vector2(r * 0.88, r * 1.75), Vector2(r * 0.62, r * 0.8)], hair, 1.5)
+			draw_colored_polygon(cap, hair)
+			# The crown and the fringe's ragged ends get a line; the edge over the back hair does not.
+			draw_polyline(cap.slice(0, mini(cap.size(), 19)), OUTLINE, 1.5, true)
+			var lock := PackedVector2Array([Vector2(r * 0.55, -r * 0.1), Vector2(r * 0.95, r * 0.6), Vector2(r * 0.88, r * 1.75), Vector2(r * 0.62, r * 0.8)])
+			draw_colored_polygon(lock, hair)
+			draw_polyline(lock.slice(1, 3), OUTLINE, 1.2, true)
 			for strand: float in [-0.6, -0.15, 0.3]:
 				draw_line(Vector2(r * strand, -r * 0.95), Vector2(r * (strand + 0.2), -r * 0.1), hair.lightened(0.25), 1.2, true)
 			if evolved and not mask_off:
@@ -2223,3 +2248,23 @@ func _draw_sovereign_cape(p: Dictionary) -> void:
 	for k in 3:
 		var u := 0.3 + k * 0.22
 		draw_line(neck.lerp(hip, 0.4) + back * (8.0 + k * 4.0), Vector2(hip.x, floor_y - 6.0) + back * (30.0 + u * 80.0) + Vector2(wave, 0), Color(0.2, 0.2, 0.25), 1.2, true)
+
+
+## Slime Regeneration: he slumps into a big blue slime that wobbles, then he pulls
+## himself back out of it.
+func _draw_slime_melt(p: Dictionary) -> void:
+	var feet: Vector2 = ((p[&"bfoot"] as Vector2) + (p[&"ffoot"] as Vector2)) * 0.5 + Vector2(0, hover * HOVER_LIFT)
+	var a := clampf(_slime_melt * 1.6, 0.0, 1.0)
+	var height := 70.0 * clampf(_slime_melt * 1.4, 0.2, 1.0)
+	var squash := 1.0 + 0.1 * sin(_time * 10.0)
+	var blob := PackedVector2Array()
+	for i in 20:
+		var u := i / 19.0 * PI
+		blob.append(feet + Vector2(cos(u) * 44.0 * squash, -sin(u) * height / squash))
+	draw_colored_polygon(blob, Color(0.45, 0.8, 1.0, 0.85 * a))
+	blob.append(blob[0])
+	draw_polyline(blob, Color(OUTLINE, a), 2.5, true)
+	var eyes := feet + Vector2(0, -height * 0.55)
+	draw_circle(eyes + Vector2(-9, 0), 3.0, Color(OUTLINE, a), true, -1.0, true)
+	draw_circle(eyes + Vector2(9, 0), 3.0, Color(OUTLINE, a), true, -1.0, true)
+	draw_circle(feet + Vector2(-20, -height * 0.75), 6.0, Color(1, 1, 1, 0.6 * a), true, -1.0, true)

@@ -3168,9 +3168,12 @@ func _sfx(sound: String, volume_db: float, pitch: float) -> void:
 
 ## Rimiru: Imaginary Space. The wind dies and the arena goes dark, cyan cracks run
 ## through the ground and the debris lifts. His golden eyes light the dark (the Shadow
-## Sovereign takes off his mask). A colossal portal opens behind them, its layers
-## close like jaws and swallow them whole in a flash of cyan. No gore: they are simply
-## gone. The portal collapses in a silent shockwave, the mask goes back on, he turns away.
+## Sovereign takes off his mask), a rune circle turns under him and the stars of the
+## Imaginary Space come out. A colossal portal opens behind them, crackling; arena
+## and all is dragged in, its layers close like jaws
+## and swallow them whole in a flash of cyan. No gore: they are simply gone. The portal
+## collapses into a pillar of light and a silent shockwave, the mask goes back on, and
+## he turns away.
 func _imaginary_space() -> void:
 	var sovereign := winner.evolved
 	var side := _toward_loser()
@@ -3188,24 +3191,52 @@ func _imaginary_space() -> void:
 	winner.z_index = 20
 	loser.z_index = 20
 	# The Silent World: darkness, cracks of light, the debris floating up.
-	_wash(Color(0.01, 0.01, 0.04) if sovereign else Color(0.02, 0.04, 0.1), 0.78, 0.8, 5.4, 0.9, 3)
+	_wash(Color(0.01, 0.01, 0.04) if sovereign else Color(0.02, 0.04, 0.1), 0.8, 0.8, 5.8, 0.9, 3)
 	Audio.play("whoosh", -6.0, 0.3, 0.0)
-	var world := {"cracks": 0.0, "lift": 0.0, "pull": 0.0, "fade": 1.0}
+	var world := {"cracks": 0.0, "lift": 0.0, "pull": 0.0, "fade": 1.0, "void": 0.0, "circle": 0.0}
 	var centre := loser.aim_point(false) + Vector2(side * 130.0, -40.0)
+	var feet := Vector2(winner.global_position.x, Terrain.height_at(winner.global_position.x))
 	var rocks := []
-	for k in 14:
-		var x := loser.global_position.x + randf_range(-320.0, 320.0)
-		rocks.append([Vector2(x, Terrain.height_at(x) - 4.0), randf_range(3.0, 9.0), randf_range(60.0, 220.0), randf_range(-2.0, 2.0)])
-	var cracks := []
+	for k in 18:
+		var x := loser.global_position.x + randf_range(-360.0, 360.0)
+		rocks.append([Vector2(x, Terrain.height_at(x) - 4.0), randf_range(3.0, 9.0), randf_range(60.0, 240.0), randf_range(-2.0, 2.0)])
+	# Slabs of the arena floor that tear loose and tumble.
+	var slabs := []
 	for k in 7:
+		var x := loser.global_position.x + randf_range(-300.0, 300.0)
+		slabs.append([Vector2(x, Terrain.height_at(x) - 6.0), Vector2(randf_range(18.0, 34.0), randf_range(10.0, 16.0)), randf_range(90.0, 260.0), randf_range(-3.0, 3.0)])
+	var stars := []
+	for k in 80:
+		stars.append([Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)), randf_range(1.0, 2.6), randf_range(0.0, TAU)])
+	var cracks := []
+	for k in 9:
 		var a := randf_range(-0.35, 0.35) + (0.0 if k % 2 == 0 else PI)
 		var path := PackedVector2Array([Vector2.ZERO])
-		for step in 6:
+		for step in 7:
 			path.append(path[path.size() - 1] + Vector2.from_angle(a + randf_range(-0.6, 0.6)) * randf_range(30.0, 60.0))
 		cracks.append(path)
+	# The Imaginary Space itself: stars and slow nebula swirls behind everything.
+	var cosmos := _prop(func(canvas: Node2D) -> void:
+		var shown: float = world["void"] * world["fade"]
+		if shown <= 0.0:
+			return
+		var t := float(Time.get_ticks_msec()) / 1000.0
+		var view := camera.visible_rect()
+		var half := view.size * 0.5
+		for star: Array in stars:
+			var at := view.get_center() + (star[0] as Vector2) * half
+			at = at.lerp(centre, fmod(t * 0.05 + float(star[2]), 1.0) * float(world["pull"]) * 0.6)
+			var twinkle := 0.5 + 0.5 * sin(t * 3.0 + float(star[2]) * 5.0)
+			canvas.draw_circle(at, float(star[1]), Color(0.85, 0.95, 1.0, shown * (0.4 + 0.6 * twinkle)), true, -1.0, true)
+		for k in 4:
+			var a := t * 0.3 + k * TAU / 4.0
+			canvas.draw_arc(centre, 300.0 + k * 90.0, a, a + 2.0, 32, Color(edge, 0.12 * shown), 30.0, true))
+	cosmos.z_index = 4
+	get_tree().process_frame.connect(cosmos.queue_redraw)
 	var silence := _prop(func(canvas: Node2D) -> void:
 		var shown: float = world["cracks"]
 		var fade: float = world["fade"]
+		var t := float(Time.get_ticks_msec()) / 1000.0
 		var root := Vector2(loser.global_position.x, ground)
 		for path: PackedVector2Array in cracks:
 			var count := maxi(2, int(path.size() * shown))
@@ -3215,13 +3246,43 @@ func _imaginary_space() -> void:
 				line.append(Vector2(p.x, Terrain.height_at(p.x) - 1.0))
 			canvas.draw_polyline(line, Color(cyan, 0.35 * fade), 7.0, true)
 			canvas.draw_polyline(line, Color(cyan, 0.9 * fade), 2.0, true)
+		var pull: float = world["pull"]
 		for rock: Array in rocks:
-			var lifted := (rock[0] as Vector2) + Vector2(0, -float(rock[2]) * float(world["lift"]))
-			var at := lifted.lerp(centre, float(world["pull"]))
-			if float(world["pull"]) >= 0.98:
-				continue
-			canvas.draw_circle(at, float(rock[1]) + 1.5, INK, true, -1.0, true)
-			canvas.draw_circle(at, float(rock[1]), Color(0.45, 0.42, 0.5), true, -1.0, true))
+			if pull >= 0.98:
+				break
+			var at := ((rock[0] as Vector2) + Vector2(0, -float(rock[2]) * float(world["lift"]))).lerp(centre, pull)
+			canvas.draw_circle(at, float(rock[1]) * (1.0 - pull * 0.6) + 1.5, INK, true, -1.0, true)
+			canvas.draw_circle(at, float(rock[1]) * (1.0 - pull * 0.6), Color(0.45, 0.42, 0.5), true, -1.0, true)
+		for slab: Array in slabs:
+			if pull >= 0.98:
+				break
+			var at := ((slab[0] as Vector2) + Vector2(0, -float(slab[2]) * float(world["lift"]))).lerp(centre, pull)
+			var size: Vector2 = (slab[1] as Vector2) * (1.0 - pull * 0.7)
+			canvas.draw_set_transform(at, t * float(slab[3]) + pull * 6.0)
+			canvas.draw_rect(Rect2(-size * 0.5, size), Color(0.5, 0.44, 0.42))
+			canvas.draw_rect(Rect2(-size * 0.5, size), INK, false, 2.0)
+			canvas.draw_line(Vector2(-size.x * 0.5, -size.y * 0.2), Vector2(size.x * 0.5, -size.y * 0.2), Color(0.62, 0.56, 0.52), 1.5)
+			canvas.draw_set_transform(Vector2.ZERO)
+		# His rune circle: two rings turning opposite ways, ticks and a hexagram.
+		var ring: float = world["circle"] * fade
+		if ring > 0.0:
+			canvas.draw_set_transform(feet + Vector2(0, -2), 0.0, Vector2(1.0, 0.3))
+			var spin := t * 0.8
+			canvas.draw_circle(Vector2.ZERO, 92.0 * ring, Color(cyan, 0.1 * ring), true, -1.0, true)
+			canvas.draw_arc(Vector2.ZERO, 92.0 * ring, 0.0, TAU, 48, Color(cyan, 0.9 * ring), 4.0, true)
+			canvas.draw_arc(Vector2.ZERO, 74.0 * ring, 0.0, TAU, 40, Color(edge, 0.8 * ring), 2.5, true)
+			for k in 24:
+				var a := -spin + k * TAU / 24.0
+				canvas.draw_line(Vector2.from_angle(a) * 76.0 * ring, Vector2.from_angle(a) * 90.0 * ring, Color(cyan, 0.8 * ring), 2.0, true)
+			for tri in 2:
+				var star := PackedVector2Array()
+				for k in 4:
+					star.append(Vector2.from_angle(spin + tri * PI / 3.0 + k * TAU / 3.0) * 72.0 * ring)
+				canvas.draw_polyline(star, Color(cyan, 0.75 * ring), 2.0, true)
+			canvas.draw_set_transform(Vector2.ZERO)
+			for k in 6:
+				var rise := fmod(t * 0.7 + k / 6.0, 1.0)
+				canvas.draw_circle(feet + Vector2(sin(k * 2.1) * 60.0, -rise * 140.0), 3.0 * (1.0 - rise), Color(cyan, ring * (1.0 - rise)), true, -1.0, true))
 	silence.z_index = 5
 	get_tree().process_frame.connect(silence.queue_redraw)
 	var rise := silence.create_tween().set_parallel()
@@ -3229,19 +3290,25 @@ func _imaginary_space() -> void:
 	rise.tween_method(func(v: float) -> void: world["lift"] = v, 0.0, 1.0, 2.4).set_trans(Tween.TRANS_SINE)
 	if not await _wait(1.3):
 		return
-	# The Imaginary Space: his eyes light up, and the mask comes off.
+	# The Imaginary Space: his eyes light up, the stars come out, the mask comes off.
 	var glow := winner.create_tween()
 	glow.tween_property(winner, "eye_glow", 1.0, 0.5)
+	var dawn := cosmos.create_tween().set_parallel()
+	dawn.tween_method(func(v: float) -> void: world["void"] = v, 0.0, 1.0, 1.0)
+	dawn.tween_method(func(v: float) -> void: world["circle"] = v, 0.0, 1.0, 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	winner.power_up(6.0)
 	_say_line("Imaginary Space.", 1.3)
+	Audio.play("zap", -6.0, 0.5, 0.0)
 	if sovereign:
 		if not await _wait(0.6):
 			return
 		winner.mask_off = true
-		Effects.burst(self, winner.aim_point(true), Color(0.06, 0.05, 0.08), 12, 160.0, 180.0, 0.8)
+		Effects.burst(self, winner.aim_point(true), Color(0.93, 0.93, 0.96), 12, 160.0, 180.0, 0.8)
 		Audio.play("tick", -4.0, 0.6, 0.0)
 	if not await _wait(0.6):
 		return
 	hud.announce("IMAGINARY SPACE", cyan)
+	_reality_crack(winner.aim_point(false), cyan)
 	var portal := {"open": 0.0, "jaw": 0.0}
 	var gate := _prop(func(canvas: Node2D) -> void:
 		var open: float = portal["open"]
@@ -3249,8 +3316,23 @@ func _imaginary_space() -> void:
 			return
 		var t := float(Time.get_ticks_msec()) / 1000.0
 		var r := 240.0 * open
+		canvas.draw_circle(centre, r * 1.3, Color(edge, 0.08), true, -1.0, true)
+		# God rays wheeling out of the core, and rings of force pulsing outward.
+		for k in 12:
+			var a := t * 0.4 + k * TAU / 12.0
+			canvas.draw_colored_polygon(PackedVector2Array([centre, centre + Vector2.from_angle(a - 0.06) * r * 2.6, centre + Vector2.from_angle(a + 0.06) * r * 2.6]), Color(cyan, 0.07 * open))
+		for k in 3:
+			var pulse := fmod(t * 0.8 + k / 3.0, 1.0)
+			canvas.draw_arc(centre, r * (1.0 + pulse * 0.9), 0.0, TAU, 48, Color(edge.lightened(0.3), 0.5 * (1.0 - pulse) * open), 4.0, true)
 		canvas.draw_circle(centre, r * 1.15, Color(edge, 0.12), true, -1.0, true)
 		canvas.draw_circle(centre, r, Color(0.01, 0.0, 0.03, 0.92), true, -1.0, true)
+		# Spiral arms of light winding down into the core.
+		for arm in 6:
+			var spiral := PackedVector2Array()
+			for i in 14:
+				var u := i / 13.0
+				spiral.append(centre + Vector2.from_angle(t * 2.0 + arm * TAU / 6.0 + u * 3.2) * r * (1.0 - u * 0.85))
+			canvas.draw_polyline(spiral, Color(cyan, 0.35), 3.0, true)
 		if loser.visible:
 			canvas.draw_circle(loser.aim_point(false), 60.0 * loser.scale.x, Color(cyan, 0.3), true, -1.0, true)
 		for layer in 5:
@@ -3259,6 +3341,13 @@ func _imaginary_space() -> void:
 			for gap in 3:
 				var from := a + gap * TAU / 3.0
 				canvas.draw_arc(centre, rr, from, from + 1.6, 18, Color(edge.lightened(layer * 0.08), 0.85), 5.0 - layer * 0.6, true)
+		# Crackling filaments of energy jumping round the rim.
+		for k in 7:
+			var a := t * 1.5 + k * TAU / 7.0 + sin(t * 9.0 + k) * 0.3
+			var bolt := PackedVector2Array()
+			for i in 6:
+				bolt.append(centre + Vector2.from_angle(a + i * 0.09) * (r * 1.02 + (randf() - 0.5) * 26.0))
+			canvas.draw_polyline(bolt, Color(cyan, 0.9), 2.0, true)
 		canvas.draw_circle(centre, 30.0 * open + 6.0 * sin(t * 12.0), Color(cyan, 0.9), true, -1.0, true)
 		canvas.draw_circle(centre, 14.0 * open, Color.WHITE, true, -1.0, true)
 		# The jaws: two great arcs of the outer layer closing over the centre.
@@ -3268,17 +3357,17 @@ func _imaginary_space() -> void:
 				var lip := PackedVector2Array()
 				for i in 17:
 					var a := lerpf(PI * 0.1, PI * 0.9, i / 16.0)
-					var y := sin(a) * r * (1.0 - jaw) * upper
-					lip.append(centre + Vector2(cos(a) * r, y))
+					lip.append(centre + Vector2(cos(a) * r, sin(a) * r * (1.0 - jaw) * upper))
 				var shape := lip.duplicate()
 				for i in range(16, -1, -1):
 					var a := lerpf(PI * 0.1, PI * 0.9, i / 16.0)
 					shape.append(centre + Vector2(cos(a) * r, sin(a) * r * upper))
 				canvas.draw_colored_polygon(shape, Color(0.02, 0.0, 0.05, 0.95))
 				canvas.draw_polyline(lip, edge, 6.0, true)
-				for k in range(2, 16, 3):
+				canvas.draw_polyline(lip, Color(cyan, 0.7), 2.0, true)
+				for k in range(1, 16, 2):
 					var at: Vector2 = lip[k]
-					canvas.draw_colored_polygon(PackedVector2Array([at + Vector2(-7, 0), at + Vector2(0, -upper * 18.0), at + Vector2(7, 0)]), Color(0.85, 0.8, 1.0)))
+					canvas.draw_colored_polygon(PackedVector2Array([at + Vector2(-8, 0), at + Vector2(0, -upper * 22.0), at + Vector2(8, 0)]), Color(0.9, 0.88, 1.0)))
 	gate.z_index = 8
 	get_tree().process_frame.connect(gate.queue_redraw)
 	Audio.play("ko", -2.0, 0.35, 0.0)
@@ -3292,15 +3381,18 @@ func _imaginary_space() -> void:
 	if not await _wait(0.6):
 		return
 	# Absolute Consumption: they are drawn in, and the jaws close.
-	_frame_around(centre + Vector2(0, 60.0), 360.0, 520.0)
+	_frame_around(centre + Vector2(0, 60.0), 380.0, 540.0)
 	var swallow := loser.create_tween().set_parallel()
 	swallow.tween_property(loser, "global_position", centre + Vector2(0, 50.0), 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	swallow.tween_property(loser, "scale", Vector2.ONE * 0.25, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	for k in 6:
 		loser._tilt_velocity += side * 3.0
 		loser._flash = 0.4
+		Effects.burst(self, loser.aim_point(false), cyan, 6, 160.0, 180.0, 0.7)
 		if not await _wait(0.1):
 			return
+	_slowmo(0.35, 0.45)
+	camera.shake(0.4)
 	var bite := gate.create_tween()
 	bite.tween_method(func(v: float) -> void: portal["jaw"] = v, 0.0, 1.0, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	await bite.finished
@@ -3310,13 +3402,18 @@ func _imaginary_space() -> void:
 	for box in loser.get_children():
 		if box is Hitbox:
 			(box as Hitbox).collision_layer = 0
-	_wash(cyan, 0.75, 0.04, 0.12, 0.5, 14)
+	# The jaws snap shut and the whole world goes black, until a thin line of light
+	# splits the dark open again.
+	_blackout_slit(cyan)
+	Effects.burst(self, centre, cyan, 50, 600.0, 180.0, 1.6)
+	Effects.burst(self, centre, Color.WHITE, 24, 380.0, 180.0, 1.2)
 	Audio.play("crunch", 2.0, 0.5, 0.0)
 	Audio.play("zap", 0.0, 0.4, 0.0)
 	camera.shake(0.6)
 	if not await _wait(0.5):
 		return
-	# The Sovereign's Verdict: the portal collapses into a silent shockwave.
+	# The Sovereign's Verdict: the portal collapses into a pillar of light and a silent
+	# shockwave.
 	var collapse := gate.create_tween()
 	collapse.tween_method(func(v: float) -> void: portal["open"] = v, 1.0, 0.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	await collapse.finished
@@ -3326,20 +3423,31 @@ func _imaginary_space() -> void:
 	var ring := _prop(func(canvas: Node2D) -> void:
 		var r: float = wave["r"]
 		var fade := 1.0 - r / 900.0
+		var top := camera.visible_rect().position.y - 50.0
+		var beam := 60.0 * fade
+		canvas.draw_rect(Rect2(centre.x - beam * 1.6, top, beam * 3.2, centre.y - top + 40.0), Color(cyan, 0.18 * fade))
+		canvas.draw_rect(Rect2(centre.x - beam * 0.5, top, beam, centre.y - top + 40.0), Color(0.85, 1.0, 1.0, 0.7 * fade))
 		canvas.draw_arc(centre, r, 0.0, TAU, 64, Color(edge, fade), 14.0 * fade + 2.0, true)
-		canvas.draw_arc(centre, r * 0.92, 0.0, TAU, 64, Color(cyan, 0.8 * fade), 3.0, true))
+		canvas.draw_arc(centre, r * 0.92, 0.0, TAU, 64, Color(cyan, 0.8 * fade), 3.0, true)
+		for k in 12:
+			var a := k * TAU / 12.0
+			canvas.draw_line(centre + Vector2.from_angle(a) * r * 0.6, centre + Vector2.from_angle(a) * r * 0.85, Color(cyan, 0.6 * fade), 2.0, true))
 	ring.z_index = 9
 	var roll := ring.create_tween()
 	roll.tween_method(func(r: float) -> void:
 		wave["r"] = r
-		ring.queue_redraw(), 0.0, 900.0, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		ring.queue_redraw(), 0.0, 900.0, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	roll.tween_callback(ring.queue_free)
+	_falling_light(cyan)
+	for k in 3:
+		Effects.burst(self, Vector2(centre.x + randf_range(-40.0, 40.0), Terrain.height_at(centre.x)), cyan, 14, 500.0, 40.0, 1.0)
 	Audio.play("ground", -6.0, 0.35, 0.0)
 	var settle := silence.create_tween()
-	settle.tween_method(func(v: float) -> void: world["fade"] = v, 1.0, 0.0, 0.8)
+	settle.tween_method(func(v: float) -> void: world["fade"] = v, 1.0, 0.0, 0.9)
 	settle.tween_callback(silence.queue_free)
+	settle.tween_callback(cosmos.queue_free)
 	gate.queue_free()
-	if not await _wait(0.8):
+	if not await _wait(0.9):
 		return
 	var dim := winner.create_tween()
 	dim.tween_property(winner, "eye_glow", 0.0, 0.5)
@@ -3349,3 +3457,80 @@ func _imaginary_space() -> void:
 	winner.z_index = 0
 	if not await _wait(0.4):
 		return
+
+
+## Imaginary Space tears open: jagged cracks of light shoot out across the whole view
+## from `at`, as if reality were glass, and fade.
+func _reality_crack(at: Vector2, color: Color) -> void:
+	var lines := []
+	for k in 14:
+		var a := k * TAU / 14.0 + randf_range(-0.15, 0.15)
+		var path := PackedVector2Array([at])
+		for step in 8:
+			path.append(path[path.size() - 1] + Vector2.from_angle(a + randf_range(-0.5, 0.5)) * randf_range(50.0, 110.0))
+		lines.append(path)
+	var state := {"t": 0.0}
+	var crack := _prop(func(canvas: Node2D) -> void:
+		var t: float = state["t"]
+		var grow := minf(t / 0.25, 1.0)
+		var fade := 1.0 - maxf(0.0, (t - 0.4) / 0.6)
+		for path: PackedVector2Array in lines:
+			var shown := path.slice(0, maxi(2, int(path.size() * grow)))
+			canvas.draw_polyline(shown, Color(color, 0.3 * fade), 9.0, true)
+			canvas.draw_polyline(shown, Color(1, 1, 1, 0.9 * fade), 2.0, true))
+	crack.z_index = 16
+	var tween := crack.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		state["t"] = t
+		crack.queue_redraw(), 0.0, 1.0, 1.0)
+	tween.tween_callback(crack.queue_free)
+	_wash(Color.WHITE, 0.5, 0.03, 0.05, 0.3, 15)
+	Audio.play("clang", -4.0, 0.4, 0.0)
+	camera.shake(0.5)
+
+
+## Total darkness over everything, then a thin cyan line of light across the middle that
+## brightens and splits the black open, top and bottom.
+func _blackout_slit(color: Color) -> void:
+	var state := {"line": 0.0, "open": 0.0}
+	var dark := _prop(func(canvas: Node2D) -> void:
+		var view := camera.visible_rect().grow(300.0)
+		var seam := camera.visible_rect().get_center().y
+		var gap := float(state["open"]) * view.size.y * 0.7
+		canvas.draw_rect(Rect2(view.position.x, view.position.y, view.size.x, seam - gap * 0.5 - view.position.y), Color.BLACK)
+		canvas.draw_rect(Rect2(view.position.x, seam + gap * 0.5, view.size.x, view.end.y - seam - gap * 0.5), Color.BLACK)
+		var line: float = state["line"] * (1.0 - float(state["open"]))
+		if line > 0.0:
+			for edge: float in [-1.0, 1.0]:
+				var y := seam + edge * gap * 0.5
+				canvas.draw_line(Vector2(view.position.x, y), Vector2(view.end.x, y), Color(color, 0.35 * line), 18.0)
+				canvas.draw_line(Vector2(view.position.x, y), Vector2(view.end.x, y), Color(1, 1, 1, line), 3.0))
+	dark.z_index = 30
+	get_tree().process_frame.connect(dark.queue_redraw)
+	var tween := dark.create_tween()
+	tween.tween_interval(0.45)
+	tween.tween_method(func(v: float) -> void: state["line"] = v, 0.0, 1.0, 0.35)
+	tween.tween_method(func(v: float) -> void: state["open"] = v, 0.0, 1.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(dark.queue_free)
+
+
+## After the verdict: motes of cyan light drifting down over the whole arena.
+func _falling_light(color: Color) -> void:
+	var view := camera.visible_rect()
+	var motes := []
+	for k in 50:
+		motes.append([Vector2(randf_range(view.position.x, view.end.x), view.position.y - randf_range(0.0, 300.0)), randf_range(80.0, 200.0), randf_range(1.5, 3.5), randf() * TAU])
+	var state := {"t": 0.0}
+	var rain := _prop(func(canvas: Node2D) -> void:
+		var t: float = state["t"]
+		var fade := 1.0 - maxf(0.0, (t - 1.2) / 0.8)
+		for mote: Array in motes:
+			var at := (mote[0] as Vector2) + Vector2(sin(t * 2.0 + float(mote[3])) * 12.0, float(mote[1]) * t)
+			canvas.draw_circle(at, float(mote[2]) * 2.2, Color(color, 0.2 * fade), true, -1.0, true)
+			canvas.draw_circle(at, float(mote[2]), Color(0.9, 1.0, 1.0, 0.9 * fade), true, -1.0, true))
+	rain.z_index = 9
+	var tween := rain.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		state["t"] = t
+		rain.queue_redraw(), 0.0, 2.0, 2.0)
+	tween.tween_callback(rain.queue_free)
