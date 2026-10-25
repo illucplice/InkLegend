@@ -13,6 +13,9 @@ const MODE_VS_AI := 0
 const MODE_TOURNAMENT := 2
 const MODE_PRACTICE := 3
 const MODE_TAG := 6
+const MODE_SURVIVAL := 8
+## Survival: coins for reaching these win streaks, on top of each win's pay.
+const SURVIVAL_MILESTONES := {10: 200, 25: 500, 50: 1000}
 const ACHIEVEMENT_COINS := 50
 const DAILY_COINS := 150
 ## Win bonus by AI difficulty (Easy, Normal, Hard, Champion).
@@ -57,7 +60,7 @@ const LEVEL_UP_COINS := 100
 ## XP for a match: more for winning and for harder AI; practice by stars.
 static func xp_for(summary: Dictionary) -> int:
 	match summary["mode"]:
-		MODE_VS_AI, MODE_TOURNAMENT, MODE_TAG:
+		MODE_VS_AI, MODE_TOURNAMENT, MODE_TAG, MODE_SURVIVAL:
 			return (40 + 10 * int(summary.get("difficulty", 0))) if summary["won"] else 15
 		MODE_PRACTICE:
 			return int(summary.get("practice_stars", 0)) * 3
@@ -74,6 +77,11 @@ static func coins_for(summary: Dictionary) -> int:
 		MODE_TOURNAMENT:
 			if summary["won"]:
 				return round_prize(int(summary["round"]), summary.get("kind", "tournament")) + headshot_bonus
+			return 10 + headshot_bonus
+		MODE_SURVIVAL:
+			if summary["won"]:
+				var streak := int(summary["round"])
+				return 25 + 5 * streak + int(SURVIVAL_MILESTONES.get(streak, 0)) + headshot_bonus
 			return 10 + headshot_bonus
 		MODE_PRACTICE:
 			return int(summary.get("practice_stars", 0)) * 3
@@ -133,13 +141,16 @@ static func daily(date: String, roster: Array[FighterData], maps: Array[MapData]
 	var map := maps[rng.randi_range(0, maps.size() - 1)]
 	var difficulty := AiAimer.Difficulty.NORMAL if rng.randf() < 0.6 else AiAimer.Difficulty.HARD
 	var twist: Array = TWISTS[rng.randi_range(0, TWISTS.size() - 1)]
+	# Every daily has its own chaos mutator too.
+	var mutator := Chaos.pick(rng)
 	return {
+		"mutator": mutator,
 		"date": date,
 		"fighter": fighter,
 		"map": map,
 		"difficulty": difficulty,
 		"twist": twist[0],
-		"text": "%s as %s on %s (%s AI)" % [twist[1], fighter.short_name, map.display_name, "Hard" if difficulty == AiAimer.Difficulty.HARD else "Normal"],
+		"text": "%s as %s on %s (%s AI)  ·  Chaos: %s" % [twist[1], fighter.short_name, map.display_name, "Hard" if difficulty == AiAimer.Difficulty.HARD else "Normal", Chaos.display_name(mutator)],
 	}
 
 

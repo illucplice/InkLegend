@@ -52,6 +52,8 @@ var mastery := {}
 var skins := {}
 ## Fatalities you have landed (fighter ids): the Fatality Gallery can replay these.
 var fatalities: Array = []
+## Survival: the most fights won in one run.
+var survival_best := 0
 ## How far through the first-match tutorial tips (3 = all shown).
 var tutorial_step := 0
 var achievements: Array = []
@@ -128,6 +130,7 @@ func load_progress() -> void:
 	mastery = config.get_value("progress", "mastery", mastery)
 	skins = config.get_value("progress", "skins", skins)
 	fatalities = config.get_value("progress", "fatalities", fatalities)
+	survival_best = config.get_value("progress", "survival_best", survival_best)
 	tutorial_step = config.get_value("progress", "tutorial_step", tutorial_step)
 	achievements = config.get_value("progress", "achievements", achievements)
 	counters = config.get_value("progress", "counters", counters)
@@ -150,6 +153,7 @@ func save_progress() -> void:
 	config.set_value("progress", "mastery", mastery)
 	config.set_value("progress", "skins", skins)
 	config.set_value("progress", "fatalities", fatalities)
+	config.set_value("progress", "survival_best", survival_best)
 	config.set_value("progress", "tutorial_step", tutorial_step)
 	config.set_value("progress", "achievements", achievements)
 	config.set_value("progress", "counters", counters)
@@ -173,6 +177,7 @@ func reset_progress() -> void:
 	mastery = {}
 	skins = {}
 	fatalities = []
+	survival_best = 0
 	tutorial_step = 0
 	achievements = []
 	counters = {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}

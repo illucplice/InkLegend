@@ -126,6 +126,8 @@ var _difficulty_box: Control
 var _go_label: Label
 ## Vs AI: the second pick (your opponent) can be left to chance instead.
 var _random_foe := false
+## Chaos (from the map screen): the next match gets a random rule-twisting mutator.
+var chaos_on := false
 var _random_button: Button
 var _skin_button: Button
 ## null means a random map.
@@ -881,6 +883,11 @@ func _build_title() -> Control:
 	tag.custom_minimum_size.x = 400
 	tag.pressed.connect(_open_tag_choice)
 	right.add_child(tag)
+	var survival := _mode_button(&"trophy", "Survival", "Endless fights, one health bar", UiStyle.RED)
+	survival.custom_minimum_size.x = 400
+	survival.pressed.connect(_open_select.bind(MatchController.Mode.SURVIVAL))
+	right.add_child(survival)
+	_survival_button = survival
 
 	var chests := PanelContainer.new()
 	var chest_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.78), 18, 3)
@@ -1393,6 +1400,9 @@ func _refresh_select() -> void:
 	elif _select_mode == MatchController.Mode.BOSS_RUSH:
 		label.text = "BOSS RUSH: CHOOSE YOUR FIGHTER"
 		color = UiStyle.PURPLE
+	elif _select_mode == MatchController.Mode.SURVIVAL:
+		label.text = "SURVIVAL: CHOOSE YOUR FIGHTER"
+		color = UiStyle.RED
 	elif _select_mode == MatchController.Mode.TAG:
 		label.text = "2V2: FIRST FIGHTER" if _select_step == 0 else "2V2: YOUR PARTNER"
 		color = UiStyle.ORANGE if _select_step == 0 else UiStyle.GREEN
@@ -1507,6 +1517,19 @@ func _build_map_screen() -> Control:
 		grid.add_child(_map_button(map, group))
 	grid.add_child(_map_button(null, group))
 	content.add_child(grid)
+	# Chaos: a random mutator twists the rules for the match.
+	var chaos := _icon_button(&"star", "", UiStyle.GREY, Vector2(460, 58), 22)
+	chaos.toggle_mode = true
+	chaos.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var chaos_label: Label = chaos.get_meta("label")
+	var paint_chaos := func() -> void:
+		chaos_label.text = "Chaos: ON  (a random twist)" if chaos_on else "Chaos: off"
+		UiStyle.paint_button(chaos, Color(1.0, 0.45, 0.85) if chaos_on else UiStyle.GREY)
+	chaos.toggled.connect(func(on: bool) -> void:
+		chaos_on = on
+		paint_chaos.call())
+	paint_chaos.call()
+	content.add_child(chaos)
 	var bottom := HBoxContainer.new()
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
 	bottom.add_theme_constant_override("separation", 14)
@@ -1705,6 +1728,12 @@ func _fill_result_buttons(ladder: Dictionary) -> void:
 		var change := _icon_button(&"duo", "Fighters", UiStyle.YELLOW, Vector2(190, 66), 22)
 		change.pressed.connect(func() -> void: _open_select(_select_mode))
 		buttons = [rematch, change]
+	elif ladder.get("kind", "") == "survival":
+		# Survival: on to the next fight after a win; a loss ends the run.
+		if ladder["won"]:
+			var fight := _icon_button(&"sword", "Next fight", UiStyle.GREEN, Vector2(260, 66), 24)
+			fight.pressed.connect(round_requested.emit)
+			buttons = [fight]
 	elif ladder["won"] and not ladder["final"]:
 		var next := _icon_button(&"trophy", "Next round", UiStyle.GREEN, Vector2(260, 66), 24)
 		next.pressed.connect(ladder_requested.emit)
@@ -1717,7 +1746,7 @@ func _fill_result_buttons(ladder: Dictionary) -> void:
 		var again := _icon_button(&"restart", "Play again", UiStyle.GREEN, Vector2(240, 66), 24)
 		again.pressed.connect(ladder_again_requested.emit)
 		buttons = [again]
-	var giving_up: bool = not ladder.is_empty() and not ladder["won"] and ladder.get("kind", "tournament") != "bossrush"
+	var giving_up: bool = not ladder.is_empty() and not ladder["won"] and not ladder.get("kind", "tournament") in ["bossrush", "survival"]
 	var menu := _icon_button(&"home", "Give up" if giving_up else "Menu", UiStyle.GREY, Vector2(170, 66), 22)
 	menu.pressed.connect(give_up_requested.emit if giving_up else menu_requested.emit)
 	buttons.append(menu)
@@ -2038,6 +2067,8 @@ func _set_coins(pill: PanelContainer) -> void:
 ## Coins, the tournament button's "continue" text and whether the daily is done.
 func _refresh_title() -> void:
 	_set_coins(_coins_pill)
+	if _survival_button != null:
+		(_survival_button.get_meta("subtitle") as Label).text = "Best run: %d wins" % Save.survival_best if Save.survival_best > 0 else "Endless fights, one health bar"
 	var subtitle: Label = _tournament_button.get_meta("subtitle")
 	if Save.tournament.is_empty():
 		subtitle.text = "13 rounds, Common to Mythic"
@@ -2527,6 +2558,7 @@ func set_partners(texts: Array) -> void:
 
 
 var _tag_choice_screen: Control
+var _survival_button: Button
 
 
 ## 2v2: play the AI, or a friend on this device.

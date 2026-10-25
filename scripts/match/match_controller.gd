@@ -14,7 +14,7 @@ enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## TAG and TAG_2P: 2v2 tag, against the AI or a friend on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
 ## PRACTICE: alone against 10 targets at growing distances (see start_practice).
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH, TAG, TAG_2P }
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH, TAG, TAG_2P, SURVIVAL }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -213,6 +213,8 @@ var _sky_shown := false
 ## Wind for this turn (px/s²) and how strong winds get this match (0 = calm).
 var wind := 0.0
 var _wind_strength := 1.0
+## This match's chaos mutator (empty: none). Set before start_match; a rematch keeps it.
+var mutator: StringName = &""
 ## Special meter per side (0..1): fills as you land hits (and a little when hit). Full
 ## means the special can be armed for the next throw; using it empties the meter.
 var _charge: Array[float] = [0.0, 0.0]
@@ -423,7 +425,11 @@ func _ready() -> void:
 			start_practice(_last_left)
 		else:
 			start_match(_last_left, _last_right, mode, _last_difficulty, _last_map))
-	_hud.round_requested.connect(play_tournament_round)
+	_hud.round_requested.connect(func() -> void:
+		if mode == Mode.SURVIVAL:
+			_survival_fight()
+		else:
+			play_tournament_round())
 	_hud.special_toggled.connect(_on_special_toggled)
 	_hud.ladder_requested.connect(func() -> void: _hud.show_ladder(_ladder_info()))
 	_hud.ladder_again_requested.connect(func() -> void:
@@ -447,6 +453,7 @@ func _ready() -> void:
 	_hud.gallery_requested.connect(play_gallery)
 	_hud.team_play_requested.connect(func(picks: Array, map: MapData) -> void:
 		_daily = {}
+		mutator = Chaos.pick(rng) if _hud.chaos_on else &""
 		start_tag_2p(picks, map))
 	go_to_menu()
 
@@ -457,6 +464,7 @@ func go_to_menu() -> void:
 	get_tree().paused = false
 	state = State.MENU
 	tournament = {}
+	_survival = {}
 	_arena.set_spread(MENU_GAP / 2)
 	Terrain.build(rng, MENU_GAP / 2, 0.6 * (current_map.terrain_roughness if current_map != null else 1.0), false)
 	_arena.refresh_terrain()
@@ -506,6 +514,8 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
 
 	_wind_strength = LOCAL_WIND if _two_players() else float(DIFFICULTY_WIND[difficulty])
+	if mutator == &"storm":
+		_wind_strength *= Chaos.STORM_WIND
 	_special_used = [false, false]
 	_lucky = [0, 0]
 	_empowered = [0, 0]
@@ -533,6 +543,11 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 			var partner := _spawn_fighter(partner_data, fighters[side].position.x, fighters[side].facing, (side == 1 and not _two_players()) or autoplay)
 			_bench(partner)
 			_teams[side].append(partner)
+	# Sudden Death: everyone (partners too) starts low.
+	if mutator == &"sudden_death":
+		for team: Array in _teams:
+			for member: Fighter in team:
+				member.health = Chaos.SUDDEN_DEATH_HEALTH
 	_hud.bind_fighters(fighters, names)
 	_update_partners()
 	_hud.show_match()
@@ -554,6 +569,9 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 		await get_tree().create_timer(1.3, false).timeout
 		if match_id != _match_id:
 			return
+	if mutator != &"":
+		_hud.announce("CHAOS: %s" % Chaos.display_name(mutator).to_upper(), Color(1.0, 0.45, 0.85))
+		_hud.toast(Chaos.description(mutator), Color(1.0, 0.6, 0.9))
 	_begin_turn()
 
 
@@ -642,6 +660,8 @@ func _set_map(map: MapData) -> void:
 
 func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, difficulty: int, map: MapData) -> void:
 	_daily = {}
+	# Chaos (switched on from the map screen) gives a match a random twist.
+	mutator = Chaos.pick(rng) if _hud.chaos_on and match_mode in [Mode.VS_AI, Mode.LOCAL_2P, Mode.TAG] else &""
 	if match_mode == Mode.TOURNAMENT:
 		start_tournament(left)
 	elif match_mode == Mode.ARCADE:
@@ -650,6 +670,8 @@ func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, 
 		start_boss_rush(left)
 	elif match_mode == Mode.TAG:
 		start_tag(left, right, difficulty, map)
+	elif match_mode == Mode.SURVIVAL:
+		start_survival(left)
 	elif match_mode == Mode.PRACTICE:
 		start_practice(left)
 	else:
@@ -1934,6 +1956,7 @@ static func _masked(fighter: Fighter, weapon: WeaponData) -> WeaponData:
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
 func start_practice(pick: FighterData) -> void:
+	mutator = &""
 	_clear_match()
 	get_tree().paused = false
 	mode = Mode.PRACTICE
@@ -2117,6 +2140,7 @@ func _end_practice() -> void:
 ## Today's daily challenge: a set fighter, map and AI difficulty, plus a twist.
 func start_daily() -> void:
 	var challenge := Rewards.daily(Rewards.today(), roster(), maps())
+	mutator = challenge.get("mutator", &"")
 	start_match(challenge["fighter"], null, Mode.VS_AI, challenge["difficulty"], challenge["map"])
 	_daily = challenge
 
@@ -2168,6 +2192,7 @@ func _fighter_by_id(id: String) -> FighterData:
 func play_tournament_round() -> void:
 	if tournament.is_empty():
 		return
+	mutator = &""
 	var round_info: Dictionary = tournament["rounds"][tournament["round"]]
 	start_match(tournament["pick"], round_info["opponent"], Mode.TOURNAMENT, round_info["difficulty"], round_info["map"])
 	if _ladder_kind() == "bossrush" and fighters.size() > 1:
@@ -2305,6 +2330,7 @@ func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
 
 
 func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fighter:
+	data = Chaos.mutate(data, mutator)
 	var fighter: Fighter = FIGHTER_SCENE.instantiate()
 	fighter.position = Vector2(x, Terrain.height_at(x))
 	_actors.add_child(fighter)
@@ -2323,6 +2349,10 @@ func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
 	_rest_partner(current)
+	# Overcharged: specials refill every turn.
+	if mutator == &"overcharged" and mode != Mode.PRACTICE:
+		_charge[current] = 1.0
+		fighter.charge = 1.0
 	# 2v2: the pair take turns, so after a side's first turn the partner steps in each time.
 	if _is_tag() and _side_turns[current] > 0 and _tag(current):
 		fighter = fighters[current]
@@ -2711,6 +2741,8 @@ func _throw(angle: float, power: float) -> void:
 			projectile.set_trail_color(Mastery.trail_color(fighter.data) if signature else Save.trail_color())
 		if special == &"shockwave":
 			projectile.bounces = 1
+		if mutator == &"bouncy":
+			projectile.bounces = maxi(projectile.bounces, 1)
 		if special == &"pin":
 			projectile.set_meta("pin", true)
 		if special == &"elephant":
@@ -3323,6 +3355,18 @@ func _end_match() -> void:
 			if final:
 				title = {"arcade": "ARCADE CLEAR!", "bossrush": "BOSS RUSH CLEAR!"}.get(_ladder_kind(), "CHAMPION!")
 				color = Color(1.0, 0.75, 0.2)
+	# Survival: a win carries you on (with a little health back); a loss ends the run.
+	if mode == Mode.SURVIVAL and not _survival.is_empty():
+		if player_won:
+			_survival["wins"] += 1
+			_survival["health"] = mini(Rules.MAX_HEALTH, fighters[0].health + SURVIVAL_HEAL)
+			title = "WIN %d!" % _survival["wins"]
+		else:
+			title = "SURVIVED %d" % _survival["wins"]
+			if int(_survival["wins"]) > Save.survival_best:
+				Save.survival_best = _survival["wins"]
+				title = "NEW BEST: %d!" % _survival["wins"]
+		ladder = {"won": player_won, "final": false, "round": _survival["wins"], "total": 0, "kind": "survival"}
 	if mode == Mode.TOURNAMENT and not tournament.is_empty() and _ladder_kind() == "tournament":
 		if ladder["won"] and ladder["final"]:
 			Save.tournament = {}
@@ -3354,6 +3398,8 @@ func _end_match() -> void:
 		return
 	Audio.play("win" if player_won or autoplay else "lose", -3.0, 1.0, 0.0)
 	var detail := "%s knocked out %s with %d health left." % [winner.data.short_name, loser.data.short_name, winner.health]
+	if mode == Mode.SURVIVAL and not _survival.is_empty():
+		detail = "Next fight with %d health (+%d)." % [_survival["health"], SURVIVAL_HEAL] if player_won else "You won %d fights in a row. Best: %d." % [_survival["wins"], Save.survival_best]
 	if payout["coins"] > 0:
 		detail += "\n+%d coins" % payout["coins"]
 	if payout["daily"]:
@@ -4119,7 +4165,7 @@ func _become_sovereign(fighter: Fighter) -> void:
 	maw.shape = &"maw_blade"
 	maw.display_name = "Gluttony's Maw"
 	maw.color = Color(0.6, 0.3, 0.95)
-	maw.size = 84.0
+	maw.size = 60.0
 	maw.max_speed = 1550.0
 	maw.body_damage = 20
 	maw.head_damage = 34
@@ -4404,6 +4450,7 @@ func _hype(amount: float) -> void:
 ## Replays a fatality from the gallery: the fighter (in their colours) and a dummy on a
 ## quiet arena, the finisher plays, then it is back to the gallery.
 func play_gallery(data: FighterData) -> void:
+	mutator = &""
 	_clear_match()
 	get_tree().paused = false
 	mode = Mode.PRACTICE
@@ -4574,3 +4621,42 @@ func _update_partners() -> void:
 		if partner != null:
 			texts[side] = "⇄ %s  %s" % [partner.data.short_name, "KO" if partner.is_knocked_out() else str(partner.health)]
 	_hud.set_partners(texts)
+
+
+# --- survival ---
+
+## Survival: one fighter against endless opponents, one health bar between fights
+## (a win gives back SURVIVAL_HEAL), the AI getting harder as the streak grows.
+const SURVIVAL_HEAL := 30
+var _survival := {}
+
+
+func start_survival(pick: FighterData) -> void:
+	_survival = {"pick": pick, "wins": 0, "health": Rules.MAX_HEALTH}
+	_survival_fight()
+
+
+## The next fight of the run: Easy for the first three wins, then Normal, Hard and,
+## from ten wins on, Champion.
+func _survival_fight() -> void:
+	if _survival.is_empty():
+		return
+	mutator = &""
+	var pick: FighterData = _survival["pick"]
+	var wins: int = _survival["wins"]
+	var difficulty := AiAimer.Difficulty.EASY
+	if wins >= 10:
+		difficulty = AiAimer.Difficulty.CHAMPION
+	elif wins >= 6:
+		difficulty = AiAimer.Difficulty.HARD
+	elif wins >= 3:
+		difficulty = AiAimer.Difficulty.NORMAL
+	var foes: Array[FighterData] = []
+	for fighter in roster():
+		if fighter != pick:
+			foes.append(fighter)
+	_daily = {}
+	start_match(pick, foes[rng.randi_range(0, foes.size() - 1)], Mode.SURVIVAL, difficulty, null)
+	if fighters.size() > 0:
+		fighters[0].health = _survival["health"]
+		fighters[0].health_changed.emit(fighters[0], fighters[0].health)

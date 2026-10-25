@@ -35,6 +35,7 @@ func _initialize() -> void:
 	await _test_rimiru()
 	_test_mastery()
 	await _test_tag()
+	await _test_chaos_and_survival()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -790,5 +791,32 @@ func _test_tag() -> void:
 	game.start_tag_2p([load("res://data/fighters/gok.tres"), load("res://data/fighters/lufi.tres"), load("res://data/fighters/ryo.tres"), load("res://data/fighters/akum.tres")], null)
 	await process_frame
 	_check(game._teams[1].size() == 2 and game._two_players() and game._partner_of(1).data.id == &"akum", "2v2 vs a friend: player 2 brings their own partner")
+	game.queue_free()
+	await process_frame
+
+
+## Chaos mutators change the rules; survival carries health between fights.
+func _test_chaos_and_survival() -> void:
+	var gok: FighterData = load("res://data/fighters/gok.tres")
+	_check(Chaos.mutate(gok, &"low_gravity").weapon.gravity_scale < gok.weapon.gravity_scale, "Low Gravity makes throws fall slower")
+	_check(Chaos.mutate(gok, &"glass_cannon").weapon.body_damage == gok.weapon.body_damage * 2, "Glass Cannon doubles damage")
+	_check(Chaos.mutate(gok, &"storm") == gok, "mutators that don't touch weapons leave fighters alone")
+	var game: Node = load("res://scenes/match/match.tscn").instantiate()
+	game.autoplay = true
+	root.add_child(game)
+	await process_frame
+	game.mutator = &"sudden_death"
+	game.start_match(gok, load("res://data/fighters/grak.tres"), game.Mode.VS_AI, 1)
+	await process_frame
+	_check(game.fighters[0].health == Chaos.SUDDEN_DEATH_HEALTH and game.fighters[1].health == Chaos.SUDDEN_DEATH_HEALTH, "Sudden Death starts everyone on 30")
+	game.start_survival(gok)
+	await process_frame
+	_check(game.mode == game.Mode.SURVIVAL and game.mutator == &"", "survival starts a run (with no mutator)")
+	game._survival["wins"] = 10
+	game._survival["health"] = 55
+	game._survival_fight()
+	await process_frame
+	_check(game.fighters[0].health == 55 and game._last_difficulty == AiAimer.Difficulty.CHAMPION, "survival carries your health over and gets harder as you win")
+	_check(Rewards.coins_for({"mode": Rewards.MODE_SURVIVAL, "won": true, "round": 10}) > Rewards.coins_for({"mode": Rewards.MODE_SURVIVAL, "won": true, "round": 9}) + 100, "reaching 10 wins pays a milestone bonus")
 	game.queue_free()
 	await process_frame

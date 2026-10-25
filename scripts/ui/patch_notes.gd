@@ -23,6 +23,8 @@ const NOTES := [
 		"New Arcade mode: five fights that get harder, then your fighter's rival (Gok and Egita, Ryo and Akum, Ichi and Aizon, Jotar and Dyo and more), and rivals have their own face-off lines in every mode.",
 		"Tournaments are now 13 rounds, climbing from Common to Mythic opponents as the AI gets harder, then your Champion shadow. Every round shows and pays its own prize, and the champion wins a Golden chest.",
 		"New 2v2 Tag mode, against the AI or a friend on the same device: each side picks two fighters. The partners take turns, swapping in automatically after every turn, the one resting gets a little health back, and when a fighter is knocked out their partner jumps in. The match (and the fatality) comes when a whole team is down.",
+		"New Survival mode: one fighter against endless opponents on one health bar. Each win gives back 30 health and pays more coins (with big bonuses at 10, 25 and 50 wins), the AI gets harder as your streak grows, and your best run is saved.",
+		"Chaos mutators: switch Chaos on from the map screen for a random twist (Low Gravity, Giant Weapons, Storm, Sudden Death, Overcharged, Bouncy or Glass Cannon), and every daily challenge now comes with its own mutator.",
 		"New Boss Rush: Frierin in Mana Release, Dyo, evolved Aizon and the Shadow Sovereign back to back, each already powered up. No retries: lose and the run is over. Clearing it wins a Golden chest.",
 		"Fighter mastery: every match with a fighter earns them mastery XP. Levels unlock +10% coins, new colour schemes (pick them with Colours on the fighter screen), a signature trail and, at level 5, a golden Master aura.",
 		"Fatality Gallery: every fatality you land is saved and can be replayed from the new Fatalities tab.",
