@@ -786,5 +786,9 @@ func _test_tag() -> void:
 	_check(game._tag_rescue() and game.fighters[0] == partner and partner.visible, "a knocked-out fighter's partner jumps in")
 	partner.take_hit(Rules.BODY, 100, Vector2.ZERO)
 	_check(not game._tag_rescue(), "with both down, the match is over")
+	# Against a friend: both sides are people, each with a partner.
+	game.start_tag_2p([load("res://data/fighters/gok.tres"), load("res://data/fighters/lufi.tres"), load("res://data/fighters/ryo.tres"), load("res://data/fighters/akum.tres")], null)
+	await process_frame
+	_check(game._teams[1].size() == 2 and game._two_players() and game._partner_of(1).data.id == &"akum", "2v2 vs a friend: player 2 brings their own partner")
 	game.queue_free()
 	await process_frame

@@ -11,9 +11,10 @@ signal finisher_resolved
 enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## VS_AI: the left fighter is the player, the right one the AI.
 ## LOCAL_2P: two players take turns on the same device.
+## TAG and TAG_2P: 2v2 tag, against the AI or a friend on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
 ## PRACTICE: alone against 10 targets at growing distances (see start_practice).
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH, TAG }
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH, TAG, TAG_2P }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -256,10 +257,6 @@ var _det_orb: Projectile
 ## him this turn.
 var _recall_blade: Projectile
 var _maw_healed := false
-## Map traps hanging over each fighter, and how many of their turns until a sprung one
-## is hung back up.
-var _traps: Array = [null, null]
-var _trap_wait := [0, 0]
 ## 2v2 tag: both fighters of each side, the partners picked for the next tag match,
 ## and how many turns each side has had (the pair swap every turn after the first).
 var _teams: Array = [[], []]
@@ -343,9 +340,6 @@ const VORTEX_MARK_DAMAGE := 5
 const VORTEX_MARK_RADIUS := 35.0
 ## Predator: the devoured weapon hits this much harder than in its owner's hands.
 const PREDATOR_BOOST := 1.05
-## Map traps: what one does to whoever it lands on, and how many turns it takes to return.
-const TRAP_DAMAGE := 14
-const TRAP_RESPAWN := 3
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -451,6 +445,9 @@ func _ready() -> void:
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
 	_hud.fatality_test_requested.connect(_test_fatality)
 	_hud.gallery_requested.connect(play_gallery)
+	_hud.team_play_requested.connect(func(picks: Array, map: MapData) -> void:
+		_daily = {}
+		start_tag_2p(picks, map))
 	go_to_menu()
 
 
@@ -498,17 +495,17 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	Terrain.build(rng, gap / 2, current_map.terrain_roughness)
 	_arena.refresh_terrain()
 	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
-	var vs_ai := mode != Mode.LOCAL_2P
+	var vs_ai := not _two_players()
 	# Your fighter wears the colours mastery has unlocked for them (both sides in 1v1).
 	var worn_left := left if autoplay else Mastery.skinned(left, Save.skin(String(left.id)))
-	var worn_right := Mastery.skinned(right, Save.skin(String(right.id))) if match_mode == Mode.LOCAL_2P else right
+	var worn_right := Mastery.skinned(right, Save.skin(String(right.id))) if _two_players() else right
 	fighters.append(_spawn_fighter(worn_left, -gap / 2, 1, vs_ai and autoplay))
 	fighters.append(_spawn_fighter(worn_right, gap / 2, -1, vs_ai))
 	if not autoplay:
 		fighters[0].master = Save.mastery_level(String(left.id)) >= Mastery.MAX_LEVEL
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
 
-	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
+	_wind_strength = LOCAL_WIND if _two_players() else float(DIFFICULTY_WIND[difficulty])
 	_special_used = [false, false]
 	_lucky = [0, 0]
 	_empowered = [0, 0]
@@ -525,21 +522,17 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_turn_timer = -1.0
 	var names := _player_names()
 	_stats = [_empty_stats(), _empty_stats()]
-	_traps = [null, null]
-	_trap_wait = [0, 0]
 	# 2v2: each side's partner waits off the field.
 	_teams = [[fighters[0]], [fighters[1]]]
 	_side_turns = [0, 0]
-	if match_mode == Mode.TAG:
+	if _is_tag():
 		for side in 2:
 			var partner_data: FighterData = _tag_partners[side]
-			if side == 0 and not autoplay:
+			if (side == 0 or _two_players()) and not autoplay:
 				partner_data = Mastery.skinned(partner_data, Save.skin(String(partner_data.id)))
-			var partner := _spawn_fighter(partner_data, fighters[side].position.x, fighters[side].facing, side == 1 or autoplay)
+			var partner := _spawn_fighter(partner_data, fighters[side].position.x, fighters[side].facing, (side == 1 and not _two_players()) or autoplay)
 			_bench(partner)
 			_teams[side].append(partner)
-	for side in 2:
-		_hang_trap(side)
 	_hud.bind_fighters(fighters, names)
 	_update_partners()
 	_hud.show_match()
@@ -2210,7 +2203,7 @@ static func _shadow_of(fighter: FighterData) -> FighterData:
 
 ## What the HUD calls each side: "You"/"AI", or "Player 1"/"Player 2".
 func _player_names() -> Array[String]:
-	if mode == Mode.LOCAL_2P:
+	if _two_players():
 		return ["Player 1", "Player 2"]
 	if autoplay:
 		return ["AI", "AI"]
@@ -2290,9 +2283,6 @@ func _maybe_spawn_crate(chance: float) -> void:
 func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
 	if crate.collected:
 		return
-	if crate is Trap:
-		_spring_trap(crate as Trap, projectile)
-		return
 	var side := fighters.find(projectile.thrower)
 	if side < 0:
 		return
@@ -2334,10 +2324,9 @@ func _begin_turn() -> void:
 	_special_this_turn = false
 	_rest_partner(current)
 	# 2v2: the pair take turns, so after a side's first turn the partner steps in each time.
-	if mode == Mode.TAG and _side_turns[current] > 0 and _tag(current):
+	if _is_tag() and _side_turns[current] > 0 and _tag(current):
 		fighter = fighters[current]
 	_side_turns[current] += 1
-	_tend_traps()
 	_maw_healed = false
 	_turn_charged = false
 	# Frierin's barrier comes back up whenever her enemy starts a turn.
@@ -2416,12 +2405,12 @@ func _begin_turn() -> void:
 	_turn_hit = false
 	if not fighter.is_ai:
 		state = State.PLAYER_AIM
-		var turn_text := "PLAYER %d'S TURN" % (current + 1) if mode == Mode.LOCAL_2P else "YOUR TURN"
+		var turn_text := "PLAYER %d'S TURN" % (current + 1) if _two_players() else "YOUR TURN"
 		if mode == Mode.PRACTICE:
 			turn_text = "TARGET %d/%d  ·  TRY %d/%d" % [_practice["index"] + 1, PRACTICE_TARGETS, _practice["attempt"] + 1, PRACTICE_TRIES]
 		_hud.set_turn(turn_text, SIDE_COLORS[current])
 		_hud.set_special(fighter.data, _charge[current], false)
-		_turn_timer = TURN_TIME if mode == Mode.LOCAL_2P else -1.0
+		_turn_timer = TURN_TIME if _two_players() else -1.0
 		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current] >= ANALYSIS_STEPS
 		_aim.guide_boost = float(_analysis[current]) / ANALYSIS_STEPS
 		_aim.hide_guide = fighter.pressured
@@ -3297,7 +3286,7 @@ func _end_match() -> void:
 	state = State.GAME_OVER
 	var winner_side := fighters.find(winner)
 	# Landing a fatality adds it to the Fatality Gallery.
-	if landed and not autoplay and (winner_side == 0 or mode == Mode.LOCAL_2P):
+	if landed and not autoplay and (winner_side == 0 or _two_players()):
 		var fatality_owner := String(winner.data.base_id())
 		if not Save.fatalities.has(fatality_owner):
 			Save.fatalities.append(fatality_owner)
@@ -3310,10 +3299,10 @@ func _end_match() -> void:
 		Audio.play("cheer", 0.0, 1.1, 0.0)
 		_hype(1.0)
 		_camera.shake(0.4)
-	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
+	var player_won := (winner_side == 0 and not autoplay) or _two_players()
 	var title := "DEFEAT"
 	var color := Color(0.92, 0.3, 0.3)
-	if mode == Mode.LOCAL_2P:
+	if _two_players():
 		title = "PLAYER %d WINS!" % (winner_side + 1)
 		color = SIDE_COLORS[winner_side]
 	elif player_won:
@@ -3400,7 +3389,7 @@ func _end_match() -> void:
 ## {coins, achievements (ids), daily (bool)}.
 func _pay_out(summary: Dictionary) -> Dictionary:
 	var result := {"coins": 0, "achievements": [], "daily": false, "levels": 0}
-	if autoplay or mode == Mode.LOCAL_2P:
+	if autoplay or _two_players():
 		return result
 	var coins := Rewards.coins_for(summary)
 	# Mastery: a little more coin with a fighter you have mastered, and XP toward more.
@@ -4452,70 +4441,6 @@ func play_gallery(data: FighterData) -> void:
 	_hud.open_gallery()
 
 
-# --- map traps ---
-
-## Hangs this map's trap over a fighter's head (never in practice).
-func _hang_trap(side: int) -> void:
-	if mode == Mode.PRACTICE or side >= fighters.size() or current_map == null:
-		return
-	var trap := Trap.new()
-	trap.setup_trap(current_map.id, fighters[side])
-	_actors.add_child(trap)
-	_traps[side] = trap
-
-
-## Each turn: traps follow their fighter if they were moved, and sprung ones come back.
-func _tend_traps() -> void:
-	if mode == Mode.PRACTICE:
-		return
-	for side in fighters.size():
-		var trap: Trap = _traps[side] if is_instance_valid(_traps[side]) else null
-		if trap != null and not trap.collected:
-			trap._home = fighters[side].global_position + Vector2(0, -Trap.HEIGHT)
-		elif _trap_wait[side] > 0:
-			_trap_wait[side] -= 1
-			if _trap_wait[side] == 0 and not fighters[side].is_knocked_out():
-				_hang_trap(side)
-
-
-## A throw brought a trap down: it drops (or, the storm cloud, strikes) on whoever is
-## underneath, wherever the throw came from.
-func _spring_trap(trap: Trap, projectile: Projectile) -> void:
-	trap.collect()
-	var victim := trap.victim
-	var side := fighters.find(victim)
-	if side < 0:
-		return
-	_trap_wait[side] = TRAP_RESPAWN
-	var match_id := _match_id
-	Audio.play("clang", -2.0, 0.6, 0.0)
-	_hud.announce("TRAP SPRUNG!", Color(1.0, 0.45, 0.35))
-	_hype(0.5)
-	var landing := victim.aim_point(true) + Vector2(0, -12)
-	if trap.look == "cloud":
-		_lightning(victim.aim_point(false))
-		trap.create_tween().tween_property(trap, "modulate:a", 0.0, 0.6).finished.connect(trap.queue_free)
-	else:
-		var fall := trap.create_tween()
-		fall.tween_property(trap, "position", landing, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		await fall.finished
-		if match_id != _match_id:
-			return
-		Effects.burst(_actors, landing, Color(0.85, 0.82, 0.75), 24, 420.0, 180.0, 1.3)
-		var fade := trap.create_tween()
-		fade.tween_property(trap, "modulate:a", 0.0, 0.4)
-		fade.tween_callback(trap.queue_free)
-	if victim.is_knocked_out() or absf(victim.aim_point(true).x - landing.x) > 70.0:
-		return
-	_camera.shake(0.7)
-	Audio.play("hit_head", 0.0, 0.8, 0.0)
-	victim.take_hit(Rules.HEAD, TRAP_DAMAGE, Vector2(0, 420))
-	Effects.popup(_actors, victim.aim_point(true) + Vector2(0, -70), "TRAP!  -%d" % TRAP_DAMAGE, Color(1.0, 0.5, 0.35), _damage_font(36, TRAP_DAMAGE), 1.0 / _camera.zoom.x, _camera.visible_rect())
-	var thrower_side := fighters.find(projectile.thrower) if is_instance_valid(projectile) else -1
-	if thrower_side >= 0 and thrower_side != side:
-		_stats[thrower_side]["damage"] += TRAP_DAMAGE
-
-
 ## Gluttony: an enemy basic throw that comes close to a Shadow Sovereign who has it ready
 ## is devoured whole before it can land.
 func _watch_gluttony() -> void:
@@ -4541,6 +4466,21 @@ func _watch_gluttony() -> void:
 
 
 # --- 2v2 tag ---
+
+## Two people on one device (1v1 or 2v2), as opposed to playing the AI.
+func _two_players() -> bool:
+	return mode == Mode.LOCAL_2P or mode == Mode.TAG_2P
+
+
+func _is_tag() -> bool:
+	return mode == Mode.TAG or mode == Mode.TAG_2P
+
+
+## 2v2 against a friend: picks are [player 1's two, player 2's two].
+func start_tag_2p(picks: Array, map: MapData) -> void:
+	_tag_partners = [picks[1], picks[3]]
+	start_match(picks[0], picks[2], Mode.TAG_2P, AiAimer.Difficulty.NORMAL, map)
+
 
 ## A 2v2 tag match: you bring `first` and `second`; the AI brings two others.
 func start_tag(first: FighterData, second: FighterData, difficulty: int, map: MapData) -> void:
@@ -4591,8 +4531,6 @@ func _tag(side: int) -> bool:
 	fighters[side] = partner
 	partner.charge = _charge[side]
 	partner.is_turn = side == current and state != State.GAME_OVER
-	if is_instance_valid(_traps[side]):
-		(_traps[side] as Trap).victim = partner
 	_hud.bind_fighters(fighters, _player_names())
 	_update_partners()
 	_hud.announce("TAG! %s IS IN" % partner.data.short_name.to_upper(), partner.data.body_color.lightened(0.3))
@@ -4606,7 +4544,7 @@ func _tag(side: int) -> bool:
 ## After a knockout in 2v2: every knocked-out fighter with a partner still standing is
 ## replaced. True if the match can go on.
 func _tag_rescue() -> bool:
-	if mode != Mode.TAG:
+	if not _is_tag():
 		return false
 	for side in 2:
 		if fighters[side].is_knocked_out() and not _tag(side):
@@ -4627,7 +4565,7 @@ func _rest_partner(side: int) -> void:
 
 ## The waiting partners under each health bar.
 func _update_partners() -> void:
-	if mode != Mode.TAG:
+	if not _is_tag():
 		_hud.set_partners(["", ""])
 		return
 	var texts := ["", ""]
