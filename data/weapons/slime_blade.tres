@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_script")
 id = &"slime_blade"
-display_name = "Predator's Slime Blade"
+display_name = "Water Cutter"
 max_speed = 1400.0
 body_damage = 18
 head_damage = 30
@@ -13,7 +13,7 @@ count = 1
 spin = 0.0
 sticks = false
 shape = &"slime_blade"
-size = 44.0
+size = 74.0
 color = Color(0.35, 0.85, 1, 1)
 gravity_scale = 1.0
 special = &"beelzebuth"

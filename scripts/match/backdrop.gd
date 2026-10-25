@@ -26,6 +26,8 @@ var _clouds: Array[Dictionary] = []
 var _stars := PackedVector3Array()
 var _crowd: Array[Dictionary] = []
 var _time := 0.0
+## How worked up the crowd is (0..1): big moments raise it and it calms down again.
+var excitement := 0.0
 var _noise := FastNoiseLite.new()
 var _rng := RandomNumberGenerator.new()
 
@@ -106,6 +108,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	excitement = maxf(0.0, excitement - delta * 0.45)
 	for cloud in _clouds:
 		cloud["x"] = wrapf(cloud["x"] + cloud["speed"] * delta, -CLOUD_WRAP, CLOUD_WRAP)
 	for layer in _animated:
@@ -284,12 +287,12 @@ func _arch(canvas: Node2D, rect: Rect2) -> void:
 
 func _draw_crowd_and_banners(canvas: Node2D) -> void:
 	for fan in _crowd:
-		var bounce := maxf(0.0, sin(_time * 5.0 + fan["phase"])) * 5.0
+		var bounce := maxf(0.0, sin(_time * (5.0 + excitement * 7.0) + fan["phase"])) * (5.0 + excitement * 16.0)
 		var base := Vector2(fan["x"], -30.0 - bounce - fan["tier"] * 8.0)
 		var color: Color = fan["color"]
 		canvas.draw_circle(base + Vector2(0, -10), 9.0, color, true, -1.0, true)
 		canvas.draw_rect(Rect2(base + Vector2(-9, -2), Vector2(18, 20)), color)
-		if int(fan["phase"] * 10) % 3 == 0:
+		if int(fan["phase"] * 10) % 3 == 0 or excitement > 0.35:
 			canvas.draw_line(base + Vector2(6, -2), base + Vector2(12, -24 - bounce), color, 4.0, true)
 	for i in range(-int(HALF_WIDTH / ARCH_SPACING), int(HALF_WIDTH / ARCH_SPACING), 4):
 		var x := i * ARCH_SPACING + ARCH_SPACING * 0.5
@@ -693,3 +696,8 @@ func _draw_fog(canvas: Node2D) -> void:
 			canvas.draw_circle(Vector2.ZERO, 160.0, Color(0.7, 0.85, 0.8, 0.07), true, -1.0, true)
 			canvas.draw_set_transform(Vector2.ZERO)
 			x += 260.0
+
+
+## Something big happened: the crowd leaps up and cheers (amount 0..1 adds up).
+func hype(amount: float) -> void:
+	excitement = minf(1.0, excitement + amount)

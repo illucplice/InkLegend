@@ -114,6 +114,9 @@ var _card_buttons: Array[Button] = []
 var _card_scroll: ScrollContainer
 var _difficulty_box: Control
 var _go_label: Label
+## Vs AI: the second pick (your opponent) can be left to chance instead.
+var _random_foe := false
+var _random_button: Button
 ## null means a random map.
 var _map_choice: MapData
 var _map_screen: Control
@@ -387,6 +390,7 @@ func _show_screen(screen: Control) -> void:
 func _open_select(mode: int) -> void:
 	_select_mode = mode
 	_select_step = 0
+	_random_foe = false
 	var owned := _owned_fighters()
 	if not owned.is_empty():
 		_picks[0] = owned[_selected_index()]
@@ -754,13 +758,16 @@ func _build_title() -> Control:
 	_menu.alignment = BoxContainer.ALIGNMENT_CENTER
 	_menu.add_theme_constant_override("separation", 12)
 	screen.add_child(_menu)
-	_tournament_button = _mode_button(&"trophy", "Tournament", "4 rounds, each harder", UiStyle.YELLOW)
+	_tournament_button = _mode_button(&"trophy", "Tournament", "13 rounds, Common to Mythic", UiStyle.YELLOW)
 	_tournament_button.pressed.connect(func() -> void:
 		if Save.tournament.is_empty():
 			_open_select(MatchController.Mode.TOURNAMENT)
 		else:
 			resume_requested.emit())
 	_menu.add_child(_tournament_button)
+	var arcade := _mode_button(&"sword", "Arcade", "5 fights, then your rival", UiStyle.RED)
+	arcade.pressed.connect(_open_select.bind(MatchController.Mode.ARCADE))
+	_menu.add_child(arcade)
 	var duo := _mode_button(&"duo", "1v1 friend", "Take turns, one device", UiStyle.ORANGE)
 	duo.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
 	_menu.add_child(duo)
@@ -1192,6 +1199,12 @@ func _build_select() -> Control:
 	_go_label = go.get_meta("label")
 	go.pressed.connect(_select_next)
 	bottom.add_child(back)
+	# Vs AI: let the game choose the opponent.
+	_random_button = _icon_button(&"restart", "Random", UiStyle.PURPLE, Vector2(190, 70), 24)
+	_random_button.pressed.connect(func() -> void:
+		_random_foe = true
+		_show_screen(_map_screen))
+	bottom.add_child(_random_button)
 	bottom.add_child(go)
 	content.add_child(bottom)
 	var screen := _card_screen("CHOOSE YOUR FIGHTER", UiStyle.YELLOW, content)
@@ -1329,26 +1342,34 @@ func _stat_row(label_text: String, value: int, color: Color) -> HBoxContainer:
 func _refresh_select() -> void:
 	var vs_ai := _select_mode == MatchController.Mode.VS_AI
 	var is_tournament := _select_mode == MatchController.Mode.TOURNAMENT
+	var is_arcade := _select_mode == MatchController.Mode.ARCADE
 	var label: Label = _select_ribbon.get_meta("label")
 	var color := UiStyle.YELLOW
 	if is_tournament:
 		label.text = "CHOOSE YOUR CHAMPION"
 		color = UiStyle.ORANGE
+	elif is_arcade:
+		label.text = "ARCADE: CHOOSE YOUR FIGHTER"
+		color = UiStyle.RED
 	elif _select_mode == MatchController.Mode.PRACTICE:
 		label.text = "TARGET PRACTICE"
 		color = UiStyle.BLUE
 	elif vs_ai:
-		label.text = "CHOOSE YOUR FIGHTER"
+		label.text = "CHOOSE YOUR FIGHTER" if _select_step == 0 else "CHOOSE YOUR OPPONENT"
+		color = UiStyle.YELLOW if _select_step == 0 else UiStyle.RED
 	else:
 		label.text = "PLAYER %d, CHOOSE!" % (_select_step + 1)
 		color = UiStyle.BLUE if _select_step == 0 else UiStyle.RED
 	_select_ribbon.add_theme_stylebox_override("panel", UiStyle.candy(color))
 	_difficulty_box.visible = vs_ai
 	var two_player := _select_mode == MatchController.Mode.LOCAL_2P
-	var picks_map := vs_ai or (two_player and _select_step == 1)
-	_go_label.text = "Next" if picks_map or (two_player and _select_step == 0) else "Start!"
+	var picks_map := (vs_ai or two_player) and _select_step == 1
+	_go_label.text = "Next" if picks_map or ((two_player or vs_ai) and _select_step == 0) else "Start!"
+	_random_button.visible = vs_ai and _select_step == 1
+	# Your opponent can be anyone, owned or not.
+	var any_foe := vs_ai and _select_step == 1
 	# Only fighters you own can be picked; fall back to the first owned one.
-	if not Save.is_unlocked(_picks[_select_step]):
+	if not any_foe and not Save.is_unlocked(_picks[_select_step]):
 		for fighter in _roster:
 			if Save.is_unlocked(fighter):
 				_picks[_select_step] = fighter
@@ -1358,7 +1379,7 @@ func _refresh_select() -> void:
 		_card_scroll.ensure_control_visible.call_deferred(_card_buttons[picked])
 	for i in _card_buttons.size():
 		_card_buttons[i].set_pressed_no_signal(i == picked)
-		var locked := not Save.is_unlocked(_card_buttons[i].get_meta("data"))
+		var locked := not any_foe and not Save.is_unlocked(_card_buttons[i].get_meta("data"))
 		_card_buttons[i].disabled = locked
 		(_card_buttons[i].get_meta("lock") as Control).visible = locked
 		var fighter: Fighter = _card_buttons[i].get_meta("fighter")
@@ -1367,6 +1388,7 @@ func _refresh_select() -> void:
 
 func _on_card_picked(index: int) -> void:
 	_picks[_select_step] = _roster[index]
+	_random_foe = false
 	_refresh_select()
 
 
@@ -1379,9 +1401,11 @@ func _select_back() -> void:
 
 
 func _select_next() -> void:
-	if _select_mode == MatchController.Mode.LOCAL_2P and _select_step == 0:
+	var two_step := _select_mode == MatchController.Mode.LOCAL_2P or _select_mode == MatchController.Mode.VS_AI
+	if two_step and _select_step == 0:
 		_select_step = 1
-		if _picks[1] == _picks[0]:
+		_random_foe = false
+		if _picks[1] == null or _picks[1] == _picks[0]:
 			_picks[1] = _roster[(_roster.find(_picks[0]) + 1) % _roster.size()]
 		_refresh_select()
 		return
@@ -1393,7 +1417,7 @@ func _select_next() -> void:
 
 
 func _start_selected() -> void:
-	var right := _picks[1] if _select_mode == MatchController.Mode.LOCAL_2P else null
+	var right := _picks[1] if _select_mode == MatchController.Mode.LOCAL_2P or (_select_mode == MatchController.Mode.VS_AI and not _random_foe) else null
 	play_requested.emit(_picks[0], right, _select_mode, _difficulty, _map_choice)
 
 
@@ -1625,7 +1649,7 @@ func _fill_result_buttons(ladder: Dictionary) -> void:
 		_result_buttons.add_child(button)
 
 
-## The tournament ladder: four round cards (won, next or locked) and a start button.
+## The tournament ladder: thirteen round cards (won, next or locked) and a start button.
 func _build_ladder() -> Control:
 	_ladder_content = VBoxContainer.new()
 	_ladder_content.add_theme_constant_override("separation", 16)
@@ -1645,7 +1669,11 @@ func show_ladder(info: Dictionary) -> void:
 	header.alignment = BoxContainer.ALIGNMENT_CENTER
 	header.add_theme_constant_override("separation", 14)
 	header.add_child(Portrait.make(pick, 1, 64.0))
-	var you := UiStyle.ink_label("%s's road to glory" % pick.short_name, 26, true)
+	var arcade_run: bool = info.get("arcade", false)
+	var rounds_list: Array = info["rounds"]
+	var rival: FighterData = rounds_list[-1]["opponent"]
+	var you := UiStyle.ink_label("%s's road to %s" % [pick.short_name, rival.short_name] if arcade_run else "%s's road to glory" % pick.short_name, 26, true)
+	(_ladder_screen.get_meta("ribbon").get_meta("label") as Label).text = "ARCADE" if arcade_run else "TOURNAMENT"
 	header.add_child(you)
 	_ladder_content.add_child(header)
 
@@ -1653,9 +1681,20 @@ func show_ladder(info: Dictionary) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 12)
 	var rounds: Array = info["rounds"]
+	var next_card: Control = null
 	for i in rounds.size():
-		row.add_child(_round_card(i, rounds[i], i == rounds.size() - 1))
-	_ladder_content.add_child(row)
+		var card := _round_card(i, rounds[i], i == rounds.size() - 1)
+		row.add_child(card)
+		if i == int(info["round"]):
+			next_card = card
+	# Thirteen rounds are too many to show at once: they scroll, starting at the next one.
+	var strip := ScrollContainer.new()
+	strip.custom_minimum_size = Vector2(1080, 312)
+	strip.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	strip.add_child(row)
+	_ladder_content.add_child(strip)
+	if next_card != null:
+		_scroll_to_card(strip, next_card)
 
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1666,7 +1705,7 @@ func show_ladder(info: Dictionary) -> void:
 	go.pressed.connect(round_requested.emit)
 	buttons.add_child(quit)
 	# Mid-tournament (not yet won a round's result screen): start over with a new pick.
-	if int(info["round"]) > 0 or Save.tournament.size() > 0:
+	if not arcade_run and (int(info["round"]) > 0 or Save.tournament.size() > 0):
 		var fresh := _icon_button(&"restart", "New tournament", UiStyle.ORANGE, Vector2(260, 70), 24)
 		fresh.pressed.connect(func() -> void:
 			Save.tournament = {}
@@ -1678,6 +1717,14 @@ func show_ladder(info: Dictionary) -> void:
 	_show_screen(_ladder_screen)
 
 
+## Once the ladder has laid itself out, scrolls so the next round sits near the left.
+func _scroll_to_card(strip: ScrollContainer, card: Control) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(strip) and is_instance_valid(card):
+		strip.scroll_horizontal = maxi(0, int(card.position.x) - 190)
+
+
 func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContainer:
 	var state: String = round_info["state"]
 	var opponent: FighterData = round_info["opponent"]
@@ -1687,18 +1734,25 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	if boss and state != "won":
 		color = UiStyle.PURPLE if state == "locked" else UiStyle.RED
 	card.add_theme_stylebox_override("panel", UiStyle.candy(color.lerp(PAPER, 0.35 if state == "next" else 0.55)))
-	card.custom_minimum_size = Vector2(200, 270)
+	card.custom_minimum_size = Vector2(170, 290)
 	var stack := VBoxContainer.new()
 	stack.alignment = BoxContainer.ALIGNMENT_CENTER
 	stack.add_theme_constant_override("separation", 6)
-	stack.add_child(UiStyle.game_label("FINAL" if boss else "ROUND %d" % (index + 1), 24, true))
+	var arcade_run: bool = round_info.get("arcade", false)
+	stack.add_child(UiStyle.game_label(("RIVAL" if arcade_run else "FINAL") if boss else "ROUND %d" % (index + 1), 24, true))
 	var portrait_box := CenterContainer.new()
-	var portrait := Portrait.make(opponent, -1, 96.0)
+	var portrait := Portrait.make(opponent, -1, 80.0)
 	if state == "locked" and not boss:
 		portrait.modulate = Color(0.25, 0.22, 0.3)
 	portrait_box.add_child(portrait)
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(opponent.display_name if state != "locked" or boss else "???", 18, true))
+	# How rare they are: the ladder climbs from Common to Mythic.
+	var shadow := boss and not arcade_run
+	var rarity_name: String = "Your shadow" if shadow else String(Chests.RARITY_NAMES.get(opponent.rarity, "Common"))
+	var rarity := UiStyle.game_label(rarity_name, 15, true)
+	rarity.add_theme_color_override("font_color", Chests.RARITY_COLORS.get(opponent.rarity, Color.WHITE) if not shadow else Color(0.85, 0.45, 1.0))
+	stack.add_child(rarity)
 	stack.add_child(UiStyle.ink_label(map.display_name, 15))
 	var level: int = round_info["difficulty"]
 	var level_name: String = ["Easy", "Normal", "Hard", "Champion"][level]
@@ -1710,6 +1764,14 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	pill.add_child(UiStyle.game_label(level_name, 16, true))
 	stack.add_child(pill)
+	# The prize for winning it.
+	var prize := "+%d coins" % int(round_info.get("coins", 0))
+	if round_info.has("chest"):
+		prize += "
++ %s" % Chests.KINDS[round_info["chest"]]["name"]
+	var prize_label := UiStyle.ink_label(prize, 15, true)
+	prize_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stack.add_child(prize_label)
 	if state == "won":
 		stack.add_child(UiStyle.game_label("✔ WON", 20, true))
 	card.add_child(stack)
@@ -1719,6 +1781,16 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 		pulse.tween_property(card, "scale", Vector2(1.04, 1.04), 0.5).set_trans(Tween.TRANS_SINE)
 		pulse.tween_property(card, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_SINE)
 	return card
+
+
+## The tournament champion's prize: a chest, opened over the result screen.
+func award_chest(kind: String, result: Dictionary) -> void:
+	if result.is_empty():
+		return
+	toast("CHAMPION'S PRIZE: %s!" % Chests.KINDS[kind]["name"], Color(1.0, 0.8, 0.3))
+	await get_tree().create_timer(1.2).timeout
+	_chest_opening.play(kind, result)
+	_refresh_title()
 
 
 func _fill_stats(names: Array[String], stats: Array) -> void:
@@ -1884,7 +1956,7 @@ func _refresh_title() -> void:
 	_set_coins(_coins_pill)
 	var subtitle: Label = _tournament_button.get_meta("subtitle")
 	if Save.tournament.is_empty():
-		subtitle.text = "4 rounds, each harder"
+		subtitle.text = "13 rounds, Common to Mythic"
 	else:
 		subtitle.text = "Continue: round %d of %d" % [int(Save.tournament["round"]) + 1, (Save.tournament["rounds"] as Array).size()]
 	var done := Save.daily_done == Rewards.today()

@@ -65,3 +65,57 @@ static func intro_line(id: StringName, rng: RandomNumberGenerator) -> String:
 static func hit_line(id: StringName, rng: RandomNumberGenerator) -> String:
 	var lines: Array = HIT.get(id, GENERIC_HIT)
 	return lines[rng.randi() % lines.size()]
+
+
+## Each fighter's rival: the boss at the end of their arcade ladder.
+const RIVALS := {
+	&"gok": &"egita", &"egita": &"gok", &"ryo": &"akum", &"akum": &"ryo",
+	&"ichi": &"aizon", &"aizon": &"ichi", &"uryo": &"ichi", &"jotar": &"dyo", &"dyo": &"jotar",
+	&"goj": &"yuj", &"yuj": &"goj", &"megu": &"yuj", &"lufi": &"gok",
+	&"thundr": &"capt", &"capt": &"thundr", &"spydr": &"batz", &"batz": &"spydr",
+	&"kazma": &"subaro", &"subaro": &"kazma", &"frierin": &"rimiru", &"rimiru": &"frierin",
+	&"quotuk": &"grak", &"grak": &"quotuk", &"klakla": &"pipmo", &"pipmo": &"klakla",
+	&"fentuk": &"rango", &"rango": &"fentuk", &"bomba": &"plopo", &"plopo": &"bomba",
+}
+
+## The face-off when rivals meet: [what the first says, how the second answers].
+const RIVAL_LINES := {
+	"gok>egita": ["Egita! Ready to go all out?", "This time I surpass you, Kakarot!"],
+	"egita>gok": ["Kakarot! Today you fall!", "Heh, I was hoping you'd say that!"],
+	"ryo>akum": ["I won't give in to the darkness.", "Then you will die, Ryo."],
+	"akum>ryo": ["Embrace the Satsui no Hado.", "My fists are my own, Akum."],
+	"ichi>aizon": ["Aizon! This ends now!", "You were always part of my plan."],
+	"aizon>ichi": ["Show me how far you have come.", "Far enough to beat you!"],
+	"uryo>ichi": ["A Quincy doesn't lose to a Soul Reaper.", "Still keeping score, Uryo?"],
+	"jotar>dyo": ["Your time's up, Dyo.", "Oh? You're approaching me?"],
+	"dyo>jotar": ["I'll crush you, Jotar!", "Yare yare... let's finish this."],
+	"goj>yuj": ["Let me see that cursed energy.", "Today I beat you, sensei!"],
+	"yuj>goj": ["Sensei, I'm not holding back!", "Good. Neither am I."],
+	"megu>yuj": ["Don't go easy on me, Yuj.", "Wasn't planning to!"],
+	"lufi>gok": ["You're strong! Let's fight!", "Haha! Rubber versus ki!"],
+	"thundr>capt": ["Let us see if you are worthy.", "I can do this all day."],
+	"capt>thundr": ["No more talk, Thundr.", "Then let the storm speak!"],
+	"spydr>batz": ["Nice cape. Wanna trade?", "I don't do jokes."],
+	"batz>spydr": ["Stay out of my city.", "Your city? I'm just passing through!"],
+	"kazma>subaro": ["Another isekai guy? Lame.", "At least I don't steal panties!"],
+	"subaro>kazma": ["I'll win, no matter how many tries!", "Luck beats tries, buddy."],
+	"frierin>rimiru": ["Your mana is... strange.", "I could say the same about you."],
+	"rimiru>frierin": ["Let's see whose magic wins.", "Zoltraak doesn't care whose."],
+	"quotuk>grak": ["You again, big guy?", "GRAK REMEMBER YOU."],
+	"grak>quotuk": ["GRAK WIN THIS TIME.", "We'll see about that."],
+	"klakla>pipmo": ["Klak! Tiny one!", "Pip! Who are you calling tiny?"],
+	"pipmo>klakla": ["Pip pip! Rematch!", "Klak klak!"],
+	"fentuk>rango": ["Draw your weapon.", "I was born ready, partner."],
+	"rango>fentuk": ["This town ain't big enough.", "Then I'll clear some room."],
+	"bomba>plopo": ["Stand back, blob!", "Blub? Blub blub!"],
+	"plopo>bomba": ["Plop! Plop!", "Ugh, not the slime again."],
+}
+
+
+static func rival_of(id: StringName) -> StringName:
+	return RIVALS.get(id, &"")
+
+
+## The two lines for a rivals' face-off (empty if these two aren't rivals).
+static func rival_lines(first: StringName, second: StringName) -> Array:
+	return RIVAL_LINES.get("%s>%s" % [first, second], [])

@@ -13,7 +13,7 @@ enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## LOCAL_2P: two players take turns on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
 ## PRACTICE: alone against 10 targets at growing distances (see start_practice).
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE }
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -62,8 +62,12 @@ const MAPS := [
 	preload("res://data/maps/bamboo.tres"),
 	preload("res://data/maps/graveyard.tres"),
 ]
-## Tournament rounds: AI difficulty per round. The last round is the Champion boss.
-const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION]
+## Tournament rounds: the AI gets harder and the opponents rarer each round (Common up
+## to Mythic), and the last round is the Champion boss, a shadow of your own fighter.
+const TOURNAMENT_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.EASY, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION]
+const TOURNAMENT_RARITIES := [&"common", &"common", &"rare", &"rare", &"rare", &"epic", &"epic", &"legendary", &"legendary", &"legendary", &"mythic", &"mythic"]
+## The champion's prize, on top of the final round's coins.
+const TOURNAMENT_CHEST := "gold"
 const AI_THINK_TIME := 1.0
 const SETTLE_TIME := 0.9
 const RESULT_DELAY := 0.6
@@ -319,7 +323,7 @@ const SLOWED_SPEED := 0.6
 const RECALL_AI_RANGE := 34.0
 ## Beelzebuth: the vortex's damage (normal, evolved), its reach, how far it drags
 ## the enemy in, and what each Predator Mark it eats adds.
-const VORTEX_DAMAGE := [38, 44]
+const VORTEX_DAMAGE := [25, 34]
 const VORTEX_RADIUS := 190.0
 const VORTEX_PULL := 90.0
 const VORTEX_MARK_DAMAGE := 5
@@ -416,7 +420,8 @@ func _ready() -> void:
 	_hud.daily_requested.connect(start_daily)
 	_hud.resume_requested.connect(resume_tournament)
 	_hud.give_up_requested.connect(func() -> void:
-		Save.tournament = {}
+		if not _is_arcade():
+			Save.tournament = {}
 		Save.save_progress()
 		go_to_menu())
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
@@ -455,6 +460,9 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 			if fighter != left:
 				foes.append(fighter)
 		right = foes[rng.randi_range(0, foes.size() - 1)]
+	# A mirror match: the opponent is a copy, so the two sides never share one data.
+	if right == left:
+		right = left.duplicate() as FighterData
 	_last_left = left
 	_last_right = right
 	_last_difficulty = difficulty
@@ -497,11 +505,13 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 		await _hud.play_intro(left, right, names)
 		if match_id != _match_id:
 			return
-		_say(fighters[0], Taunts.intro_line(left.base_id(), rng), 1.3)
+		# Rivals get their own face-off.
+		var face_off := Taunts.rival_lines(left.base_id(), right.base_id())
+		_say(fighters[0], face_off[0] if not face_off.is_empty() else Taunts.intro_line(left.base_id(), rng), 1.3)
 		await get_tree().create_timer(1.2, false).timeout
 		if match_id != _match_id:
 			return
-		_say(fighters[1], Taunts.intro_line(right.base_id(), rng), 1.3)
+		_say(fighters[1], face_off[1] if not face_off.is_empty() else Taunts.intro_line(right.base_id(), rng), 1.3)
 		await get_tree().create_timer(1.3, false).timeout
 		if match_id != _match_id:
 			return
@@ -595,21 +605,37 @@ func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, 
 	_daily = {}
 	if match_mode == Mode.TOURNAMENT:
 		start_tournament(left)
+	elif match_mode == Mode.ARCADE:
+		start_arcade(left)
 	elif match_mode == Mode.PRACTICE:
 		start_practice(left)
 	else:
 		start_match(left, right, match_mode, difficulty, map)
 
 
-## Sets up a ladder: the other fighters in random order on random maps, getting
-## harder each round, then a Champion-level shadow copy of your fighter in the Lava Forge.
+## Sets up a 13-round ladder on random maps: opponents climbing from Common to Mythic,
+## the AI getting harder each round, then a Champion-level shadow copy of your fighter
+## in the Lava Forge.
 func start_tournament(pick: FighterData) -> void:
 	var foes: Array[FighterData] = []
-	for fighter in roster():
-		if fighter != pick:
-			foes.append(fighter)
-	foes.shuffle()
-	foes = foes.slice(0, TOURNAMENT_DIFFICULTIES.size() - 1)
+	for rarity: StringName in TOURNAMENT_RARITIES:
+		var pool: Array[FighterData] = []
+		for fighter in roster():
+			if fighter != pick and fighter.rarity == rarity and not foes.has(fighter):
+				pool.append(fighter)
+		# Run out of this rarity: take the next rarer one up (or, at the top, below).
+		var step := Chests.RARITIES.find(rarity)
+		var order: Array = Chests.RARITIES.slice(step + 1)
+		var below: Array = Chests.RARITIES.slice(0, step)
+		below.reverse()
+		order.append_array(below)
+		for other: StringName in order:
+			if not pool.is_empty():
+				break
+			for fighter in roster():
+				if fighter != pick and fighter.rarity == other and not foes.has(fighter):
+					pool.append(fighter)
+		foes.append(pool[rng.randi_range(0, pool.size() - 1)])
 	foes.append(_shadow_of(pick))
 	var map_order := maps()
 	map_order.shuffle()
@@ -622,6 +648,34 @@ func start_tournament(pick: FighterData) -> void:
 	tournament = {"pick": pick, "round": 0, "rounds": rounds}
 	_save_tournament()
 	_hud.show_ladder(_ladder_info())
+
+
+## Arcade: five fights that get harder, then your fighter's rival as the boss. It is
+## played like a tournament (same ladder and rounds) but never saved.
+const ARCADE_DIFFICULTIES := [AiAimer.Difficulty.EASY, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.NORMAL, AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION]
+
+
+func start_arcade(pick: FighterData) -> void:
+	var rival := _fighter_by_id(String(Taunts.rival_of(pick.base_id())))
+	var foes: Array[FighterData] = []
+	for fighter in roster():
+		if fighter != pick and fighter != rival:
+			foes.append(fighter)
+	foes.shuffle()
+	foes = foes.slice(0, ARCADE_DIFFICULTIES.size() - 1)
+	foes.append(rival if rival != null else _shadow_of(pick))
+	var map_order := maps()
+	map_order.shuffle()
+	var rounds: Array[Dictionary] = []
+	for i in ARCADE_DIFFICULTIES.size():
+		rounds.append({"opponent": foes[i], "map": map_order[i % map_order.size()], "difficulty": ARCADE_DIFFICULTIES[i]})
+	_daily = {}
+	tournament = {"pick": pick, "round": 0, "rounds": rounds, "kind": "arcade"}
+	_hud.show_ladder(_ladder_info())
+
+
+func _is_arcade() -> bool:
+	return tournament.get("kind", "") == "arcade"
 
 
 ## Adds to a side's special meter; says so when the player's fills up.
@@ -1990,6 +2044,9 @@ func start_daily() -> void:
 
 ## Stores the tournament in progress so it can be continued after closing the game.
 func _save_tournament() -> void:
+	# An arcade run lives only as long as it is being played.
+	if _is_arcade():
+		return
 	var rounds := []
 	for round_info: Dictionary in tournament["rounds"]:
 		var opponent: FighterData = round_info["opponent"]
@@ -2042,8 +2099,12 @@ func _ladder_info() -> Dictionary:
 	for i in tournament["rounds"].size():
 		var round_info: Dictionary = tournament["rounds"][i].duplicate()
 		round_info["state"] = "won" if i < tournament["round"] else ("next" if i == tournament["round"] else "locked")
+		round_info["coins"] = Rewards.round_prize(i + 1, _is_arcade())
+		round_info["arcade"] = _is_arcade()
+		if i == tournament["rounds"].size() - 1 and not _is_arcade():
+			round_info["chest"] = TOURNAMENT_CHEST
 		rounds.append(round_info)
-	return {"pick": tournament["pick"], "round": tournament["round"], "rounds": rounds}
+	return {"pick": tournament["pick"], "round": tournament["round"], "rounds": rounds, "arcade": _is_arcade()}
 
 
 ## A dark, glowing copy of a fighter for the final boss.
@@ -2545,7 +2606,7 @@ func _throw(angle: float, power: float) -> void:
 		_actors.add_child(projectile)
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
-		if not fighter.is_ai and weapon.shape != &"ki":
+		if not fighter.is_ai and not weapon.shape in [&"ki", &"slime_blade", &"maw_blade"]:
 			projectile.set_trail_color(Save.trail_color())
 		if special == &"shockwave":
 			projectile.bounces = 1
@@ -2748,21 +2809,24 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Audio.play("cheer", -8.0, 1.0, 0.1)
 			Device.vibrate(60)
 			Effects.burst(_actors, at, Color(1.0, 0.88, 0.3), 22, 520.0, 180.0, 1.2)
-			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), 40, inv_zoom, view)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "HEADSHOT!  -%d" % damage, Color(1.0, 0.85, 0.2), _damage_font(40, damage), inv_zoom, view)
 			if not target.is_knocked_out() and rng.randf() < 0.5:
 				_say(projectile.thrower as Fighter, Taunts.hit_line((projectile.thrower as Fighter).data.base_id(), rng))
 			_camera.shake(0.7)
-			_slow_time(0.14, 0.1)
+			_hit_stop()
+			_hype(0.6)
 		Rules.LEGS:
 			Audio.play("hit_body", -3.0, 1.2)
 			Effects.burst(_actors, at, Color(1, 1, 1, 0.8), 8, 300.0)
-			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "LEG  -%d" % damage, Color(0.85, 0.9, 1.0), 28, inv_zoom, view)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "LEG  -%d" % damage, Color(0.85, 0.9, 1.0), _damage_font(28, damage), inv_zoom, view)
 			_camera.shake(0.3)
 		_:
 			Device.vibrate(30)
 			Audio.play("hit_body", 0.0 if projectile.weapon.count == 1 else -5.0, 1.0 if projectile.weapon.count == 1 else 1.4)
 			Effects.burst(_actors, at, Color(1, 1, 1, 0.9), 12, 380.0)
-			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, Color.WHITE, 34, inv_zoom, view)
+			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -50), "-%d" % damage, _damage_color(damage), _damage_font(34, damage), inv_zoom, view)
+			if damage >= 30:
+				_hype(0.35)
 			_camera.shake(0.45 if projectile.weapon.count == 1 else 0.25)
 			_slow_time(0.06, 0.15)
 	# A wet splat on top of solid hits (blood or ink, per the Gore setting).
@@ -2770,6 +2834,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		Audio.play("splat", -8.0 + minf(damage, 60) * 0.1, randf_range(0.9, 1.2), 0.0)
 	if target.is_knocked_out():
 		Audio.play("ko", 0.0, 1.0, 0.0)
+		_hype(1.0)
 		Audio.play("cheer", -2.0, 1.0, 0.0)
 		Audio.play("gore", -2.0, 1.0, 0.0)
 		Device.vibrate(140)
@@ -3014,6 +3079,8 @@ func _after_throw() -> void:
 			_analysis[current] = mini(_analysis[current] + 1, ANALYSIS_STEPS)
 		if _throw_closest < CLOSE_CALL_DISTANCE and _held.is_empty():
 			_hud.announce("SO CLOSE!", Color(1.0, 0.85, 0.4))
+			_hype(0.4)
+			Audio.play("cheer", -10.0, 0.7, 0.1)
 	if mode == Mode.PRACTICE and _hud.time_stopped():
 		# Practice moves on after every throw, so time stop ends with it.
 		_time_stop_left = 0
@@ -3109,6 +3176,12 @@ func _end_match() -> void:
 	state = State.GAME_OVER
 	var winner_side := fighters.find(winner)
 	winner.victory(landed)
+	# A win without a scratch.
+	if winner.health >= Rules.MAX_HEALTH and mode != Mode.PRACTICE:
+		_hud.announce("PERFECT!", Color(1.0, 0.85, 0.3))
+		Audio.play("cheer", 0.0, 1.1, 0.0)
+		_hype(1.0)
+		_camera.shake(0.4)
 	var player_won := (winner_side == 0 and not autoplay) or mode == Mode.LOCAL_2P
 	var title := "DEFEAT"
 	var color := Color(0.92, 0.3, 0.3)
@@ -3128,9 +3201,9 @@ func _end_match() -> void:
 		if player_won:
 			tournament["round"] = round_number
 			if final:
-				title = "CHAMPION!"
+				title = "ARCADE CLEAR!" if _is_arcade() else "CHAMPION!"
 				color = Color(1.0, 0.75, 0.2)
-	if mode == Mode.TOURNAMENT and not tournament.is_empty():
+	if mode == Mode.TOURNAMENT and not tournament.is_empty() and not _is_arcade():
 		if ladder["won"] and ladder["final"]:
 			Save.tournament = {}
 		else:
@@ -3141,6 +3214,7 @@ func _end_match() -> void:
 		"difficulty": _last_difficulty,
 		"round": ladder.get("round", 0),
 		"champion": ladder.get("won", false) and ladder.get("final", false),
+		"arcade": _is_arcade(),
 		"headshots": _stats[0]["headshots"],
 		"longest": _stats[0]["longest"],
 		"damage_taken": _stats[1]["damage"],
@@ -3178,6 +3252,11 @@ func _end_match() -> void:
 	for id: String in payout["achievements"]:
 		var entry := Rewards.achievement(id)
 		_hud.toast("Achievement: %s  +%d" % [entry["name"], Rewards.ACHIEVEMENT_COINS], Color(1.0, 0.8, 0.3))
+	# The champion's prize: a chest, opened on the spot.
+	if summary["champion"] and not autoplay and not summary["arcade"]:
+		var prize_rng := RandomNumberGenerator.new()
+		prize_rng.randomize()
+		_hud.award_chest(TOURNAMENT_CHEST, Chests.open(TOURNAMENT_CHEST, roster(), Save, prize_rng, true))
 
 
 ## Banks a finished match (not 1v1, not test autoplay): coins, fighter stats,
@@ -3900,7 +3979,7 @@ func _become_sovereign(fighter: Fighter) -> void:
 	maw.shape = &"maw_blade"
 	maw.display_name = "Gluttony's Maw"
 	maw.color = Color(0.6, 0.3, 0.95)
-	maw.size = 50.0
+	maw.size = 84.0
 	maw.max_speed = 1550.0
 	maw.body_damage = 20
 	maw.head_damage = 34
@@ -4135,3 +4214,33 @@ func _charged_hadoken(fighter: Fighter, angle: float, shape: StringName, size: f
 	_camera.shake(0.4)
 	Effects.burst(_actors, hands, color, 24, 420.0, 180.0, 1.2)
 	_straight_shot(fighter, angle, shape, size, color, meta, true, blast, size_scale)
+
+
+# --- game feel ---
+
+## A freeze-frame on a headshot: the world all but stops for a blink, then eases back
+## through a moment of slow motion.
+func _hit_stop() -> void:
+	_slow_time(0.07, 0.02)
+	await get_tree().create_timer(0.07, true, false, true).timeout
+	_slow_time(0.12, 0.25)
+
+
+## Damage numbers grow with the hit.
+static func _damage_font(base: int, damage: int) -> int:
+	return base + clampi(damage - 15, 0, 45) * 2 / 3
+
+
+## Small hits pop up white; big ones run hot, through orange to red.
+static func _damage_color(damage: int) -> Color:
+	if damage >= 40:
+		return Color(1.0, 0.35, 0.25)
+	if damage >= 25:
+		return Color(1.0, 0.7, 0.3)
+	return Color.WHITE
+
+
+## The crowd reacts (only where there is one to see).
+func _hype(amount: float) -> void:
+	if _backdrop != null and is_instance_valid(_backdrop):
+		_backdrop.hype(amount)

@@ -16,6 +16,11 @@ const ACHIEVEMENT_COINS := 50
 const DAILY_COINS := 150
 ## Win bonus by AI difficulty (Easy, Normal, Hard, Champion).
 const DIFFICULTY_BONUS := [0, 20, 50, 80]
+## Tournament: what winning each round pays, climbing with the round (the champion also
+## gets a chest).
+const TOURNAMENT_ROUND_COINS := [40, 50, 60, 75, 90, 105, 125, 145, 170, 200, 240, 290, 450]
+## Arcade: what each of its six rounds pays (clearing it, beating your rival, the most).
+const ARCADE_ROUND_COINS := [40, 60, 80, 110, 150, 350]
 
 const ACHIEVEMENTS := [
 	{"id": "first_win", "name": "First Blood", "desc": "Win a match."},
@@ -65,11 +70,17 @@ static func coins_for(summary: Dictionary) -> int:
 			return 10 + headshot_bonus
 		MODE_TOURNAMENT:
 			if summary["won"]:
-				return 40 + int(summary["round"]) * 30 + (300 if summary.get("champion", false) else 0) + headshot_bonus
+				return round_prize(int(summary["round"]), summary.get("arcade", false)) + headshot_bonus
 			return 10 + headshot_bonus
 		MODE_PRACTICE:
 			return int(summary.get("practice_stars", 0)) * 3
 	return 0
+
+
+## Coins for winning tournament (or arcade) round `round` (1-based).
+static func round_prize(round: int, arcade: bool = false) -> int:
+	var table: Array = ARCADE_ROUND_COINS if arcade else TOURNAMENT_ROUND_COINS
+	return table[clampi(round - 1, 0, table.size() - 1)]
 
 
 ## Ids of achievements this summary (plus running totals in `save`) has just earned.

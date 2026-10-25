@@ -164,18 +164,32 @@ func _test_maps_and_tournament(game: Node) -> void:
 	var pick: FighterData = game.roster()[2]
 	game.start_tournament(pick)
 	var rounds: Array = game.tournament["rounds"]
-	_check(rounds.size() == 4, "a tournament has 4 rounds")
-	var harder := true
+	_check(rounds.size() == 13, "a tournament has 13 rounds")
+	var harder := int(rounds[-1]["difficulty"]) > int(rounds[-2]["difficulty"])
 	for i in range(1, rounds.size()):
-		harder = harder and int(rounds[i]["difficulty"]) > int(rounds[i - 1]["difficulty"])
-	_check(harder, "each tournament round is harder than the last")
+		harder = harder and int(rounds[i]["difficulty"]) >= int(rounds[i - 1]["difficulty"])
+	_check(harder, "the AI never gets easier, and the final is the hardest")
 	var opponents := {}
-	for i in 3:
+	var rarer := true
+	for i in 12:
 		opponents[rounds[i]["opponent"]] = true
-	_check(opponents.size() == 3 and not opponents.has(pick), "rounds 1-3 are the three other fighters")
-	var boss: FighterData = rounds[3]["opponent"]
+		if i > 0:
+			rarer = rarer and Chests.RARITIES.find(rounds[i]["opponent"].rarity) >= Chests.RARITIES.find(rounds[i - 1]["opponent"].rarity)
+	_check(opponents.size() == 12 and not opponents.has(pick), "rounds 1-12 are twelve different other fighters")
+	_check(rarer, "the opponents get rarer each round")
+	_check(Rewards.round_prize(1) < Rewards.round_prize(13), "later rounds pay more")
+	# Arcade: five fights, then your rival.
+	var gok: FighterData = load("res://data/fighters/gok.tres")
+	game.start_arcade(gok)
+	var ladder: Array = game.tournament["rounds"]
+	_check(ladder.size() == 6 and ladder[-1]["opponent"].id == &"egita", "Gok's arcade ends with his rival Egita")
+	_check(not Taunts.rival_lines(&"gok", &"egita").is_empty(), "rivals have their own face-off lines")
+	_check(Rewards.round_prize(6, true) > Rewards.round_prize(1, true), "beating your rival pays the most")
+	game.start_tournament(pick)
+	rounds = game.tournament["rounds"]
+	var boss: FighterData = rounds[-1]["opponent"]
 	_check(boss.weapon == pick.weapon and boss.display_name.begins_with("Shadow"), "the final boss is a shadow of your fighter")
-	_check(rounds[3]["map"].id == &"lava", "the final is in the Lava Forge")
+	_check(rounds[-1]["map"].id == &"lava", "the final is in the Lava Forge")
 
 
 func _test_wind_solver() -> void:

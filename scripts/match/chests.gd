@@ -43,10 +43,10 @@ static func roll(kind: String, roster: Array[FighterData], rng: RandomNumberGene
 	return pool[rng.randi_range(0, pool.size() - 1)]
 
 
-## Buys and opens a chest for `save`. Returns {fighter, new (bool), coins (refund)},
-## or an empty Dictionary if it can't be afforded.
-static func open(kind: String, roster: Array[FighterData], save: Node, rng: RandomNumberGenerator) -> Dictionary:
-	var price: int = KINDS[kind]["price"]
+## Buys and opens a chest for `save` (or opens it free, as a prize). Returns {fighter,
+## new (bool), coins (refund)}, or an empty Dictionary if it can't be afforded.
+static func open(kind: String, roster: Array[FighterData], save: Node, rng: RandomNumberGenerator, free: bool = false) -> Dictionary:
+	var price: int = 0 if free else int(KINDS[kind]["price"])
 	if save.coins < price:
 		return {}
 	save.coins -= price

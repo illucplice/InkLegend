@@ -106,6 +106,8 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow", &"slime_blade", &"maw_blade", &"abyss_orb"]:
 		set_trail_color(weapon.color)
 		_trail.width = 16.0
+	if weapon.shape in [&"slime_blade", &"maw_blade"]:
+		_trail.width = 26.0
 	add_child(_trail)
 
 
@@ -644,42 +646,66 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_polyline(outer, w.color.lightened(0.2), 4.0, true)
 			canvas.draw_polyline(outer, Color(1, 0.85, 0.85, 0.7), 1.5, true)
 		&"slime_blade", &"maw_blade":
-			# Rimiru's blade: a crescent of living slime, cyan and wobbling, with drops
-			# shed behind it. Evolved (Gluttony's Maw): black-violet with a brilliant cyan
-			# core and teeth along its inner edge.
+			# Rimiru's Water Cutter: a slim, flat boomerang of high-pressure water seen
+			# edge-on as it slices along, two pointed arms with a white-hot cutting edge,
+			# flickering as it spins, a helix of spray spiralling behind it and pressure
+			# rings at its back. Evolved (Gluttony's Maw): black, glowing violet, with a
+			# serrated cyan edge like rows of teeth.
 			var maw := w.shape == &"maw_blade"
-			# Lying flat along its flight: a horizontal slash, not an upright one.
-			canvas.draw_set_transform_matrix(xf * Transform2D(-PI / 2.0, Vector2.ZERO))
-			var wobble := sin(Time.get_ticks_msec() * 0.015) * 0.06
-			var outer := PackedVector2Array()
-			var inner := PackedVector2Array()
-			for i in 17:
-				var a := lerpf(-1.3, 1.3, i / 16.0)
-				outer.append(Vector2(cos(a) * s * (0.5 + wobble), sin(a) * s))
-				inner.append(Vector2(cos(a) * s * 0.14 - s * 0.16, sin(a) * s * 0.78))
-			var blade := outer.duplicate()
-			for i in range(inner.size() - 1, -1, -1):
-				blade.append(inner[i])
-			var glow := Color(0.6, 0.3, 0.95) if maw else Color(0.35, 0.85, 1.0)
+			var tick := Time.get_ticks_msec() * 0.001
+			var body_color := Color(0.05, 0.02, 0.09) if maw else Color(0.15, 0.45, 1.0)
+			var inner_color := Color(0.45, 0.18, 0.85) if maw else Color(0.45, 0.82, 1.0)
+			var edge_color := Color(0.4, 1.0, 1.0) if maw else Color(0.95, 1.0, 1.0)
+			var glow_color := Color(0.6, 0.3, 1.0) if maw else Color(0.35, 0.8, 1.0)
+			var spin := 0.75 + 0.25 * absf(sin(tick * 14.0))
+			var half := s * 0.1 * spin
+			var count := 20
+			var top := PackedVector2Array()
+			var bottom := PackedVector2Array()
+			for i in count + 1:
+				var u := i / float(count)
+				var x := lerpf(-s * 1.1, s * 0.85, u)
+				# Bent like a flat boomerang: two even arms meeting in a shallow arch, each
+				# tapering to a point.
+				var swell := sqrt(clampf(sin(u * PI) * 1.8, 0.0, 1.0))
+				var bend := -s * 0.34 * sin(u * PI)
+				var notch := (s * 0.05 if i % 2 == 0 else 0.0) if maw else 0.0
+				top.append(Vector2(x, bend - half * swell - notch * swell))
+				bottom.append(Vector2(x, bend + half * swell))
+			var lens := top.duplicate()
+			for i in range(count, -1, -1):
+				lens.append(bottom[i])
 			for ring in 3:
 				var halo := PackedVector2Array()
-				for point in blade:
-					halo.append(point * (1.24 - ring * 0.07))
-				canvas.draw_colored_polygon(halo, Color(glow, 0.12 + ring * 0.07))
-			canvas.draw_colored_polygon(blade, Color(0.06, 0.03, 0.1) if maw else Color(0.45, 0.88, 1.0, 0.85))
-			if maw:
-				for k in range(2, 15, 2):
-					var at := inner[k]
-					var into := (outer[k] - at).normalized()
-					canvas.draw_colored_polygon(PackedVector2Array([at + into.orthogonal() * 3.0, at - into * 7.0, at - into.orthogonal() * 3.0]), Color(0.75, 0.6, 1.0))
-				canvas.draw_polyline(outer, Color(0.6, 0.3, 0.95), 4.0, true)
-				canvas.draw_polyline(outer, Color(0.45, 1.0, 1.0), 1.8, true)
-			else:
-				canvas.draw_polyline(outer, Color(0.85, 0.98, 1.0), 3.0, true)
-				canvas.draw_circle(Vector2(s * 0.2, -s * 0.45), s * 0.07, Color(1, 1, 1, 0.8), true, -1.0, true)
+				for point in lens:
+					halo.append(Vector2(point.x * (1.08 - ring * 0.02), point.y * (1.35 - ring * 0.1) + s * 0.04 * (2 - ring)))
+				canvas.draw_colored_polygon(halo, Color(glow_color, 0.12 + ring * 0.06))
+			canvas.draw_colored_polygon(lens, body_color)
+			var core := PackedVector2Array()
+			for i in range(2, count - 1):
+				core.append(top[i].lerp(bottom[i], 0.3))
+			for i in range(count - 2, 1, -1):
+				core.append(top[i].lerp(bottom[i], 0.6))
+			canvas.draw_colored_polygon(core, inner_color)
+			# The cutting edge along the top, white-hot, and a bright line down the middle.
+			canvas.draw_polyline(top, edge_color, maxf(2.0, s * 0.035), true)
+			var mid_line := PackedVector2Array()
+			for i in range(3, count - 2):
+				mid_line.append(top[i].lerp(bottom[i], 0.45))
+			canvas.draw_polyline(mid_line, Color(1, 1, 1, 0.75), maxf(1.0, s * 0.015), true)
+			# A helix of spray wound round the jet behind it.
+			for k in 10:
+				var x := -s * (0.55 + k * 0.11)
+				var twist := tick * 16.0 + k * 0.8
+				var y := sin(twist) * s * 0.2
+				var near := cos(twist) > 0.0
+				canvas.draw_circle(Vector2(x, y), s * (0.045 - k * 0.003) * (1.0 if near else 0.7), Color(edge_color if near else inner_color, 0.9 - k * 0.07), true, -1.0, true)
+			# Pressure rings left in its wake.
+			for k in 2:
+				var back := fmod(tick * 2.2 + k * 0.5, 1.0)
+				canvas.draw_set_transform_matrix(xf * Transform2D(0.0, Vector2(-s * (0.9 + back * 0.6), 0)).scaled_local(Vector2(0.3, 1.0)))
+				canvas.draw_arc(Vector2.ZERO, s * (0.18 + back * 0.2), 0.0, TAU, 20, Color(glow_color, 0.7 * (1.0 - back)), maxf(1.5, s * 0.03), true)
 			canvas.draw_set_transform_matrix(xf)
-			for k in 3:
-				canvas.draw_circle(Vector2(-s * (0.45 + k * 0.25), (k - 1) * s * 0.12), s * (0.08 - k * 0.015), Color(glow, 0.7), true, -1.0, true)
 		&"abyss_orb":
 			# Beelzebuth: a compact black orb with a bright cyan core, motes and light
 			# bending in toward it (violet once he has evolved).
