@@ -143,6 +143,8 @@ func _physics_process(delta: float) -> void:
 	query.collide_with_areas = true
 	var hit := get_world_2d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
+		hit = _inside_hitbox()
+	if hit.is_empty():
 		global_position = next
 		if weapon.spin != 0.0:
 			rotation += weapon.spin * delta * signf(_velocity.x)
@@ -736,3 +738,18 @@ func detonate(radius: float) -> void:
 	explode_radius = radius
 	exploded.emit(self, global_position, null, Rules.BODY, null)
 	_finish(false)
+
+
+## A fighter dragged onto the projectile between ticks (Hollow Purple's pull) can end
+## up around it, where the ray starts inside their hitbox and can't see it: catch them.
+func _inside_hitbox() -> Dictionary:
+	var query := PhysicsPointQueryParameters2D.new()
+	query.position = global_position
+	query.collision_mask = COLLISION_MASK
+	query.exclude = _exclude
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	for found in get_world_2d().direct_space_state.intersect_point(query, 4):
+		if found["collider"] is Hitbox:
+			return {"collider": found["collider"], "position": global_position, "normal": Vector2.ZERO}
+	return {}

@@ -443,11 +443,14 @@ func _draw() -> void:
 
 	if form == &"mugetsu":
 		_draw_mugetsu_hair(p)
-	_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)
-	_taper(p[&"belbow"], p[&"bhand"], LINE * 0.85, LINE * 0.8, ink)
-	draw_circle(p[&"bhand"], 4.5, ink, true, -1.0, true)
-	if _skin_head():
-		draw_circle(p[&"bhand"], 3.0, _hand_color(), true, -1.0, true)
+	# Facing the screen (Aizon's floating pose) both arms are drawn in front, below.
+	var front_on := victory_pose == &"float_wide" and not knocked
+	if not front_on:
+		_taper(shoulder, p[&"belbow"], LINE, LINE * 0.85, ink)
+		_taper(p[&"belbow"], p[&"bhand"], LINE * 0.85, LINE * 0.8, ink)
+		draw_circle(p[&"bhand"], 4.5, ink, true, -1.0, true)
+		if _skin_head():
+			draw_circle(p[&"bhand"], 3.0, _hand_color(), true, -1.0, true)
 	_taper(p[&"hip"], p[&"bknee"], LINE * 1.15, LINE, ink)
 	_taper(p[&"bknee"], p[&"bfoot"], LINE, LINE * 0.8, ink)
 	_foot(p[&"bfoot"], p[&"bknee"], ink)
@@ -503,11 +506,21 @@ func _draw() -> void:
 	var pull := aim_power if aiming else 0.0
 	Projectile.draw_held(self, _held_weapon(), Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)
 	draw_set_transform(Vector2.ZERO)
-	_taper(shoulder, p[&"felbow"], LINE, LINE * 0.85, ink)
-	_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
-	draw_circle(hand, 4.5, ink, true, -1.0, true)
-	if _skin_head():
-		draw_circle(hand, 3.0, _hand_color(), true, -1.0, true)
+	if front_on:
+		# Arms straight out from either edge of the collar.
+		for arm_pair: Array in [[p[&"belbow"], p[&"bhand"]], [p[&"felbow"], hand]]:
+			var out := signf((arm_pair[1] as Vector2).x - shoulder.x)
+			var root := shoulder + Vector2(out * 26.0, 2.0)
+			_taper(root, arm_pair[0], LINE, LINE * 0.85, ink)
+			_taper(arm_pair[0], arm_pair[1], LINE * 0.85, LINE * 0.8, ink)
+			draw_circle(arm_pair[1], 4.5, ink, true, -1.0, true)
+			draw_circle(arm_pair[1], 3.0, _hand_color(), true, -1.0, true)
+	else:
+		_taper(shoulder, p[&"felbow"], LINE, LINE * 0.85, ink)
+		_taper(p[&"felbow"], hand, LINE * 0.85, LINE * 0.8, ink)
+		draw_circle(hand, 4.5, ink, true, -1.0, true)
+		if _skin_head():
+			draw_circle(hand, 3.0, _hand_color(), true, -1.0, true)
 	_draw_sleeve(shoulder, p[&"felbow"])
 	if form == &"mugetsu":
 		_draw_mugetsu_arm(shoulder, p[&"felbow"], hand)
@@ -533,6 +546,8 @@ func _draw() -> void:
 		for i in 3:
 			var a := _time * 4.0 + i * TAU / 3.0
 			_draw_star(head + Vector2(cos(a) * 24.0, sin(a) * 8.0 - 28.0), 7.0)
+	if victory_pose in SLEEP_POSES:
+		_draw_zzz(p)
 
 
 ## Pin: a stake in the ground with a chain looped round the legs.
@@ -1536,6 +1551,10 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_arc(Vector2(r * 0.5, -r * 0.1), r * 0.22, 0.0, TAU, 10, OUTLINE, 1.6, true)
 			draw_circle(Vector2(r * 0.55, -r * 0.1), 1.5, OUTLINE, true, -1.0, true)
 		&"lord":
+			if victory_pose == &"float_wide":
+				_draw_front_face(r)
+				draw_set_transform(Vector2.ZERO)
+				return
 			# Messy brown hair, swept back but falling loose around his face.
 			var hair := PackedVector2Array([Vector2(r * 0.85, -r * 0.5), Vector2(r * 0.6, -r * 1.05), Vector2(r * 0.2, -r * 1.25), Vector2(-r * 0.3, -r * 1.35), Vector2(-r * 0.8, -r * 1.2), Vector2(-r * 1.25, -r * 0.8), Vector2(-r * 1.35, -r * 0.1), Vector2(-r * 1.2, r * 0.6), Vector2(-r * 0.8, r * 0.75), Vector2(-r * 0.6, 0), Vector2(-r * 0.1, -r * 0.5), Vector2(r * 0.4, -r * 0.55)])
 			_poly(hair, data.hair_color, 2.0)
@@ -1567,7 +1586,8 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.15, -r * 0.05), Vector2(-r * 0.85, -r * 0.55), Vector2(-r * 0.05, r * 0.25)]), data.skin_color)
 			draw_polyline(PackedVector2Array([Vector2(-r * 0.15, -r * 0.05), Vector2(-r * 0.85, -r * 0.55), Vector2(-r * 0.05, r * 0.25)]), OUTLINE, 1.5, true)
 			draw_line(Vector2(r * 0.35, -r * 0.1), Vector2(r * 0.7, -r * 0.12), OUTLINE, 2.0, true)
-			draw_circle(Vector2(r * 0.55, -r * 0.08), 1.6, Color(0.3, 0.6, 0.45), true, -1.0, true)
+			if not victory_pose in SLEEP_POSES:
+				draw_circle(Vector2(r * 0.55, -r * 0.08), 1.6, Color(0.3, 0.6, 0.45), true, -1.0, true)
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -1731,11 +1751,19 @@ const POSES := {
 		&"felbow": Vector2(2, -64), &"fhand": Vector2(15, -60), &"belbow": Vector2(-26, -98), &"bhand": Vector2(-11, -114)},
 	&"carry": {&"neck": Vector2(7, -86), &"head": Vector2(10, -101), &"belbow": Vector2(-10, -66), &"bhand": Vector2(-17, -57),
 		&"felbow": Vector2(-3, -66), &"fhand": Vector2(-12, -59)},
+	&"float_wide": {&"head": Vector2(0, -150), &"neck": Vector2(0, -134), &"hip": Vector2(0, -90),
+		&"felbow": Vector2(48, -128), &"fhand": Vector2(72, -122), &"belbow": Vector2(-48, -128), &"bhand": Vector2(-72, -122),
+		&"fknee": Vector2(2, -66), &"ffoot": Vector2(3, -42), &"bknee": Vector2(-2, -66), &"bfoot": Vector2(-3, -42)},
+	&"doze": {&"neck": Vector2(6, -84), &"head": Vector2(14, -94), &"felbow": Vector2(10, -64), &"fhand": Vector2(12, -48), &"belbow": Vector2(-6, -64), &"bhand": Vector2(-8, -48)},
+	&"sleep_lie": {&"hip": Vector2(4, -10), &"neck": Vector2(-36, -12), &"head": Vector2(-54, -16), &"fknee": Vector2(22, -12), &"ffoot": Vector2(42, -6),
+		&"bknee": Vector2(20, -6), &"bfoot": Vector2(40, -2), &"belbow": Vector2(-30, -4), &"bhand": Vector2(-50, -6), &"felbow": Vector2(-14, -22), &"fhand": Vector2(-2, -14)},
 	&"slick_back": {&"felbow": Vector2(15, -104), &"fhand": Vector2(0, -119), &"belbow": Vector2(-6, -66), &"bhand": Vector2(-8, -52)},
 }
 
 ## Poses struck with the back to the camera.
 const BACK_POSES := [&"back_turned"]
+## Poses struck fast asleep (eyes shut, Zzz).
+const SLEEP_POSES := [&"doze", &"sleep_lie"]
 
 ## Each fighter's [normal win, fatality win] poses.
 const VICTORY := {
@@ -1748,7 +1776,7 @@ const VICTORY := {
 	&"akum": [&"arms_crossed", &"back_turned"], &"thundr": [&"fist_up", &"kneel"], &"capt": [&"hands_hips", &"thumbs_up"],
 	&"spydr": [&"kneel", &"point"], &"batz": [&"arms_crossed", &"kneel"], &"jotar": [&"point", &"back_turned"],
 	&"dyo": [&"arms_crossed", &"wryyy"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
-	&"aizon": [&"slick_back", &"hand_out"], &"frierin": [&"hand_out", &"hand_sign"],
+	&"aizon": [&"slick_back", &"float_wide"], &"frierin": [&"doze", &"sleep_lie"],
 }
 
 
@@ -1883,3 +1911,26 @@ func _draw_crush(p: Dictionary) -> void:
 		draw_line(from, to, Color(0.7, 0.45, 1.0, 0.85), 3.0, true)
 		draw_colored_polygon(PackedVector2Array([to + Vector2.from_angle(a + 0.4) * 7.0, to, to + Vector2.from_angle(a - 0.4) * 7.0]), Color(0.7, 0.45, 1.0, 0.85))
 	draw_arc(centre, 30.0 + 4.0 * sin(_time * 6.0), 0.0, TAU, 24, Color(0.6, 0.35, 0.95, 0.5), 2.5, true)
+
+
+## Aizon facing the screen (his floating pose): hair parted over the brow with one
+## strand falling between the eyes, both eyes, a thin mouth. In head space.
+func _draw_front_face(r: float) -> void:
+	var hair := data.hair_color
+	var cap := PackedVector2Array([Vector2(-r * 1.05, r * 0.2), Vector2(-r * 1.1, -r * 0.5), Vector2(-r * 0.7, -r * 1.1), Vector2(0, -r * 1.3), Vector2(r * 0.7, -r * 1.1), Vector2(r * 1.1, -r * 0.5), Vector2(r * 1.05, r * 0.2), Vector2(r * 0.75, -r * 0.35), Vector2(r * 0.2, -r * 0.6), Vector2(-r * 0.2, -r * 0.6), Vector2(-r * 0.75, -r * 0.35)])
+	_poly(cap, hair, 2.0)
+	draw_polyline(PackedVector2Array([Vector2(0, -r * 0.95), Vector2(r * 0.12, -r * 0.45), Vector2(0, r * 0.05)]), hair.darkened(0.15), 2.5, true)
+	for side: float in [-1.0, 1.0]:
+		draw_line(Vector2(side * r * 0.22, -r * 0.08), Vector2(side * r * 0.55, -r * 0.12), OUTLINE, 2.0, true)
+	draw_line(Vector2(-r * 0.15, r * 0.45), Vector2(r * 0.15, r * 0.45), OUTLINE, 1.5, true)
+
+
+## Zzz drifting up from someone asleep.
+func _draw_zzz(p: Dictionary) -> void:
+	var head: Vector2 = p[&"head"]
+	var font := ThemeDB.fallback_font
+	for k in 3:
+		var t := fmod(_time * 0.5 + k / 3.0, 1.0)
+		var at := head + Vector2(facing * (14.0 + t * 30.0), -18.0 - t * 50.0)
+		draw_string_outline(font, at, "Z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 + t * 10), 4, Color(0.1, 0.08, 0.14, 1.0 - t))
+		draw_string(font, at, "Z", HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 + t * 10), Color(0.75, 0.88, 1.0, 1.0 - t))

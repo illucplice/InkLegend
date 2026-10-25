@@ -10,7 +10,7 @@ const NOTES := [
 		"New Legendary fighters: Jotar and Dyo (time stop with stands), Kazma (lucky throws and a shield), Subaro (Emilla's icicles from the sky).",
 		"New Epic heroes: Thundr, Capt, Spydr and Batz.",
 		"Tiers are now Common, Rare, Epic, Legendary and Mythic. Bomba and Pipmo moved up to Rare.",
-		"Bigger maps with mountains between the fighters; aim can now go down to -15 degrees.",
+		"Bigger maps where the fighters often stand on ledges at different heights (one high, one low) and are sometimes much further apart; aim can now go down to -15 degrees.",
 		"Specials like time stop, Kyoka Suigetsu and blessings happen the moment you press the button.",
 		"You can now use your special for the FINISH THEM throw, and a special or Kyoka Suigetsu knockout goes straight to the fatality.",
 		"Every fighter has a victory pose, one for a normal win and one after a fatality.",
@@ -18,6 +18,8 @@ const NOTES := [
 		"A chime plays when your special is ready, plus character voices, crowd cheers and per-map music.",
 		"Ichi now fires Getsuga Tensho slashes from Zangetsu (blue-white, black and red with his Hollow mask on), doing 24 / 42; his special is a huge Getsuga Tensho that tears straight through obstacles and mountains.",
 		"Specials that hit the ground now blast a crater and splash anyone nearby.",
+		"Every special can now land: Lufi's Gum Barrage follows its aim guide instead of flying long, and Hollow Purple no longer passes through an enemy it drags in, or pulls them off their ledge.",
+		"Victory poses: Aizon floats facing you with his arms spread wide after a fatality, and Frierin dozes off and falls asleep.",
 		"Fixes: a time-stop special used on the FINISH THEM throw now lands and plays the fatality; Dyo's knife storm hits harder, with 30% critical hits per knife; special meters charge once per turn (no more Klakla special spam); Kyoka Suigetsu now hurts the attacker with explosions too; homing throws and Frierin's drop work on the finishing throw; time stop always ends in practice; the game no longer stays slow after a fatality.",
 	]},
 	{"version": "v0.1", "title": "Ink Legends", "notes": [

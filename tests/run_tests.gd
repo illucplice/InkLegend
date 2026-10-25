@@ -363,7 +363,7 @@ func _test_map_variety() -> void:
 		var in_range := true
 		for i in 20:
 			var gap := Rules.random_distance_px(rng, map) / (Rules.PX_PER_M * Rules.MAP_SCALE)
-			in_range = in_range and gap >= map.min_distance_m and gap <= map.max_distance_m
+			in_range = in_range and gap >= map.min_distance_m and gap <= map.max_distance_m * Rules.FAR_SPREAD + 0.01
 		_check(in_range, "%s picks distances in its own range" % id)
 		var all_clear := true
 		var in_middle := true
@@ -616,15 +616,12 @@ func _test_terrain() -> void:
 			all_good = all_good and absf(now - previous) < 12.0
 			previous = now
 	_check(all_good, "fighters stand on flat plateaus above a smooth valley")
-	var mountains := 0
+	var split := 0
 	for i in 20:
 		Terrain.build(rng, 900.0, 1.0)
-		var top := 0.0
-		for step in 61:
-			top = minf(top, Terrain.height_at(-600.0 + step * 20.0))
-		if top < Terrain.height_at(900.0) - 120.0:
-			mountains += 1
-	_check(mountains >= 8 and mountains < 20, "most matches have a mountain between the fighters (%d / 20)" % mountains)
+		if absf(Terrain.height_at(-900.0) - Terrain.height_at(900.0)) > 120.0:
+			split += 1
+	_check(split >= 6 and split < 20, "most matches put one fighter on a higher ledge (%d / 20)" % split)
 	Terrain.flat()
 	_check(Terrain.height_at(123.0) == 0.0, "flat ground is at y = 0")
 

@@ -138,6 +138,7 @@ const RAIN_SPREAD := 80.0
 const PURPLE_RADIUS := 240.0
 const PURPLE_PULL_RANGE := 600.0
 const PURPLE_PULL_SPEED := 420.0
+const PULL_STEP := 10.0
 ## Blue (Goj's basic throw): a smaller, gentler pull.
 const BLUE_PULL_RANGE := 420.0
 const BLUE_PULL_SPEED := 300.0
@@ -3189,7 +3190,6 @@ func _barrage(fighter: Fighter, angle: float, power: float) -> void:
 	fist.size = 30.0
 	fist.spin = 0.0
 	fist.sticks = false
-	fist.gravity_scale = 0.8
 	var match_id := _match_id
 	_launching = true
 	for i in BARRAGE_FISTS:
@@ -3451,6 +3451,8 @@ func _hollow_purple(fighter: Fighter, angle: float) -> void:
 	fighter.power_up(1.5)
 	var projectile := _straight_shot(fighter, angle, &"blue_orb", 30.0, Color(0.72, 0.3, 1.0), "purple", true, PURPLE_RADIUS, 2.6)
 	projectile.set_meta("devour", true)
+	# It erases everything in its path, the ground included.
+	projectile.through_ground = true
 	Audio.play("whoosh", 2.0, 0.3, 0.0)
 
 
@@ -3478,6 +3480,9 @@ func _pull_toward_purple(delta: float) -> void:
 			nearest = maxf(nearest, maxf(absf(box.position.x), absf(box.end.x)) + 150.0)
 		if absf(x) < nearest:
 			x = signf(target.position.x) * nearest
+		# Only along the ledge they stand on: a step up or down would lift them off the shot's line.
+		if absf(Terrain.height_at(x) - target.position.y) > PULL_STEP:
+			continue
 		target.position = Vector2(x, Terrain.height_at(x))
 		target._tilt_velocity += signf(projectile.global_position.x - x) * strength * 0.6
 

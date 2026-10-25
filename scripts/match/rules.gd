@@ -7,6 +7,9 @@ const MAX_HEALTH := 100
 const PX_PER_M := 20.0
 ## Every map's fighters stand this much further apart than its listed distances.
 const MAP_SCALE := 1.12
+## Some matches (FAR_CHANCE of them) stand the fighters FAR_SPREAD times further apart.
+const FAR_CHANCE := 0.25
+const FAR_SPREAD := 1.18
 ## Downward acceleration in px/s². Lower = floatier, slower throws (weapon speeds are
 ## scaled with sqrt(GRAVITY) so every throw still reaches the same distance).
 const GRAVITY := 470.0
@@ -54,9 +57,11 @@ static func damage_with_bonuses(weapon: WeaponData, part: StringName, flight_tim
 ## Distance between the fighters' feet. Each map has its own range (ships stand far
 ## apart, the dojo is close quarters); with no map, the classic range.
 static func random_distance_px(rng: RandomNumberGenerator, map: MapData = null) -> float:
+	# Now and then the fighters stand much further apart.
+	var far := FAR_SPREAD if rng.randf() < FAR_CHANCE else 1.0
 	if map != null:
-		return rng.randf_range(map.min_distance_m, map.max_distance_m) * PX_PER_M * MAP_SCALE
-	return rng.randf_range(MIN_DISTANCE_M, MAX_DISTANCE_M) * PX_PER_M * MAP_SCALE
+		return rng.randf_range(map.min_distance_m, map.max_distance_m) * PX_PER_M * MAP_SCALE * far
+	return rng.randf_range(MIN_DISTANCE_M, MAX_DISTANCE_M) * PX_PER_M * MAP_SCALE * far
 
 
 ## A wind for the next turn, in px/s² (negative blows left). Calm half the time on easy.

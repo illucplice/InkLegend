@@ -9,10 +9,11 @@ const HALF_WIDTH := 4000.0
 const STEP := 20.0
 ## Flat ground either side of where a fighter stands.
 const PLATEAU := 190.0
-## The mountain between the fighters: how often, and how high its peak.
-const MOUNTAIN_CHANCE := 0.75
-const MOUNTAIN_MIN := 150.0
-const MOUNTAIN_MAX := 300.0
+## Bowmasters-style ledges: how often one fighter stands high above the other, and how
+## high the high ledge can be.
+const SPLIT_CHANCE := 0.6
+const HIGH_MIN := 160.0
+const HIGH_MAX := 290.0
 
 static var _heights := PackedFloat32Array()
 
@@ -24,12 +25,24 @@ static func flat() -> void:
 
 ## Builds the ground for fighters standing `half_gap` either side of the middle.
 ## roughness scales every height (0 = flat).
-static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float, mountains: bool = true) -> void:
+static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float, ledges: bool = true) -> void:
 	if roughness <= 0.0:
 		flat()
 		return
-	var left := -rng.randf_range(40.0, 150.0) * roughness
-	var right := -rng.randf_range(40.0, 150.0) * roughness
+	# Where they stand: most matches put one fighter up on a high ledge and the other
+	# down low (either way round); the rest are roughly level.
+	var ledge := clampf(roughness, 0.6, 1.3)
+	var left := -rng.randf_range(40.0, 150.0) * ledge
+	var right := -rng.randf_range(40.0, 150.0) * ledge
+	if ledges and rng.randf() < SPLIT_CHANCE:
+		var high := -rng.randf_range(HIGH_MIN, HIGH_MAX) * ledge
+		var low := -rng.randf_range(0.0, 60.0) * ledge
+		if rng.randf() < 0.5:
+			left = high
+			right = low
+		else:
+			left = low
+			right = high
 	var valley := rng.randf_range(-10.0, 40.0) * roughness
 	var outer_left := -rng.randf_range(20.0, 120.0) * roughness
 	var outer_right := -rng.randf_range(20.0, 120.0) * roughness
@@ -37,12 +50,6 @@ static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float,
 	var count := int(HALF_WIDTH * 2.0 / STEP) + 1
 	_heights.resize(count)
 	var inner := maxf(half_gap - PLATEAU, 1.0)
-	# Most matches put a mountain between the fighters, Bowmasters-style: throws have to
-	# arc over it.
-	var has_mountain := mountains and rng.randf() < MOUNTAIN_CHANCE
-	var peak := rng.randf_range(MOUNTAIN_MIN, MOUNTAIN_MAX) * clampf(roughness, 0.7, 1.3)
-	var spread := rng.randf_range(170.0, 280.0)
-	var peak_x := rng.randf_range(-inner * 0.35, inner * 0.35)
 	for i in count:
 		var x := -HALF_WIDTH + i * STEP
 		var y := 0.0
@@ -53,10 +60,6 @@ static func build(rng: RandomNumberGenerator, half_gap: float, roughness: float,
 			var level := lerpf(left, right, u)
 			var dip := pow(sin(u * PI), 2.0)
 			y = level + (valley - level) * dip + bumps * dip
-			if has_mountain:
-				var d := absf(x - peak_x) / spread
-				if d < 1.0:
-					y -= peak * pow(cos(d * PI * 0.5), 2.0) + sin(x * 0.045) * 10.0 * (1.0 - d)
 		elif absf(x) <= half_gap + PLATEAU:
 			y = left if x < 0.0 else right
 		else:
