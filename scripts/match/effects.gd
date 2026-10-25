@@ -82,3 +82,37 @@ static func _dot_texture() -> GradientTexture2D:
 		_dot.width = 32
 		_dot.height = 32
 	return _dot
+
+
+## A hadoken gathering between cupped hands at `at`: a ball of ki swelling over
+## `seconds`, streaks of energy rushing in and sparks crackling round it. Frees itself.
+static func charge_orb(parent: Node, at: Vector2, color: Color, seconds: float) -> void:
+	var orb := Node2D.new()
+	orb.z_index = 22
+	orb.position = at
+	var state := {"t": 0.0}
+	orb.draw.connect(func() -> void:
+		var t: float = state["t"]
+		var grow := t * t
+		var pulse := 1.0 + 0.1 * sin(t * 60.0)
+		for k in 12:
+			var pull := fmod(t * 2.5 + k / 12.0, 1.0)
+			var dir := Vector2.from_angle(k * 2.399)
+			var from := dir * lerpf(70.0, 12.0, pull)
+			orb.draw_line(from, from - dir * 14.0 * (1.0 - pull), Color(color.lightened(0.4), 0.9 * pull), 2.0, true)
+		orb.draw_circle(Vector2.ZERO, 34.0 * grow * pulse, Color(color, 0.25), true, -1.0, true)
+		orb.draw_circle(Vector2.ZERO, 20.0 * grow * pulse, Color(color, 0.85), true, -1.0, true)
+		orb.draw_circle(Vector2.ZERO, 11.0 * grow, color.lightened(0.6), true, -1.0, true)
+		orb.draw_circle(Vector2.ZERO, 5.0 * grow, Color.WHITE, true, -1.0, true)
+		for k in 3:
+			var a := t * 20.0 + k * TAU / 3.0
+			var spark := PackedVector2Array()
+			for i in 4:
+				spark.append(Vector2.from_angle(a + i * 0.25) * (22.0 * grow + (i % 2) * 6.0))
+			orb.draw_polyline(spark, Color(1, 1, 1, 0.8 * grow), 1.5, true))
+	parent.add_child(orb)
+	var tween := orb.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		state["t"] = t
+		orb.queue_redraw(), 0.0, 1.0, seconds)
+	tween.tween_callback(orb.queue_free)

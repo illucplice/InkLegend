@@ -114,7 +114,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 130.0
 const FANG_MULTIPLIER := 2.0
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.45, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.35, "shinku": 1.3, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.45, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -2826,6 +2826,23 @@ func _on_projectile_finished(projectile: Projectile) -> void:
 ## and stops at the first fighter (or the ground) it meets.
 func _fire_beam(fighter: Fighter, angle: float, kind: StringName = &"beam") -> void:
 	fighter.power_up(1.8)
+	# Kamehameha: the camera closes in on his hands as the ki gathers, then it fires.
+	if kind == &"beam":
+		var charge_id := _match_id
+		fighter.aiming = true
+		fighter.aim_angle = angle
+		fighter.aim_power = 1.0
+		var hands := fighter.throw_origin()
+		_camera.focus_on(func() -> PackedVector2Array: return PackedVector2Array([hands + Vector2(-60, -70), hands + Vector2(60, 50)]), 1.0, 2.6)
+		Effects.charge_orb(_actors, hands, fighter.data.weapon.color.lightened(0.2), 0.9)
+		Audio.play("voice_charge", 0.0, fighter.voice_pitch(), 0.0)
+		Audio.play("zap", -8.0, 0.6, 0.0)
+		await get_tree().create_timer(0.9, false).timeout
+		if charge_id != _match_id:
+			return
+		fighter.aiming = false
+		_camera.release_focus()
+		_camera.shake(0.4)
 	var origin := fighter.throw_origin()
 	var a := deg_to_rad(angle)
 	var direction := Vector2(cos(a) * fighter.facing, -sin(a))
@@ -2918,15 +2935,24 @@ func _fire_beam(fighter: Fighter, angle: float, kind: StringName = &"beam") -> v
 func _throw_orb(fighter: Fighter, angle: float, power: float) -> void:
 	fighter.power_up(2.2)
 	fighter.aiming = true
-	fighter.aim_angle = 80.0
+	# Big Bang Attack: one arm thrust out at the aim, the energy swelling in front of
+	# the open palm.
+	fighter.aim_angle = angle
+	fighter.aim_power = 1.0
 	var weapon := fighter.data.weapon
 	var glow := Node2D.new()
 	glow.z_index = 22
-	glow.position = fighter.global_position + Vector2(0, -200)
+	glow.position = fighter.throw_origin() + Vector2.from_angle(deg_to_rad(-angle)) * Vector2(fighter.facing, 1.0) * 30.0
 	_actors.add_child(glow)
+	# The camera closes in on his hand as the energy swells in front of it.
+	var orb_at := glow.position
+	var hands := fighter.throw_origin()
+	_camera.focus_on(func() -> PackedVector2Array: return PackedVector2Array([orb_at + Vector2(-70, -70), orb_at + Vector2(70, 60), hands + Vector2(-40, 0)]), ORB_RAISE_TIME + 0.1, 2.6)
+	Effects.charge_orb(_actors, orb_at, weapon.color, ORB_RAISE_TIME)
+	Audio.play("voice_charge", 0.0, fighter.voice_pitch(), 0.0)
 	var grow := {"size": 0.0}
 	glow.draw.connect(func() -> void:
-		var r: float = 12.0 + grow["size"] * 58.0
+		var r: float = 8.0 + grow["size"] * 34.0
 		for ring in 4:
 			glow.draw_circle(Vector2.ZERO, r * (1.35 - ring * 0.15), Color(weapon.color, 0.12 + ring * 0.08), true, -1.0, true)
 		glow.draw_circle(Vector2.ZERO, r * 0.7, weapon.color.lightened(0.4), true, -1.0, true)
@@ -2941,6 +2967,8 @@ func _throw_orb(fighter: Fighter, angle: float, power: float) -> void:
 	glow.queue_free()
 	if match_id != _match_id:
 		return
+	_camera.release_focus()
+	_camera.shake(0.4)
 	fighter.aiming = false
 	var projectile: Projectile = PROJECTILE_SCENE.instantiate()
 	_actors.add_child(projectile)
@@ -3462,9 +3490,9 @@ func _new_special(fighter: Fighter, special: StringName, angle: float, power: fl
 		&"fuga":
 			_fuga(fighter, angle)
 		&"gou":
-			_straight_shot(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", true, 170.0, 3.4)
+			_charged_hadoken(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", 140.0, 3.4)
 		&"shinku":
-			_straight_shot(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", true, 150.0, 2.8)
+			_charged_hadoken(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", 125.0, 2.8)
 		&"purple":
 			_hollow_purple(fighter, angle)
 		&"rain":
@@ -4082,3 +4110,28 @@ func _on_regenerated(fighter: Fighter) -> void:
 	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "1 HP", Color(0.45, 0.95, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.45, 0.85, 1.0), 40, 420.0, 180.0, 1.6)
 	Audio.play("whoosh", 0.0, 0.6, 0.0)
+
+
+## Gou Hadoken and Shinku Hadoken: the camera closes in on the hands as the ki gathers
+## between them, then the fireball is let go.
+func _charged_hadoken(fighter: Fighter, angle: float, shape: StringName, size: float, color: Color, meta: String, blast: float, size_scale: float) -> void:
+	var match_id := _match_id
+	_launching = true
+	fighter.power_up(1.4)
+	var hands := fighter.throw_origin()
+	fighter.aiming = true
+	fighter.aim_angle = angle
+	fighter.aim_power = 1.0
+	_camera.focus_on(func() -> PackedVector2Array: return PackedVector2Array([hands + Vector2(-60, -70), hands + Vector2(60, 50)]), 1.0, 2.6)
+	Effects.charge_orb(_actors, hands, color, 0.9)
+	Audio.play("voice_charge", 0.0, fighter.voice_pitch(), 0.0)
+	Audio.play("zap", -8.0, 0.6, 0.0)
+	await get_tree().create_timer(0.9, false).timeout
+	_launching = false
+	fighter.aiming = false
+	if match_id != _match_id:
+		return
+	_camera.release_focus()
+	_camera.shake(0.4)
+	Effects.burst(_actors, hands, color, 24, 420.0, 180.0, 1.2)
+	_straight_shot(fighter, angle, shape, size, color, meta, true, blast, size_scale)

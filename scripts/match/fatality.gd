@@ -1548,6 +1548,16 @@ func _metsu_hadoken() -> void:
 	winner.aiming = true
 	winner.aim_angle = 0.0
 	winner.aim_power = 1.0
+	# Close in on his hands as the dark ki gathers between them.
+	var hands := winner.throw_origin()
+	camera.focus_on(func() -> PackedVector2Array: return PackedVector2Array([hands + Vector2(-60, -70), hands + Vector2(60, 50)]), 30.0, 2.6)
+	Effects.charge_orb(self, hands, Color(0.9, 0.08, 0.1), 1.0)
+	Audio.play("voice_charge", 2.0, winner.voice_pitch(), 0.0)
+	Audio.play("zap", -6.0, 0.5, 0.0)
+	if not await _wait(1.0):
+		return
+	camera.focus_on(func() -> PackedVector2Array: return _frame, 30.0)
+	camera.shake(0.5)
 	hud.announce("METSU HADOKEN!", Color(1.0, 0.2, 0.2))
 	var b := loser.body_points()
 	var centre: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.5)
