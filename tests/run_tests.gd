@@ -33,6 +33,7 @@ func _initialize() -> void:
 	await _test_practice_fatality()
 	await _test_aizon_evolves()
 	await _test_rimiru()
+	_test_mastery()
 	print("%d checks, %d failed" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -184,7 +185,14 @@ func _test_maps_and_tournament(game: Node) -> void:
 	var ladder: Array = game.tournament["rounds"]
 	_check(ladder.size() == 6 and ladder[-1]["opponent"].id == &"egita", "Gok's arcade ends with his rival Egita")
 	_check(not Taunts.rival_lines(&"gok", &"egita").is_empty(), "rivals have their own face-off lines")
-	_check(Rewards.round_prize(6, true) > Rewards.round_prize(1, true), "beating your rival pays the most")
+	_check(Rewards.round_prize(6, "arcade") > Rewards.round_prize(1, "arcade"), "beating your rival pays the most")
+	# Boss rush: four powered-up bosses, the last the Shadow Sovereign.
+	game.start_boss_rush(gok)
+	var bosses: Array = game.tournament["rounds"]
+	_check(bosses.size() == 4 and bosses[-1]["opponent"].id == &"rimiru", "the boss rush ends with Rimiru")
+	game.play_tournament_round()
+	await process_frame
+	_check(game.fighters[1].mana_released, "boss rush bosses start powered up (Frierin in Mana Release)")
 	game.start_tournament(pick)
 	rounds = game.tournament["rounds"]
 	var boss: FighterData = rounds[-1]["opponent"]
@@ -745,3 +753,16 @@ func _test_rimiru() -> void:
 	_check(rimiru.evolved and rimiru.data.weapon.shape == &"maw_blade" and rimiru.data.base_id() == &"rimiru", "at 40 health he becomes the Shadow Sovereign with Gluttony's Maw")
 	game.queue_free()
 	await process_frame
+
+
+## Fighter mastery: XP from matches raises levels, which unlock colour schemes.
+func _test_mastery() -> void:
+	_check(Mastery.level(0) == 0 and Mastery.level(100) == 1 and Mastery.level(99999) == Mastery.MAX_LEVEL, "mastery levels follow their XP thresholds")
+	var win := {"mode": 0, "won": true, "difficulty": 2}
+	var loss := {"mode": 0, "won": false}
+	_check(Mastery.xp_for(win) > Mastery.xp_for(loss) and Mastery.xp_for(loss) > 0, "a win earns more mastery than a loss, and a loss still earns some")
+	_check(Mastery.xp_for({"mode": 2, "won": true, "difficulty": 3, "champion": true}) >= 150, "winning a tournament is a big mastery boost")
+	_check(Mastery.skin_count(0) == 1 and Mastery.skin_count(Mastery.MAX_LEVEL) == 4, "mastery unlocks up to three more colour schemes")
+	var gok: FighterData = load("res://data/fighters/gok.tres")
+	var gold := Mastery.skinned(gok, 3)
+	_check(gold.body_color != gok.body_color and gold.weapon == gok.weapon and gold.base_id() == &"gok", "a colour scheme changes only colours, never the kit")

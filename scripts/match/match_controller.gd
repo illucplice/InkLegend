@@ -13,7 +13,7 @@ enum State { MENU, PLAYER_AIM, AI_AIM, FLYING, SETTLING, GAME_OVER, FINISHER }
 ## LOCAL_2P: two players take turns on the same device.
 ## TOURNAMENT: like VS_AI, as one round of a ladder that gets harder each win.
 ## PRACTICE: alone against 10 targets at growing distances (see start_practice).
-enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE }
+enum Mode { VS_AI, LOCAL_2P, TOURNAMENT, PRACTICE, ARCADE, BOSS_RUSH }
 
 ## Gap used for the decorative obstacles behind the title screen.
 const MENU_GAP := 1500.0
@@ -256,6 +256,10 @@ var _det_orb: Projectile
 ## him this turn.
 var _recall_blade: Projectile
 var _maw_healed := false
+## Map traps hanging over each fighter, and how many of their turns until a sprung one
+## is hung back up.
+var _traps: Array = [null, null]
+var _trap_wait := [0, 0]
 ## Predator: Rimiru has devoured the enemy's weapon for his extra throw (his own is kept
 ## in _own_weapon), and whether that throw has been made.
 var _devoured := [false, false]
@@ -306,9 +310,9 @@ const EVOLVED_DAMAGE := 1.0
 ## Evolved Aizon takes this share of every enemy hit.
 const EVOLVED_DEFENCE := 1.0
 ## Rimiru: how fast his recalled blade flies home (faster as the Shadow Sovereign),
-## the two-mark burst (and the Sovereign's Gluttony Detonation and its heal),
-## Adaptation per stack and most stacks (normal, evolved), and how slowly a slowed
-## enemy's next throw flies. He evolves at EVOLVE_HEALTH like Aizon.
+## the mark burst (and the Sovereign's Gluttony Detonation and its heal), and
+## Adaptation per stack (a little more basic damage, a little less damage taken) and
+## most stacks (normal, evolved). He evolves at EVOLVE_HEALTH like Aizon.
 const RECALL_SPEED := 1150.0
 const MAW_RECALL_SPEED := 1650.0
 ## Predator Marks burst once this many hits land in a row; a miss wipes them.
@@ -317,19 +321,26 @@ const MARK_BURST := 12
 const MAW_BURST := 20
 const MAW_HEAL := 3
 const ADAPT_BONUS := [0.03, 0.04]
+const ADAPT_DEFENCE := [0.04, 0.05]
 const ADAPT_MAX := [3, 4]
-const SLOWED_SPEED := 0.6
+## Gluttony (the Shadow Sovereign): this many basic hits in a row, and the next enemy
+## basic throw is devoured once it comes this close to him.
+const GLUTTONY_HITS := 3
+const GLUTTONY_RANGE := 150.0
 ## How close the AI lets the returning blade's line come to the enemy before recalling.
 const RECALL_AI_RANGE := 34.0
 ## Beelzebuth: the vortex's damage (normal, evolved), its reach, how far it drags
 ## the enemy in, and what each Predator Mark it eats adds.
-const VORTEX_DAMAGE := [25, 34]
+const VORTEX_DAMAGE := [30, 40]
 const VORTEX_RADIUS := 190.0
 const VORTEX_PULL := 90.0
 const VORTEX_MARK_DAMAGE := 5
 const VORTEX_MARK_RADIUS := 35.0
 ## Predator: the devoured weapon hits this much harder than in its owner's hands.
-const PREDATOR_BOOST := 1.25
+const PREDATOR_BOOST := 1.05
+## Map traps: what one does to whoever it lands on, and how many turns it takes to return.
+const TRAP_DAMAGE := 14
+const TRAP_RESPAWN := 3
 ## Frierin stops hiding her mana at this much health, and her passives switch on.
 const MANA_RELEASE_HEALTH := 50
 ## In Mana Release she takes this share of every enemy hit (her barrier stops the rest).
@@ -416,16 +427,25 @@ func _ready() -> void:
 	_hud.round_requested.connect(play_tournament_round)
 	_hud.special_toggled.connect(_on_special_toggled)
 	_hud.ladder_requested.connect(func() -> void: _hud.show_ladder(_ladder_info()))
+	_hud.ladder_again_requested.connect(func() -> void:
+		var pick: FighterData = tournament.get("pick", _last_left)
+		if _ladder_kind() == "arcade":
+			start_arcade(pick)
+		elif _ladder_kind() == "bossrush":
+			start_boss_rush(pick)
+		else:
+			start_tournament(pick))
 	_hud.menu_requested.connect(go_to_menu)
 	_hud.daily_requested.connect(start_daily)
 	_hud.resume_requested.connect(resume_tournament)
 	_hud.give_up_requested.connect(func() -> void:
-		if not _is_arcade():
+		if _ladder_kind() == "tournament":
 			Save.tournament = {}
 		Save.save_progress()
 		go_to_menu())
 	_hud.pause_changed.connect(func(paused: bool) -> void: get_tree().paused = paused)
 	_hud.fatality_test_requested.connect(_test_fatality)
+	_hud.gallery_requested.connect(play_gallery)
 	go_to_menu()
 
 
@@ -474,8 +494,13 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_arena.refresh_terrain()
 	_build_obstacles(gap, minf(left.weapon.max_speed, right.weapon.max_speed))
 	var vs_ai := mode != Mode.LOCAL_2P
-	fighters.append(_spawn_fighter(left, -gap / 2, 1, vs_ai and autoplay))
-	fighters.append(_spawn_fighter(right, gap / 2, -1, vs_ai))
+	# Your fighter wears the colours mastery has unlocked for them (both sides in 1v1).
+	var worn_left := left if autoplay else Mastery.skinned(left, Save.skin(String(left.id)))
+	var worn_right := Mastery.skinned(right, Save.skin(String(right.id))) if match_mode == Mode.LOCAL_2P else right
+	fighters.append(_spawn_fighter(worn_left, -gap / 2, 1, vs_ai and autoplay))
+	fighters.append(_spawn_fighter(worn_right, gap / 2, -1, vs_ai))
+	if not autoplay:
+		fighters[0].master = Save.mastery_level(String(left.id)) >= Mastery.MAX_LEVEL
 	_brains = [AiAimer.new(difficulty) if autoplay else null, AiAimer.new(difficulty) if vs_ai else null]
 
 	_wind_strength = LOCAL_WIND if mode == Mode.LOCAL_2P else float(DIFFICULTY_WIND[difficulty])
@@ -495,6 +520,10 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_turn_timer = -1.0
 	var names := _player_names()
 	_stats = [_empty_stats(), _empty_stats()]
+	_traps = [null, null]
+	_trap_wait = [0, 0]
+	for side in 2:
+		_hang_trap(side)
 	_hud.bind_fighters(fighters, names)
 	_hud.show_match()
 	_hud.set_practice(false)
@@ -607,6 +636,8 @@ func _on_play_requested(left: FighterData, right: FighterData, match_mode: int, 
 		start_tournament(left)
 	elif match_mode == Mode.ARCADE:
 		start_arcade(left)
+	elif match_mode == Mode.BOSS_RUSH:
+		start_boss_rush(left)
 	elif match_mode == Mode.PRACTICE:
 		start_practice(left)
 	else:
@@ -674,8 +705,43 @@ func start_arcade(pick: FighterData) -> void:
 	_hud.show_ladder(_ladder_info())
 
 
-func _is_arcade() -> bool:
-	return tournament.get("kind", "") == "arcade"
+## Boss rush: the strongest four back to back, each already in their powered-up form
+## (Frierin's Mana Release, evolved Aizon, the Shadow Sovereign), in their own arenas.
+const BOSSES := [&"frierin", &"dyo", &"aizon", &"rimiru"]
+const BOSS_DIFFICULTIES := [AiAimer.Difficulty.HARD, AiAimer.Difficulty.HARD, AiAimer.Difficulty.CHAMPION, AiAimer.Difficulty.CHAMPION]
+const BOSS_MAPS := [&"frozen", &"neon", &"graveyard", &"lava"]
+
+
+func start_boss_rush(pick: FighterData) -> void:
+	var rounds: Array[Dictionary] = []
+	for i in BOSSES.size():
+		var boss := _fighter_by_id(String(BOSSES[i]))
+		# Facing your own fighter as a boss: their shadow takes the slot.
+		if boss == pick:
+			boss = _shadow_of(pick)
+		var map: MapData = MAPS[0]
+		for candidate: MapData in MAPS:
+			if candidate.id == BOSS_MAPS[i]:
+				map = candidate
+		rounds.append({"opponent": boss, "map": map, "difficulty": BOSS_DIFFICULTIES[i]})
+	_daily = {}
+	tournament = {"pick": pick, "round": 0, "rounds": rounds, "kind": "bossrush"}
+	_hud.show_ladder(_ladder_info())
+
+
+## A boss starts the fight already powered up, as if pushed to their limit.
+func _power_up_boss(boss: Fighter) -> void:
+	match boss.data.base_id():
+		&"frierin":
+			_check_evolution(boss, MANA_RELEASE_HEALTH)
+		&"aizon", &"rimiru":
+			_check_evolution(boss, EVOLVE_HEALTH)
+
+
+## Which ladder is running: "tournament" (saved between sessions), "arcade" or
+## "bossrush" (both played in one sitting).
+func _ladder_kind() -> String:
+	return tournament.get("kind", "tournament")
 
 
 ## Adds to a side's special meter; says so when the player's fills up.
@@ -915,7 +981,7 @@ func _stop_time(fighter: Fighter) -> void:
 	_hud.set_time_stop(true, fighter.data.style != &"vampire")
 	_hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
 	Audio.play("zap", 0.0, 0.4, 0.0)
-	Audio.play("ko", -6.0, 0.5, 0.0)
+	Audio.play("tick", 2.0, 0.35, 0.0)
 	_camera.shake(0.5)
 	var ring := Node2D.new()
 	ring.z_index = 25
@@ -1755,7 +1821,7 @@ func _build_pressure(target: Fighter, aizon: Fighter) -> void:
 		Effects.popup(_actors, at, "PRESSURE %d / %d" % [target.pressure_stacks, PRESSURE_HITS], Color(0.75, 0.55, 1.0), 26, 1.0 / _camera.zoom.x, view)
 		return
 	target.pressure_stacks = 0
-	Audio.play("ko", -6.0, 0.4, 0.0)
+	Audio.play("reiatsu_burst", -2.0, 0.6, 0.0)
 	if aizon != null and aizon.evolved:
 		target.crush_turns = CRUSH_TURNS
 		target.pressured = true
@@ -1826,7 +1892,8 @@ func _arena_pressure_wash() -> void:
 	if is_instance_valid(_pressure_veil):
 		_pressure_veil.queue_free()
 	_pressure_veil = veil
-	Audio.play("ko", 2.0, 0.35, 0.0)
+	Audio.play("reiatsu_burst", 2.0, 0.4, 0.0)
+	Audio.play("ground", 0.0, 0.35, 0.0)
 	_camera.shake(1.0)
 
 
@@ -2045,7 +2112,7 @@ func start_daily() -> void:
 ## Stores the tournament in progress so it can be continued after closing the game.
 func _save_tournament() -> void:
 	# An arcade run lives only as long as it is being played.
-	if _is_arcade():
+	if _ladder_kind() != "tournament":
 		return
 	var rounds := []
 	for round_info: Dictionary in tournament["rounds"]:
@@ -2091,6 +2158,8 @@ func play_tournament_round() -> void:
 		return
 	var round_info: Dictionary = tournament["rounds"][tournament["round"]]
 	start_match(tournament["pick"], round_info["opponent"], Mode.TOURNAMENT, round_info["difficulty"], round_info["map"])
+	if _ladder_kind() == "bossrush" and fighters.size() > 1:
+		_power_up_boss(fighters[1])
 
 
 ## What the ladder screen shows: each round with its state (won, next or locked).
@@ -2099,12 +2168,12 @@ func _ladder_info() -> Dictionary:
 	for i in tournament["rounds"].size():
 		var round_info: Dictionary = tournament["rounds"][i].duplicate()
 		round_info["state"] = "won" if i < tournament["round"] else ("next" if i == tournament["round"] else "locked")
-		round_info["coins"] = Rewards.round_prize(i + 1, _is_arcade())
-		round_info["arcade"] = _is_arcade()
-		if i == tournament["rounds"].size() - 1 and not _is_arcade():
+		round_info["coins"] = Rewards.round_prize(i + 1, _ladder_kind())
+		round_info["kind"] = _ladder_kind()
+		if i == tournament["rounds"].size() - 1 and _ladder_kind() != "arcade":
 			round_info["chest"] = TOURNAMENT_CHEST
 		rounds.append(round_info)
-	return {"pick": tournament["pick"], "round": tournament["round"], "rounds": rounds, "arcade": _is_arcade()}
+	return {"pick": tournament["pick"], "round": tournament["round"], "rounds": rounds, "kind": _ladder_kind()}
 
 
 ## A dark, glowing copy of a fighter for the final boss.
@@ -2202,6 +2271,9 @@ func _maybe_spawn_crate(chance: float) -> void:
 func _on_projectile_hit_crate(projectile: Projectile, crate: Crate) -> void:
 	if crate.collected:
 		return
+	if crate is Trap:
+		_spring_trap(crate as Trap, projectile)
+		return
 	var side := fighters.find(projectile.thrower)
 	if side < 0:
 		return
@@ -2241,6 +2313,7 @@ func _spawn_fighter(data: FighterData, x: float, facing: int, is_ai: bool) -> Fi
 func _begin_turn() -> void:
 	var fighter := fighters[current]
 	_special_this_turn = false
+	_tend_traps()
 	_maw_healed = false
 	_turn_charged = false
 	# Frierin's barrier comes back up whenever her enemy starts a turn.
@@ -2383,6 +2456,7 @@ func _physics_process(_delta: float) -> void:
 	_watch_drop_orb()
 	_watch_det_orb()
 	_watch_recall()
+	_watch_gluttony()
 	_watch_illusion()
 	if state != State.FLYING or _cinematic_used or autoplay:
 		return
@@ -2607,7 +2681,9 @@ func _throw(angle: float, power: float) -> void:
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
 		if not fighter.is_ai and not weapon.shape in [&"ki", &"slime_blade", &"maw_blade"]:
-			projectile.set_trail_color(Save.trail_color())
+			# A level-3 master leaves their own signature trail (unless a Shop trail is on).
+			var signature := Save.trail == "white" and Save.mastery_level(String(fighter.data.base_id())) >= 3
+			projectile.set_trail_color(Mastery.trail_color(fighter.data) if signature else Save.trail_color())
 		if special == &"shockwave":
 			projectile.bounces = 1
 		if special == &"pin":
@@ -2646,8 +2722,8 @@ func _throw(angle: float, power: float) -> void:
 				Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), "PRESS TO DETONATE!", Color(0.75, 0.55, 1.0), 24, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		if weapon.shape in [&"slime_blade", &"maw_blade"] and i == 0:
 			_arm_recall(projectile, fighter)
-		if fighter.slowed:
-			projectile.time_scale = SLOWED_SPEED
+		if special == &"":
+			projectile.set_meta("basic", true)
 		if _devoured[current] and special == &"":
 			projectile.set_meta("slime", true)
 			projectile.set_trail_color(Color(0.6, 0.3, 0.95) if fighter.evolved else Color(0.45, 0.9, 1.0))
@@ -2721,8 +2797,12 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * (1.0 + LEVEL_DAMAGE * _level_of(fighters[side])))
 	# Rimiru's Adaptation: each stack he has built adds a little to every hit he lands.
 	var adapting := side >= 0 and fighters[side].data.base_id() == &"rimiru" and not mirrored and target != fighters[side]
-	if adapting and fighters[side].adapt_stacks > 0:
+	# Only his basic throws get the extra bite.
+	if adapting and fighters[side].adapt_stacks > 0 and projectile.get_meta("basic", false):
 		damage = roundi(damage * (1.0 + fighters[side].adapt_stacks * float(ADAPT_BONUS[1 if fighters[side].evolved else 0])))
+	# Adapting the other way: every stack Rimiru holds takes a little off the hits he takes.
+	if target.data.base_id() == &"rimiru" and target.adapt_stacks > 0 and not mirrored and side >= 0 and side != fighters.find(target):
+		damage = maxi(1, roundi(damage * (1.0 - target.adapt_stacks * float(ADAPT_DEFENCE[1 if target.evolved else 0]))))
 	# Evolved, Aizon shrugs off part of every enemy hit.
 	if target.evolved and not mirrored and side >= 0 and side != fighters.find(target):
 		damage = maxi(1, roundi(damage * EVOLVED_DEFENCE))
@@ -2731,6 +2811,11 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "BARRIER  -%d%%" % roundi((1.0 - MANA_BARRIER) * 100.0), Color(0.7, 0.85, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		Effects.burst(_actors, projectile.global_position, Color(0.7, 0.85, 1.0), 26, 420.0, 180.0, 1.2)
 		Audio.play("clang", -4.0, 1.5, 0.0)
+	# Beelzebuth devours a shield instead of being stopped by it.
+	if target.shielded and projectile.get_meta("beelzebuth", false) and not mirrored:
+		target.shielded = false
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "SHIELD DEVOURED!", Color(0.45, 0.95, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Audio.play("crunch", -2.0, 0.8, 0.0)
 	if target.shielded:
 		target.shielded = false
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -60), "SHIELD BLOCK!", Color(0.6, 0.85, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -3067,7 +3152,6 @@ func _after_throw() -> void:
 	# Spiritual pressure (no guide, or a wobbly aim) lasts for one throw.
 	fighters[current].pressured = false
 	fighters[current].shaken = false
-	fighters[current].slowed = false
 	if _devour_spent[current]:
 		_restore_own_weapon(fighters[current])
 	if not _turn_hit and fighters[current].data.base_id() == &"rimiru":
@@ -3175,6 +3259,13 @@ func _end_match() -> void:
 			return
 	state = State.GAME_OVER
 	var winner_side := fighters.find(winner)
+	# Landing a fatality adds it to the Fatality Gallery.
+	if landed and not autoplay and (winner_side == 0 or mode == Mode.LOCAL_2P):
+		var fatality_owner := String(winner.data.base_id())
+		if not Save.fatalities.has(fatality_owner):
+			Save.fatalities.append(fatality_owner)
+			Save.save_progress()
+			_hud.toast("New in the Fatality Gallery: %s" % Fatality.NAMES.get(winner.data.base_id(), "FINISHED!"), Color(0.95, 0.3, 0.35))
 	winner.victory(landed)
 	# A win without a scratch.
 	if winner.health >= Rules.MAX_HEALTH and mode != Mode.PRACTICE:
@@ -3197,13 +3288,16 @@ func _end_match() -> void:
 		var total: int = tournament["rounds"].size()
 		var round_number: int = tournament["round"] + 1
 		var final := round_number == total
-		ladder = {"won": player_won, "final": final, "round": round_number, "total": total}
+		ladder = {"won": player_won, "final": final, "round": round_number, "total": total, "kind": _ladder_kind()}
+		# The boss rush gives no second chances: lose and the run is over.
+		if not player_won and _ladder_kind() == "bossrush":
+			title = "BOSS RUSH OVER"
 		if player_won:
 			tournament["round"] = round_number
 			if final:
-				title = "ARCADE CLEAR!" if _is_arcade() else "CHAMPION!"
+				title = {"arcade": "ARCADE CLEAR!", "bossrush": "BOSS RUSH CLEAR!"}.get(_ladder_kind(), "CHAMPION!")
 				color = Color(1.0, 0.75, 0.2)
-	if mode == Mode.TOURNAMENT and not tournament.is_empty() and not _is_arcade():
+	if mode == Mode.TOURNAMENT and not tournament.is_empty() and _ladder_kind() == "tournament":
 		if ladder["won"] and ladder["final"]:
 			Save.tournament = {}
 		else:
@@ -3214,7 +3308,7 @@ func _end_match() -> void:
 		"difficulty": _last_difficulty,
 		"round": ladder.get("round", 0),
 		"champion": ladder.get("won", false) and ladder.get("final", false),
-		"arcade": _is_arcade(),
+		"kind": _ladder_kind(),
 		"headshots": _stats[0]["headshots"],
 		"longest": _stats[0]["longest"],
 		"damage_taken": _stats[1]["damage"],
@@ -3224,6 +3318,7 @@ func _end_match() -> void:
 		"health_left": fighters[0].health,
 		"fighter_id": String(fighters[0].data.id),
 		"map_id": String(current_map.id),
+		"fatality": landed and winner_side == 0,
 	}
 	var payout := _pay_out(summary)
 	match_ended.emit(winner)
@@ -3237,6 +3332,8 @@ func _end_match() -> void:
 		detail += "\n+%d coins" % payout["coins"]
 	if payout["daily"]:
 		detail += "  ·  Daily challenge complete!"
+	if int(payout.get("mastery", 0)) > 0:
+		detail += "  ·  +%d mastery" % payout["mastery"]
 	_hud.show_result({
 		"title": title,
 		"color": color,
@@ -3247,13 +3344,15 @@ func _end_match() -> void:
 		"stats": _stats,
 		"tournament": ladder,
 	})
+	if int(payout.get("mastery_level", 0)) > 0:
+		_hud.toast("%s MASTERY %d: %s!" % [fighters[0].data.short_name.to_upper(), payout["mastery_level"], Mastery.REWARDS[payout["mastery_level"]]], Color(1.0, 0.8, 0.3))
 	if payout["levels"] > 0:
 		_hud.toast("LEVEL UP!  Level %d  +%d" % [Save.level_info()["level"], payout["levels"] * Rewards.LEVEL_UP_COINS], Color(0.55, 0.9, 1.0))
 	for id: String in payout["achievements"]:
 		var entry := Rewards.achievement(id)
 		_hud.toast("Achievement: %s  +%d" % [entry["name"], Rewards.ACHIEVEMENT_COINS], Color(1.0, 0.8, 0.3))
 	# The champion's prize: a chest, opened on the spot.
-	if summary["champion"] and not autoplay and not summary["arcade"]:
+	if summary["champion"] and not autoplay and summary["kind"] != "arcade":
 		var prize_rng := RandomNumberGenerator.new()
 		prize_rng.randomize()
 		_hud.award_chest(TOURNAMENT_CHEST, Chests.open(TOURNAMENT_CHEST, roster(), Save, prize_rng, true))
@@ -3267,6 +3366,15 @@ func _pay_out(summary: Dictionary) -> Dictionary:
 	if autoplay or mode == Mode.LOCAL_2P:
 		return result
 	var coins := Rewards.coins_for(summary)
+	# Mastery: a little more coin with a fighter you have mastered, and XP toward more.
+	var fighter_id: String = summary["fighter_id"]
+	var mastery_before := Save.mastery_level(fighter_id)
+	if mastery_before >= 1:
+		coins = roundi(coins * (1.0 + Mastery.COIN_BONUS))
+	var mastery_xp := Mastery.xp_for(summary)
+	Save.mastery[fighter_id] = Save.mastery_xp(fighter_id) + mastery_xp
+	result["mastery"] = mastery_xp
+	result["mastery_level"] = Save.mastery_level(fighter_id) if Save.mastery_level(fighter_id) > mastery_before else 0
 	var stats := Save.stats_for(summary["fighter_id"])
 	if mode != Mode.PRACTICE:
 		stats["matches"] += 1
@@ -3714,7 +3822,8 @@ func _divine_dogs(fighter: Fighter) -> void:
 				blocker = obstacle
 				goal_x = near_edge - fighter.facing * 10.0
 	fighter.play_throw()
-	Audio.play("ko", -4.0, 1.4, 0.0)
+	Audio.play("voice_laugh", -4.0, 0.55, 0.0)
+	Audio.play("whoosh", -2.0, 0.6, 0.0)
 	_launching = true
 	var running := {"left": 2}
 	for dog in 2:
@@ -3921,7 +4030,7 @@ func _spatial_tear(at: Vector2) -> void:
 
 
 ## Every hit Rimiru lands: one more Adaptation stack, and a blade hit leaves a Predator
-## Mark (three in a row burst). A recalled Gluttony's Maw also slows their next throw.
+## Mark (three in a row burst). Three basic hits in a row arm the Sovereign's Gluttony.
 func _adapt(rimiru: Fighter, target: Fighter, projectile: Projectile) -> void:
 	var view := _camera.visible_rect()
 	var most: int = ADAPT_MAX[1 if rimiru.evolved else 0]
@@ -3930,9 +4039,13 @@ func _adapt(rimiru: Fighter, target: Fighter, projectile: Projectile) -> void:
 		Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -80), "%s %d / %d" % ["ABYSSAL ADAPTATION" if rimiru.evolved else "ADAPTATION", rimiru.adapt_stacks, most], Color(0.45, 0.9, 1.0), 24, 1.0 / _camera.zoom.x, view)
 	if target.is_knocked_out() or not projectile.get_meta("slime", false):
 		return
-	if rimiru.evolved and projectile.get_meta("recalled", false) and not target.slowed:
-		target.slowed = true
-		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -130), "SLOWED", Color(0.7, 0.5, 1.0), 26, 1.0 / _camera.zoom.x, view)
+	# Gluttony: three basic hits in a row and the Sovereign will devour the next enemy throw.
+	if projectile.get_meta("basic", false):
+		rimiru.basic_streak += 1
+		if rimiru.evolved and rimiru.basic_streak >= GLUTTONY_HITS and not rimiru.devour_ready:
+			rimiru.basic_streak = 0
+			rimiru.devour_ready = true
+			Effects.popup(_actors, rimiru.aim_point(true) + Vector2(0, -130), "GLUTTONY: NEXT THROW WILL BE DEVOURED", Color(0.7, 0.5, 1.0), 26, 1.0 / _camera.zoom.x, view)
 	target.predator_marks += 1
 	if target.predator_marks < MARKS_NEEDED:
 		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -100), "PREDATOR MARK %d / %d" % [target.predator_marks, MARKS_NEEDED], Color(0.45, 0.95, 1.0), 26, 1.0 / _camera.zoom.x, view)
@@ -3965,6 +4078,7 @@ func _mark_burst(target: Fighter, rimiru: Fighter) -> void:
 ## A throw of his that hit nothing: the marks on the enemy are wiped (they need hits in
 ## a row) and one Adaptation stack fades.
 func _fade_adaptation(rimiru: Fighter) -> void:
+	rimiru.basic_streak = 0
 	rimiru.adapt_stacks = maxi(0, rimiru.adapt_stacks - 1)
 	var foe := fighters[1 - fighters.find(rimiru)]
 	foe.predator_marks = 0
@@ -3999,7 +4113,8 @@ func _become_sovereign(fighter: Fighter) -> void:
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.05, 0.02, 0.08), 50, 600.0, 180.0, 2.0)
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.45, 0.95, 1.0), 30, 450.0, 180.0, 1.4)
 	Audio.play("voice_charge", 2.0, fighter.voice_pitch(), 0.0)
-	Audio.play("ko", -4.0, 0.5, 0.0)
+	Audio.play("reiatsu_burst", 0.0, 0.45, 0.0)
+	Audio.play("ground", -2.0, 0.4, 0.0)
 	_camera.shake(0.6)
 
 
@@ -4082,11 +4197,13 @@ func _on_abyss_impact(projectile: Projectile, at: Vector2, direct: Fighter, _par
 		if _practice_target != null and is_instance_valid(_practice_target) and _practice_target.global_position.distance_to(at) < radius:
 			_on_practice_target_hit(carrier, _practice_target)
 	elif not foe.is_knocked_out():
+		# Kyoka Suigetsu turns the vortex back on him: there is nothing to devour.
+		var fooled := foe.illusion
 		var distance := 0.0 if direct == foe else foe.aim_point(false).distance_to(at)
 		if distance <= radius:
 			var push := (foe.aim_point(false) - at).normalized() * 700.0 + Vector2(0, -450)
 			_on_projectile_hit(carrier, foe, Rules.BODY, lerpf(1.0, 0.4, distance / radius), push)
-			devoured = not foe.is_knocked_out() and not rimiru.is_knocked_out()
+			devoured = not fooled and not foe.is_knocked_out() and not rimiru.is_knocked_out()
 	carrier.free()
 	for child in _obstacle_layer.get_children():
 		var obstacle := child as Obstacle
@@ -4183,8 +4300,18 @@ func _restore_own_weapon(rimiru: Fighter) -> void:
 	_own_weapon[side] = null
 
 
-## Rimiru survived a finishing blow as a slime: tell everyone.
+## Rimiru survived a finishing blow as a slime: he reforms clean, every ailment shed
+## (bleeding, burning, pressure, crushing, pins and marks), and everyone hears about it.
 func _on_regenerated(fighter: Fighter) -> void:
+	fighter.bleed_turns = 0
+	fighter.burn_turns = 0
+	fighter.crush_turns = 0
+	fighter.pressure_stacks = 0
+	fighter.pressured = false
+	fighter.shaken = false
+	fighter.heavy_aim = false
+	fighter.pinned = false
+	fighter.predator_marks = 0
 	_hud.announce("SLIME REGENERATION!", Color(0.45, 0.9, 1.0))
 	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "1 HP", Color(0.45, 0.95, 1.0), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
 	Effects.burst(_actors, fighter.aim_point(false), Color(0.45, 0.85, 1.0), 40, 420.0, 180.0, 1.6)
@@ -4244,3 +4371,133 @@ static func _damage_color(damage: int) -> Color:
 func _hype(amount: float) -> void:
 	if _backdrop != null and is_instance_valid(_backdrop):
 		_backdrop.hype(amount)
+
+
+# --- fatality gallery ---
+
+## Replays a fatality from the gallery: the fighter (in their colours) and a dummy on a
+## quiet arena, the finisher plays, then it is back to the gallery.
+func play_gallery(data: FighterData) -> void:
+	_clear_match()
+	get_tree().paused = false
+	mode = Mode.PRACTICE
+	tournament = {}
+	state = State.GAME_OVER
+	_set_map(MAPS[0])
+	for child in _obstacle_layer.get_children():
+		child.queue_free()
+	_obstacle_rects.clear()
+	_arena.set_spread(300.0)
+	Terrain.build(rng, 300.0, 0.4 * current_map.terrain_roughness, false)
+	_arena.refresh_terrain()
+	var winner := _spawn_fighter(Mastery.skinned(data, Save.skin(String(data.id))), -260.0, 1, false)
+	var dummy := _spawn_fighter(FATALITY_DUMMY, 260.0, -1, true)
+	fighters.append(winner)
+	fighters.append(dummy)
+	_hud.gallery_playback()
+	_camera.snap()
+	var id := _match_id
+	await get_tree().create_timer(0.5, false).timeout
+	if id != _match_id:
+		return
+	var fatality := Fatality.new()
+	fatality.setup(winner, dummy, _camera, _hud, Save.gore)
+	_actors.add_child(fatality)
+	fatality.play(true)
+	if not fatality.is_done():
+		await fatality.finished
+	if id != _match_id:
+		return
+	await get_tree().create_timer(0.8, false).timeout
+	if id != _match_id:
+		return
+	_clear_match()
+	_hud.open_gallery()
+
+
+# --- map traps ---
+
+## Hangs this map's trap over a fighter's head (never in practice).
+func _hang_trap(side: int) -> void:
+	if mode == Mode.PRACTICE or side >= fighters.size() or current_map == null:
+		return
+	var trap := Trap.new()
+	trap.setup_trap(current_map.id, fighters[side])
+	_actors.add_child(trap)
+	_traps[side] = trap
+
+
+## Each turn: traps follow their fighter if they were moved, and sprung ones come back.
+func _tend_traps() -> void:
+	if mode == Mode.PRACTICE:
+		return
+	for side in fighters.size():
+		var trap: Trap = _traps[side] if is_instance_valid(_traps[side]) else null
+		if trap != null and not trap.collected:
+			trap._home = fighters[side].global_position + Vector2(0, -Trap.HEIGHT)
+		elif _trap_wait[side] > 0:
+			_trap_wait[side] -= 1
+			if _trap_wait[side] == 0 and not fighters[side].is_knocked_out():
+				_hang_trap(side)
+
+
+## A throw brought a trap down: it drops (or, the storm cloud, strikes) on whoever is
+## underneath, wherever the throw came from.
+func _spring_trap(trap: Trap, projectile: Projectile) -> void:
+	trap.collect()
+	var victim := trap.victim
+	var side := fighters.find(victim)
+	if side < 0:
+		return
+	_trap_wait[side] = TRAP_RESPAWN
+	var match_id := _match_id
+	Audio.play("clang", -2.0, 0.6, 0.0)
+	_hud.announce("TRAP SPRUNG!", Color(1.0, 0.45, 0.35))
+	_hype(0.5)
+	var landing := victim.aim_point(true) + Vector2(0, -12)
+	if trap.look == "cloud":
+		_lightning(victim.aim_point(false))
+		trap.create_tween().tween_property(trap, "modulate:a", 0.0, 0.6).finished.connect(trap.queue_free)
+	else:
+		var fall := trap.create_tween()
+		fall.tween_property(trap, "position", landing, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		await fall.finished
+		if match_id != _match_id:
+			return
+		Effects.burst(_actors, landing, Color(0.85, 0.82, 0.75), 24, 420.0, 180.0, 1.3)
+		var fade := trap.create_tween()
+		fade.tween_property(trap, "modulate:a", 0.0, 0.4)
+		fade.tween_callback(trap.queue_free)
+	if victim.is_knocked_out() or absf(victim.aim_point(true).x - landing.x) > 70.0:
+		return
+	_camera.shake(0.7)
+	Audio.play("hit_head", 0.0, 0.8, 0.0)
+	victim.take_hit(Rules.HEAD, TRAP_DAMAGE, Vector2(0, 420))
+	Effects.popup(_actors, victim.aim_point(true) + Vector2(0, -70), "TRAP!  -%d" % TRAP_DAMAGE, Color(1.0, 0.5, 0.35), _damage_font(36, TRAP_DAMAGE), 1.0 / _camera.zoom.x, _camera.visible_rect())
+	var thrower_side := fighters.find(projectile.thrower) if is_instance_valid(projectile) else -1
+	if thrower_side >= 0 and thrower_side != side:
+		_stats[thrower_side]["damage"] += TRAP_DAMAGE
+
+
+## Gluttony: an enemy basic throw that comes close to a Shadow Sovereign who has it ready
+## is devoured whole before it can land.
+func _watch_gluttony() -> void:
+	if state != State.FLYING:
+		return
+	for projectile in _in_flight:
+		if not is_instance_valid(projectile) or not projectile.is_flying() or not projectile.get_meta("basic", false):
+			continue
+		for rimiru in fighters:
+			if not rimiru.devour_ready or rimiru == projectile.thrower or rimiru.is_knocked_out():
+				continue
+			if projectile.global_position.distance_to(rimiru.aim_point(false)) > GLUTTONY_RANGE:
+				continue
+			rimiru.devour_ready = false
+			var at := projectile.global_position
+			_vortex_fx(at, 80.0, true, 0.6)
+			Effects.popup(_actors, at + Vector2(0, -60), "DEVOURED!", Color(0.7, 0.5, 1.0), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
+			Audio.play("crunch", 0.0, 0.6, 0.0)
+			_camera.shake(0.4)
+			projectile.visible = false
+			projectile._finish(false)
+			return

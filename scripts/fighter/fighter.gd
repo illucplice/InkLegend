@@ -89,13 +89,17 @@ var mana_released := false
 ## Rimiru's Predator Marks on this fighter (three in a row burst), and his Adaptation stacks.
 var predator_marks := 0
 var adapt_stacks := 0
-## Slowed by a recalled Gluttony's Maw: their next throw flies slowly.
-var slowed := false
+## Basic hits Rimiru has landed in a row, and whether the Shadow Sovereign's Gluttony is
+## ready to devour the next enemy throw.
+var basic_streak := 0
+var devour_ready := false
 ## Rimiru's Imaginary Space: the half-mask is off, and his eyes light the dark.
 var mask_off := false
 var eye_glow := 0.0
 ## The Shadow Sovereign floats (0..1 of HOVER_LIFT off the ground); his hitboxes, hand
 ## and aim points rise with him.
+## Mastery level 5: a golden aura at the feet and sparkles rising round them.
+var master := false
 var hover := 0.0
 ## Slime Regeneration is spent (once a match), and how much of the melt still shows.
 var regenerated_once := false
@@ -442,8 +446,15 @@ func _draw() -> void:
 	var ground_x: float = (p[&"hip"] as Vector2).x
 	draw_set_transform(Vector2(ground_x, 1), 0.0, Vector2(1.0, 0.22))
 	draw_circle(Vector2.ZERO, 30.0, Color(0, 0, 0, 0.28), true, -1.0, true)
-	draw_arc(Vector2.ZERO, 34.0, 0.0, TAU, 32, Color(data.body_color, 0.55), 6.0, true)
+	draw_arc(Vector2.ZERO, 34.0, 0.0, TAU, 32, Color(data.body_color, 0.55) if not master else Color(1.0, 0.8, 0.3, 0.9), 6.0, true)
+	if master and not knocked:
+		draw_arc(Vector2.ZERO, 42.0 + sin(_time * 3.0) * 3.0, 0.0, TAU, 32, Color(1.0, 0.88, 0.45, 0.5), 3.0, true)
 	draw_set_transform(Vector2.ZERO)
+	if master and not knocked:
+		for k in 6:
+			var rise := fmod(_time * 0.6 + k / 6.0, 1.0)
+			var at := Vector2(ground_x + sin(k * 2.3 + _time) * 26.0, -rise * 110.0)
+			draw_circle(at, 2.5 * (1.0 - rise), Color(1.0, 0.85, 0.35, 0.9 * (1.0 - rise)), true, -1.0, true)
 
 	if _has_aura() and (charge >= 1.0 or _powering > 0.0) and not is_knocked_out():
 		_draw_aura(p)
@@ -565,8 +576,8 @@ func _draw() -> void:
 		_draw_slime_hands(p)
 	if predator_marks > 0 and not knocked:
 		_draw_predator_marks(p)
-	if slowed and not knocked:
-		_draw_slowed(p)
+	if devour_ready and not knocked:
+		_draw_gluttony(p)
 	_draw_burning(p)
 	_draw_bleeding(p)
 
@@ -2185,12 +2196,16 @@ func _draw_predator_marks(p: Dictionary) -> void:
 		draw_circle(at, 2.5, Color(0.85, 1.0, 1.0), true, -1.0, true)
 
 
-## Slowed by Gluttony's Maw: slow violet ripples dragging at the throwing hand.
-func _draw_slowed(p: Dictionary) -> void:
-	var hand: Vector2 = p[&"fhand"]
-	for ring in 3:
-		var spread := fmod(_time * 0.6 + ring / 3.0, 1.0)
-		draw_arc(hand, 6.0 + spread * 22.0, 0.0, TAU, 18, Color(0.6, 0.35, 0.95, 0.8 * (1.0 - spread)), 2.0, true)
+## Gluttony ready: a ring of dark jaws circling him, waiting to bite.
+func _draw_gluttony(p: Dictionary) -> void:
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"head"], 0.45)
+	var spin := _time * 1.5
+	draw_arc(centre, 70.0, 0.0, TAU, 40, Color(0.6, 0.3, 0.95, 0.6), 3.0, true)
+	for k in 10:
+		var a := spin + k * TAU / 10.0
+		var base := centre + Vector2.from_angle(a) * 70.0
+		draw_colored_polygon(PackedVector2Array([base + Vector2.from_angle(a + 1.4) * 5.0, base - Vector2.from_angle(a) * 12.0, base + Vector2.from_angle(a - 1.4) * 5.0]), Color(0.85, 0.75, 1.0, 0.85))
+
 
 
 ## The Shadow Sovereign's great bat wings, spread behind his shoulders and beating

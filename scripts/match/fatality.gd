@@ -781,7 +781,7 @@ func _home_run() -> void:
 	winner.power_up(9.0)
 	hud.announce("CONQUEROR'S HAKI!", Color(0.95, 0.2, 0.25))
 	_wash(Color(0.85, 0.02, 0.06), 0.45, 0.12, 0.6, 0.45)
-	Audio.play("ko", 3.0, 0.35, 0.0)
+	Audio.play("boom", 0, 0.35, 0.0)
 	# Waves of will roll out from him; they freeze, shaking.
 	for wave in 3:
 		_flash_ring(winner.aim_point(false), Color(0.08, 0.02, 0.05), 700.0)
@@ -858,7 +858,7 @@ func _moon_slash() -> void:
 	winner.holding_weapon = true
 	winner.form = &"mugetsu"
 	hud.announce("FINAL GETSUGA TENSHO!", Color(0.85, 0.12, 0.15))
-	Audio.play("ko", 2.0, 0.35, 0.0)
+	Audio.play("boom", -1, 0.35, 0.0)
 	camera.shake(0.6)
 	_wash(Color.BLACK, 0.3, 0.5, 2.6, 0.6, 2)
 	for burst in 4:
@@ -1156,7 +1156,7 @@ func _malevolent_shrine() -> void:
 	winner.form = &"sukuna"
 	winner.power_up(8.0)
 	hud.announce("DOMAIN EXPANSION", Color(0.95, 0.2, 0.2))
-	Audio.play("ko", 3.0, 0.3, 0.0)
+	Audio.play("boom", 0, 0.3, 0.0)
 	_wash(Color(0.25, 0.0, 0.02), 0.55, 0.6, 3.2, 0.8, 2)
 	# The shrine looms up behind him.
 	var rise := {"s": 0.0}
@@ -1363,7 +1363,7 @@ func _mahoraga() -> void:
 	emerge.tween_method(func(r: float) -> void:
 		pose["rise"] = r
 		giant.queue_redraw(), 0.0, 1.0, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	Audio.play("ko", 4.0, 0.3, 0.0)
+	Audio.play("boom", 1, 0.3, 0.0)
 	_frame_around(Vector2(spot.x + side * 60.0, 0), 380.0, 640.0)
 	await emerge.finished
 	if _done:
@@ -1424,7 +1424,7 @@ func _mahoraga() -> void:
 	if not await _wait(1.0):
 		return
 	# It roars before sinking back into the shadow.
-	Audio.play("ko", 6.0, 0.25, 0.0)
+	Audio.play("boom", 3, 0.25, 0.0)
 	for k in 5:
 		camera.shake(0.4)
 		Effects.burst(self, Vector2(spot.x + randf_range(-160, 160), spot.y), Color(0.85, 0.78, 0.72, 0.9), 10, 300.0, 60.0, 1.0)
@@ -1449,7 +1449,7 @@ func _thick(canvas: Node2D, a: Vector2, b: Vector2, width: float, color: Color) 
 func _unlimited_void() -> void:
 	winner.power_up(8.0)
 	hud.announce("DOMAIN EXPANSION", Color(0.6, 0.85, 1.0))
-	Audio.play("ko", 3.0, 0.45, 0.0)
+	Audio.play("boom", 0, 0.45, 0.0)
 	_wash(Color.BLACK, 0.92, 0.5, 1.7, 0.6, 7)
 	var at: Vector2 = loser.aim_point(false)
 	var void_state := {"t": 0.0}
@@ -1534,7 +1534,7 @@ func _metsu_hadoken() -> void:
 		return
 	winner.power_up(8.0)
 	hud.announce("SATSUI NO HADO", Color(0.95, 0.15, 0.15))
-	Audio.play("ko", 3.0, 0.4, 0.0)
+	Audio.play("boom", 0, 0.4, 0.0)
 	_wash(Color(0.25, 0.0, 0.02), 0.4, 0.4, 2.4, 0.7, 2)
 	for flare in 4:
 		Effects.burst(self, winner.aim_point(false), Color(0.9, 0.1, 0.1), 26, 460.0, 180.0, 1.6)
@@ -1583,7 +1583,7 @@ func _raging_demon() -> void:
 	var side := _toward_loser()
 	winner.power_up(9.0)
 	hud.announce("SHUN GOKU SATSU", Color(0.9, 0.15, 0.15))
-	Audio.play("ko", 4.0, 0.3, 0.0)
+	Audio.play("boom", 1, 0.3, 0.0)
 	await _move_winner(Vector2(loser.global_position.x - side * 60.0, 0.0), 0.7, 0.0)
 	if _done:
 		return
@@ -1926,7 +1926,7 @@ func _ora_rush() -> void:
 	_say_line("Star Platina... The World.", 1.2)
 	hud.announce("TIME STOP!", Color(0.85, 0.75, 1.0))
 	Audio.play("zap", 0.0, 0.4, 0.0)
-	Audio.play("ko", -4.0, 0.5, 0.0)
+	Audio.play("boom", -7, 0.5, 0.0)
 	_flash_ring(winner.aim_point(false), Color(0.85, 0.75, 1.0, 0.9), 1100.0)
 	hud.set_time_stop(true, true)
 	if not await _wait(0.8):
@@ -1979,7 +1979,7 @@ func _road_roller() -> void:
 	winner.power_up(9.0)
 	hud.announce("THE WARLD!", Color(1.0, 0.85, 0.3))
 	Audio.play("zap", 0.0, 0.4, 0.0)
-	Audio.play("ko", -4.0, 0.5, 0.0)
+	Audio.play("boom", -7, 0.5, 0.0)
 	# Time stops: a dome of inverted colour bursts out, and the world goes grey-violet.
 	_flash_ring(winner.aim_point(false), Color(0.95, 0.85, 0.3, 0.9), 900.0)
 	_flash_ring(winner.aim_point(false), Color(0.35, 0.2, 0.6, 0.7), 1200.0)
@@ -2763,7 +2763,7 @@ func _zoltraak_storm() -> void:
 	var form := create_tween()
 	form.tween_method(func(r: float) -> void: hole["r"] = r, 2.0, 22.0, 0.9).set_trans(Tween.TRANS_SINE)
 	Audio.play("zap", 0.0, 0.35, 0.0)
-	Audio.play("ko", -4.0, 0.4, 0.0)
+	Audio.play("boom", -7, 0.4, 0.0)
 	await form.finished
 	if _done:
 		return
@@ -3380,7 +3380,7 @@ func _imaginary_space() -> void:
 					canvas.draw_colored_polygon(PackedVector2Array([at + Vector2(-8, 0), at + Vector2(0, -upper * 22.0), at + Vector2(8, 0)]), Color(0.9, 0.88, 1.0)))
 	gate.z_index = 8
 	get_tree().process_frame.connect(gate.queue_redraw)
-	Audio.play("ko", -2.0, 0.35, 0.0)
+	Audio.play("boom", -5, 0.35, 0.0)
 	var opening := gate.create_tween()
 	opening.tween_method(func(v: float) -> void: portal["open"] = v, 0.0, 1.0, 1.0).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	camera.shake(0.3)

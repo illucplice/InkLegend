@@ -47,6 +47,11 @@ var trail := "white"
 var fighter_stats := {}
 ## Fighter levels from duplicate chest finds: id -> 1..Chests.MAX_LEVEL.
 var fighter_levels := {}
+## Fighter mastery: id -> XP earned playing them, and id -> the colour scheme worn.
+var mastery := {}
+var skins := {}
+## Fatalities you have landed (fighter ids): the Fatality Gallery can replay these.
+var fatalities: Array = []
 ## How far through the first-match tutorial tips (3 = all shown).
 var tutorial_step := 0
 var achievements: Array = []
@@ -120,6 +125,9 @@ func load_progress() -> void:
 	trail = config.get_value("progress", "trail", trail)
 	fighter_stats = config.get_value("progress", "fighter_stats", fighter_stats)
 	fighter_levels = config.get_value("progress", "fighter_levels", fighter_levels)
+	mastery = config.get_value("progress", "mastery", mastery)
+	skins = config.get_value("progress", "skins", skins)
+	fatalities = config.get_value("progress", "fatalities", fatalities)
 	tutorial_step = config.get_value("progress", "tutorial_step", tutorial_step)
 	achievements = config.get_value("progress", "achievements", achievements)
 	counters = config.get_value("progress", "counters", counters)
@@ -139,6 +147,9 @@ func save_progress() -> void:
 	config.set_value("progress", "trail", trail)
 	config.set_value("progress", "fighter_stats", fighter_stats)
 	config.set_value("progress", "fighter_levels", fighter_levels)
+	config.set_value("progress", "mastery", mastery)
+	config.set_value("progress", "skins", skins)
+	config.set_value("progress", "fatalities", fatalities)
 	config.set_value("progress", "tutorial_step", tutorial_step)
 	config.set_value("progress", "achievements", achievements)
 	config.set_value("progress", "counters", counters)
@@ -159,6 +170,9 @@ func reset_progress() -> void:
 	trail = "white"
 	fighter_stats = {}
 	fighter_levels = {}
+	mastery = {}
+	skins = {}
+	fatalities = []
 	tutorial_step = 0
 	achievements = []
 	counters = {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
@@ -253,3 +267,16 @@ func _bring_over_old_save() -> void:
 ## A fighter's level from duplicate chest finds (0 for one found once).
 func fighter_level(fighter_id: String) -> int:
 	return int(fighter_levels.get(fighter_id, 0))
+
+
+func mastery_xp(fighter_id: String) -> int:
+	return int(mastery.get(fighter_id, 0))
+
+
+func mastery_level(fighter_id: String) -> int:
+	return Mastery.level(mastery_xp(fighter_id))
+
+
+## The colour scheme a fighter wears (0, their own, unless mastery has unlocked more).
+func skin(fighter_id: String) -> int:
+	return mini(int(skins.get(fighter_id, 0)), Mastery.skin_count(mastery_level(fighter_id)) - 1)

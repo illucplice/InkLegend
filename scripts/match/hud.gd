@@ -10,6 +10,8 @@ signal rematch_requested
 ## Tournament: play (or retry) the current round, or go back to the ladder.
 signal round_requested
 signal ladder_requested
+## A finished ladder: start a fresh one of the same kind with the same fighter.
+signal ladder_again_requested
 ## Title screen: play today's daily challenge, or continue a saved tournament.
 signal daily_requested
 signal resume_requested
@@ -21,6 +23,8 @@ signal menu_requested
 signal pause_changed(paused: bool)
 ## Target Practice: play your fighter's fatality on a dummy.
 signal fatality_test_requested
+## The Fatality Gallery: replay this fighter's fatality.
+signal gallery_requested(data: FighterData)
 
 const INK := UiStyle.INK
 const PAPER := UiStyle.PAPER
@@ -117,6 +121,7 @@ var _go_label: Label
 ## Vs AI: the second pick (your opponent) can be left to chance instead.
 var _random_foe := false
 var _random_button: Button
+var _skin_button: Button
 ## null means a random map.
 var _map_choice: MapData
 var _map_screen: Control
@@ -768,6 +773,9 @@ func _build_title() -> Control:
 	var arcade := _mode_button(&"sword", "Arcade", "5 fights, then your rival", UiStyle.RED)
 	arcade.pressed.connect(_open_select.bind(MatchController.Mode.ARCADE))
 	_menu.add_child(arcade)
+	var bosses := _mode_button(&"sword", "Boss Rush", "4 bosses, already powered up", UiStyle.PURPLE)
+	bosses.pressed.connect(_open_select.bind(MatchController.Mode.BOSS_RUSH))
+	_menu.add_child(bosses)
 	var duo := _mode_button(&"duo", "1v1 friend", "Take turns, one device", UiStyle.ORANGE)
 	duo.pressed.connect(_open_select.bind(MatchController.Mode.LOCAL_2P))
 	_menu.add_child(duo)
@@ -882,7 +890,7 @@ func _build_title() -> Control:
 	var tabs := HBoxContainer.new()
 	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 	tabs.add_theme_constant_override("separation", 10)
-	var tab_list := [[&"home", "Home", Callable()], [&"duo", "Fighters", _open_fighters], [&"coin", "Shop", _open_shop], [&"trophy", "Trophies", _open_stats.bind(true)], [&"help", "Help", func() -> void: _show_screen(_howto_screen)]]
+	var tab_list := [[&"home", "Home", Callable()], [&"duo", "Fighters", _open_fighters], [&"coin", "Shop", _open_shop], [&"trophy", "Trophies", _open_stats.bind(true)], [&"sword", "Fatalities", open_gallery], [&"help", "Help", func() -> void: _show_screen(_howto_screen)]]
 	for i in tab_list.size():
 		var tab: Array = tab_list[i]
 		var button := _icon_button(tab[0], tab[1], UiStyle.YELLOW if i == 0 else Color(0.3, 0.27, 0.4), Vector2(200, 62), 20)
@@ -1199,6 +1207,10 @@ func _build_select() -> Control:
 	_go_label = go.get_meta("label")
 	go.pressed.connect(_select_next)
 	bottom.add_child(back)
+	# Mastery: switch between the colour schemes you have unlocked for this fighter.
+	_skin_button = _icon_button(&"star", "Colours", UiStyle.YELLOW, Vector2(200, 70), 22)
+	_skin_button.pressed.connect(_next_skin)
+	bottom.add_child(_skin_button)
 	# Vs AI: let the game choose the opponent.
 	_random_button = _icon_button(&"restart", "Random", UiStyle.PURPLE, Vector2(190, 70), 24)
 	_random_button.pressed.connect(func() -> void:
@@ -1253,6 +1265,17 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	card.add_child(stack)
 	card.set_meta("fighter", fighter)
 	card.set_meta("data", data)
+	# Mastery level, top right.
+	var badge := UiStyle.game_label("", 18, true)
+	badge.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+	badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	badge.offset_left = -70
+	badge.offset_right = -10
+	badge.offset_top = 6
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(badge)
+	card.set_meta("badge", badge)
 	# Locked: dim the card and show the Shop price.
 	var lock := PanelContainer.new()
 	var lock_box := UiStyle.flat(Color(0.08, 0.05, 0.12, 0.88), 14, 0)
@@ -1351,6 +1374,9 @@ func _refresh_select() -> void:
 	elif is_arcade:
 		label.text = "ARCADE: CHOOSE YOUR FIGHTER"
 		color = UiStyle.RED
+	elif _select_mode == MatchController.Mode.BOSS_RUSH:
+		label.text = "BOSS RUSH: CHOOSE YOUR FIGHTER"
+		color = UiStyle.PURPLE
 	elif _select_mode == MatchController.Mode.PRACTICE:
 		label.text = "TARGET PRACTICE"
 		color = UiStyle.BLUE
@@ -1384,6 +1410,15 @@ func _refresh_select() -> void:
 		(_card_buttons[i].get_meta("lock") as Control).visible = locked
 		var fighter: Fighter = _card_buttons[i].get_meta("fighter")
 		fighter.aiming = i == picked
+		var card_data: FighterData = _card_buttons[i].get_meta("data")
+		var mastery := Save.mastery_level(String(card_data.id))
+		(_card_buttons[i].get_meta("badge") as Label).text = "★%d" % mastery if mastery > 0 else ""
+		# Your fighter is shown in the colours they wear.
+		var wearing := Save.skin(String(card_data.id)) if not any_foe else 0
+		if int(_card_buttons[i].get_meta("skin", 0)) != wearing:
+			_card_buttons[i].set_meta("skin", wearing)
+			fighter.setup(Mastery.skinned(card_data, wearing), 1, false, false)
+	_refresh_skin_button()
 
 
 func _on_card_picked(index: int) -> void:
@@ -1636,11 +1671,15 @@ func _fill_result_buttons(ladder: Dictionary) -> void:
 		var next := _icon_button(&"trophy", "Next round", UiStyle.GREEN, Vector2(260, 66), 24)
 		next.pressed.connect(ladder_requested.emit)
 		buttons = [next]
-	elif not ladder["won"]:
+	elif not ladder["won"] and ladder.get("kind", "tournament") != "bossrush":
 		var retry := _icon_button(&"restart", "Retry round %d" % ladder["round"], UiStyle.YELLOW, Vector2(260, 66), 22)
 		retry.pressed.connect(round_requested.emit)
 		buttons = [retry]
-	var giving_up: bool = not ladder.is_empty() and not ladder["won"]
+	elif ladder["won"] and ladder["final"]:
+		var again := _icon_button(&"restart", "Play again", UiStyle.GREEN, Vector2(240, 66), 24)
+		again.pressed.connect(ladder_again_requested.emit)
+		buttons = [again]
+	var giving_up: bool = not ladder.is_empty() and not ladder["won"] and ladder.get("kind", "tournament") != "bossrush"
 	var menu := _icon_button(&"home", "Give up" if giving_up else "Menu", UiStyle.GREY, Vector2(170, 66), 22)
 	menu.pressed.connect(give_up_requested.emit if giving_up else menu_requested.emit)
 	buttons.append(menu)
@@ -1669,11 +1708,13 @@ func show_ladder(info: Dictionary) -> void:
 	header.alignment = BoxContainer.ALIGNMENT_CENTER
 	header.add_theme_constant_override("separation", 14)
 	header.add_child(Portrait.make(pick, 1, 64.0))
-	var arcade_run: bool = info.get("arcade", false)
+	var kind: String = info.get("kind", "tournament")
+	var arcade_run := kind == "arcade"
 	var rounds_list: Array = info["rounds"]
 	var rival: FighterData = rounds_list[-1]["opponent"]
-	var you := UiStyle.ink_label("%s's road to %s" % [pick.short_name, rival.short_name] if arcade_run else "%s's road to glory" % pick.short_name, 26, true)
-	(_ladder_screen.get_meta("ribbon").get_meta("label") as Label).text = "ARCADE" if arcade_run else "TOURNAMENT"
+	var heading: String = {"arcade": "%s's road to %s" % [pick.short_name, rival.short_name], "bossrush": "%s against the bosses" % pick.short_name}.get(kind, "%s's road to glory" % pick.short_name)
+	var you := UiStyle.ink_label(heading, 26, true)
+	(_ladder_screen.get_meta("ribbon").get_meta("label") as Label).text = {"arcade": "ARCADE", "bossrush": "BOSS RUSH"}.get(kind, "TOURNAMENT")
 	header.add_child(you)
 	_ladder_content.add_child(header)
 
@@ -1705,7 +1746,7 @@ func show_ladder(info: Dictionary) -> void:
 	go.pressed.connect(round_requested.emit)
 	buttons.add_child(quit)
 	# Mid-tournament (not yet won a round's result screen): start over with a new pick.
-	if not arcade_run and (int(info["round"]) > 0 or Save.tournament.size() > 0):
+	if kind == "tournament" and (int(info["round"]) > 0 or Save.tournament.size() > 0):
 		var fresh := _icon_button(&"restart", "New tournament", UiStyle.ORANGE, Vector2(260, 70), 24)
 		fresh.pressed.connect(func() -> void:
 			Save.tournament = {}
@@ -1738,8 +1779,13 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	var stack := VBoxContainer.new()
 	stack.alignment = BoxContainer.ALIGNMENT_CENTER
 	stack.add_theme_constant_override("separation", 6)
-	var arcade_run: bool = round_info.get("arcade", false)
-	stack.add_child(UiStyle.game_label(("RIVAL" if arcade_run else "FINAL") if boss else "ROUND %d" % (index + 1), 24, true))
+	var kind: String = round_info.get("kind", "tournament")
+	var title := "ROUND %d" % (index + 1)
+	if kind == "bossrush":
+		title = "FINAL BOSS" if boss else "BOSS %d" % (index + 1)
+	elif boss:
+		title = "RIVAL" if kind == "arcade" else "FINAL"
+	stack.add_child(UiStyle.game_label(title, 24, true))
 	var portrait_box := CenterContainer.new()
 	var portrait := Portrait.make(opponent, -1, 80.0)
 	if state == "locked" and not boss:
@@ -1748,7 +1794,7 @@ func _round_card(index: int, round_info: Dictionary, boss: bool) -> PanelContain
 	stack.add_child(portrait_box)
 	stack.add_child(UiStyle.ink_label(opponent.display_name if state != "locked" or boss else "???", 18, true))
 	# How rare they are: the ladder climbs from Common to Mythic.
-	var shadow := boss and not arcade_run
+	var shadow := boss and kind == "tournament"
 	var rarity_name: String = "Your shadow" if shadow else String(Chests.RARITY_NAMES.get(opponent.rarity, "Common"))
 	var rarity := UiStyle.game_label(rarity_name, 15, true)
 	rarity.add_theme_color_override("font_color", Chests.RARITY_COLORS.get(opponent.rarity, Color.WHITE) if not shadow else Color(0.85, 0.45, 1.0))
@@ -2316,3 +2362,111 @@ func _build_patch_notes() -> Control:
 	content.add_child(scroll)
 	content.add_child(_back_button(show_title))
 	return _card_screen("PATCH NOTES", UiStyle.PURPLE, content)
+
+
+# --- mastery ---
+
+## Shows the Colours button only for a fighter of yours with more than one scheme unlocked.
+func _refresh_skin_button() -> void:
+	if _skin_button == null:
+		return
+	var picked: FighterData = _picks[_select_step]
+	var mine := _select_step == 0 or _select_mode == MatchController.Mode.LOCAL_2P
+	var count := Mastery.skin_count(Save.mastery_level(String(picked.id))) if picked != null else 1
+	_skin_button.visible = mine and count > 1 and Save.is_unlocked(picked)
+	if _skin_button.visible:
+		(_skin_button.get_meta("label") as Label).text = Mastery.SKIN_NAMES[Save.skin(String(picked.id))]
+
+
+func _next_skin() -> void:
+	var picked: FighterData = _picks[_select_step]
+	var id := String(picked.id)
+	var count := Mastery.skin_count(Save.mastery_level(id))
+	Save.skins[id] = (Save.skin(id) + 1) % count
+	Save.save_progress()
+	Audio.play("click", -4.0)
+	_refresh_select()
+
+
+# --- fatality gallery ---
+
+var _gallery_screen: Control
+var _gallery_grid: GridContainer
+var _gallery_count: Label
+
+
+func _build_gallery() -> Control:
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	_gallery_count = UiStyle.ink_label("", 20, true)
+	_gallery_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_gallery_count)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(1060, 430)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_gallery_grid = GridContainer.new()
+	_gallery_grid.columns = 6
+	_gallery_grid.add_theme_constant_override("h_separation", 10)
+	_gallery_grid.add_theme_constant_override("v_separation", 10)
+	scroll.add_child(_gallery_grid)
+	content.add_child(scroll)
+	var back := _icon_button(&"back", "Back", UiStyle.GREY, Vector2(170, 64), 22)
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back.pressed.connect(show_title)
+	content.add_child(back)
+	return _card_screen("FATALITY GALLERY", UiStyle.RED, content)
+
+
+## Opens the gallery: every fatality you have landed can be replayed; the rest stay hidden.
+func open_gallery() -> void:
+	if _gallery_screen == null:
+		_gallery_screen = _build_gallery()
+	_in_match = false
+	_top_bar.hide()
+	_hint.hide()
+	_pause_button.hide()
+	for child in _gallery_grid.get_children():
+		_gallery_grid.remove_child(child)
+		child.queue_free()
+	var seen := 0
+	for data in _roster:
+		var unlocked := Save.fatalities.has(String(data.id))
+		seen += 1 if unlocked else 0
+		var tile := Button.new()
+		tile.custom_minimum_size = Vector2(166, 150)
+		tile.add_theme_stylebox_override("normal", UiStyle.candy(data.body_color.lerp(PAPER, 0.6) if unlocked else Color(0.25, 0.22, 0.3)))
+		tile.add_theme_stylebox_override("hover", UiStyle.candy(data.body_color.lerp(PAPER, 0.4) if unlocked else Color(0.25, 0.22, 0.3)))
+		tile.add_theme_stylebox_override("pressed", UiStyle.candy(data.body_color, true))
+		tile.disabled = not unlocked
+		var stack := VBoxContainer.new()
+		stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.alignment = BoxContainer.ALIGNMENT_CENTER
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var face := CenterContainer.new()
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var portrait := Portrait.make(data, 1, 64.0)
+		if not unlocked:
+			portrait.modulate = Color(0.2, 0.18, 0.25)
+		face.add_child(portrait)
+		stack.add_child(face)
+		var name := UiStyle.ink_label(data.short_name if unlocked else "???", 17, true)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		stack.add_child(name)
+		var caption := UiStyle.ink_label(String(Fatality.NAMES.get(data.id, "FINISHED!")) if unlocked else "Not yet landed", 13)
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		stack.add_child(caption)
+		tile.add_child(stack)
+		tile.pressed.connect(func() -> void: gallery_requested.emit(data))
+		_gallery_grid.add_child(tile)
+	_gallery_count.text = "%d / %d fatalities landed  ·  land one in a match to add it here" % [seen, _roster.size()]
+	_show_screen(_gallery_screen)
+
+
+## While a gallery fatality plays: no match HUD, no menus.
+func gallery_playback() -> void:
+	_in_match = false
+	_top_bar.hide()
+	_hint.hide()
+	_pause_button.hide()
+	_show_screen(null)
