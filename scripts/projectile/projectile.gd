@@ -22,6 +22,8 @@ signal pierced(projectile: Projectile, obstacle: Obstacle)
 signal stopped_short(projectile: Projectile, at: Vector2)
 
 const INK := Color(0.12, 0.1, 0.14)
+## Ichi's sword, drawn in his hand while he throws Getsuga Tensho slashes.
+const ZANGETSU := preload("res://data/weapons/zangetsu.tres")
 ## Ground and obstacles (1), hitboxes (2), crates (4), practice targets (8).
 const COLLISION_MASK := 0b1111
 const MAX_LIFETIME := 8.0
@@ -581,6 +583,30 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			var rim := wing.duplicate()
 			rim.append(wing[0])
 			canvas.draw_polyline(rim, Color(0.55, 0.55, 0.6), 1.5, true)
+		&"getsuga":
+			# Getsuga Tensho: a crescent of spiritual energy. Blue-white normally, black
+			# with a blood-red rim once his Hollow mask is on (a red weapon colour).
+			var masked := w.color.r > w.color.b
+			var rim := Color(1.0, 0.15, 0.2) if masked else Color(0.75, 0.93, 1.0)
+			var core := Color(0.06, 0.02, 0.06) if masked else Color(0.88, 0.96, 1.0)
+			var glow := Color(0.9, 0.05, 0.12) if masked else Color(0.45, 0.75, 1.0)
+			var outer := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for i in 17:
+				var a := lerpf(-1.3, 1.3, i / 16.0)
+				outer.append(Vector2(cos(a) * s * 0.5, sin(a) * s))
+				inner.append(Vector2(cos(a) * s * 0.16 - s * 0.14, sin(a) * s * 0.8))
+			var blade := outer.duplicate()
+			for i in range(inner.size() - 1, -1, -1):
+				blade.append(inner[i])
+			for ring in 3:
+				var halo := PackedVector2Array()
+				for point in blade:
+					halo.append(point * (1.22 - ring * 0.07))
+				canvas.draw_colored_polygon(halo, Color(glow, 0.12 + ring * 0.07))
+			canvas.draw_colored_polygon(blade, core)
+			canvas.draw_polyline(outer, rim, 4.0, true)
+			canvas.draw_polyline(outer, Color(1, 1, 1, 0.7), 1.5, true)
 		&"crescent":
 			# Moon Fang: a crescent of dark energy with a blood-red rim.
 			var outer := PackedVector2Array()
@@ -669,6 +695,9 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# Gripped by the hilt with the blade running back along the arm.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(PI, Vector2(-w.size * 0.47, 0)))
+		&"getsuga":
+			# He keeps Zangetsu in hand: the slash is cut from the blade, not thrown.
+			draw_weapon(canvas, ZANGETSU, xf * Transform2D(PI, Vector2(-ZANGETSU.size * 0.47, 0)))
 		&"fist":
 			# A big clenched fist; winding up coils the rubber arm behind it.
 			if loaded:

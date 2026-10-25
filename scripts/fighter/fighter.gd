@@ -498,7 +498,7 @@ func _draw() -> void:
 	if data.weapon.shape == &"hammer" and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.08 if facing == 1 else PI - 0.08
 	# The cleaver is carried low in front, the blade slanting up across the back.
-	if data.weapon.shape == &"cleaver" and form == &"" and not _bankai() and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
+	if data.weapon.shape in [&"cleaver", &"getsuga"] and form == &"" and not _bankai() and not aiming and _swing < 0.05 and not _celebrating and _ragdoll == null:
 		arm = 0.9 if facing == 1 else PI - 0.9
 	var pull := aim_power if aiming else 0.0
 	Projectile.draw_held(self, _held_weapon(), Transform2D(arm, Vector2(1, f), 0.0, hand), holding_weapon, pull)

@@ -110,7 +110,7 @@ const BARRAGE_HOMING_RANGE := 220.0
 const BARRAGE_HOMING_TURN := 3.0
 ## Moon Fang: speed, size and damage multiplier of the crescent.
 const FANG_SPEED := 1500.0
-const FANG_SIZE := 70.0
+const FANG_SIZE := 130.0
 const FANG_MULTIPLIER := 1.7
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
 const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.35, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
@@ -158,6 +158,7 @@ const THROW_SOUNDS := {
 	&"byakurai": ["zap", 1.8],
 	&"dark_hado": ["zap", 0.9],
 	&"zoltraak": ["zap", 1.3],
+	&"getsuga": ["whoosh", 1.3],
 	&"mana_orb": ["zap", 1.5],
 	&"reiatsu": ["whoosh", 0.7],
 	&"spear": ["whoosh", 1.1],
@@ -801,7 +802,7 @@ static func _impact_sound(weapon: WeaponData) -> void:
 			Audio.play("zap", -6.0, 1.0, 0.08)
 		&"meat", &"web_ball", &"plunger":
 			Audio.play("splat", -6.0, 1.0, 0.08)
-		&"arrow", &"spear":
+		&"arrow", &"spear", &"getsuga":
 			Audio.play("slice", -8.0, 1.2, 0.08)
 
 
@@ -1741,6 +1742,16 @@ func _is_special_shot(projectile: Projectile) -> bool:
 		if projectile.get_meta(skip, false):
 			return false
 	return true
+
+
+## Ichi's slashes turn black and red while his Hollow mask is on (special charged).
+## Only the look changes.
+static func _masked(fighter: Fighter, weapon: WeaponData) -> WeaponData:
+	if weapon.shape != &"getsuga" or not fighter._bankai():
+		return weapon
+	var red := weapon.duplicate() as WeaponData
+	red.color = Color(0.9, 0.1, 0.15)
+	return red
 ## Target Practice: you alone against 10 targets, each further away (and from the
 ## 4th, higher up, with wind and walls in the way). Three tries each; a first-try hit
 ## earns 3 stars, second 2, third 1.
@@ -2410,7 +2421,7 @@ func _throw(angle: float, power: float) -> void:
 	_sky_shown = false
 	_cinematic_used = false
 	var fighter := fighters[current]
-	var weapon := fighter.data.weapon
+	var weapon := _masked(fighter, fighter.data.weapon)
 	fighter.play_throw()
 	fighter.is_turn = false
 	_stats[current]["throws"] += 1
@@ -3209,7 +3220,8 @@ func _moon_fang(fighter: Fighter, angle: float) -> void:
 	fighter.power_up(1.2)
 	fighter.play_throw()
 	var fang := fighter.data.weapon.duplicate() as WeaponData
-	fang.shape = &"crescent"
+	fang.shape = &"getsuga"
+	fang.color = Color(0.9, 0.1, 0.15)
 	fang.size = FANG_SIZE
 	fang.spin = 0.0
 	fang.sticks = false
@@ -3284,7 +3296,7 @@ func _finisher_launch(angle: float, power: float) -> void:
 	if _finisher.is_empty() or _finisher["done"]:
 		return
 	var winner := fighters[current]
-	var weapon := winner.data.weapon
+	var weapon := _masked(winner, winner.data.weapon)
 	winner.play_throw()
 	var sound: Array = THROW_SOUNDS.get(weapon.shape, ["whoosh", 1.0])
 	Audio.play(sound[0], -2.0, sound[1])
