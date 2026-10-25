@@ -15,6 +15,10 @@ const ANALYSIS_PREVIEW_TIME := 2.4
 const PREVIEW_DOTS := 9
 const KEY_ANGLE_SPEED := 45.0
 const KEY_POWER_SPEED := 0.5
+## Heavy aim: how fast the aim catches up (degrees and power per second), and its sway.
+const HEAVY_ANGLE_SPEED := 30.0
+const HEAVY_POWER_SPEED := 0.45
+const HEAVY_WOBBLE := 2.5
 
 var fighter: Fighter
 var angle := 45.0
@@ -29,6 +33,12 @@ var full_guide := false
 var guide_boost := 0.0
 ## Under Aizon's spiritual pressure: no trajectory dots at all.
 var hide_guide := false
+## Under evolved Aizon's pressure: the aim drags behind your hand and wobbles.
+var heavy := false
+var _goal_angle := 45.0
+var _goal_power := 0.6
+var _steady_angle := 45.0
+var _heavy_time := 0.0
 var min_angle := Rules.MIN_ANGLE
 ## An armed special: its name shows on the readout and the guide takes its colour.
 var special_name := ""
@@ -44,6 +54,9 @@ var _drag_start := Vector2.ZERO
 func begin(for_fighter: Fighter) -> void:
 	fighter = for_fighter
 	_active = true
+	_goal_angle = angle
+	_goal_power = power
+	_steady_angle = angle
 	_dragging = false
 	_cancelling = false
 	fighter.aiming = true
@@ -99,8 +112,11 @@ func _apply_drag(drag: Vector2) -> void:
 	_cancelling = drag.length() < CANCEL_RADIUS
 	if _cancelling:
 		return
-	angle = clampf(rad_to_deg(atan2(-drag.y, drag.x * fighter.facing)), min_angle, Rules.MAX_ANGLE)
-	power = clampf(drag.length() / FULL_POWER_DRAG, 0.05, 1.0)
+	_goal_angle = clampf(rad_to_deg(atan2(-drag.y, drag.x * fighter.facing)), min_angle, Rules.MAX_ANGLE)
+	_goal_power = clampf(drag.length() / FULL_POWER_DRAG, 0.05, 1.0)
+	if not heavy:
+		angle = _goal_angle
+		power = _goal_power
 
 
 func _throw() -> void:
@@ -111,8 +127,21 @@ func _throw() -> void:
 func _process(delta: float) -> void:
 	if not _active:
 		return
-	angle = clampf(angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * delta, min_angle, Rules.MAX_ANGLE)
-	power = clampf(power + Input.get_axis("ui_left", "ui_right") * KEY_POWER_SPEED * delta, 0.05, 1.0)
+	var keys := 0.5 if heavy else 1.0
+	if heavy:
+		# Heavy aim: the aim crawls after where you point it, and never sits still.
+		_goal_angle = clampf(_goal_angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * keys * delta, min_angle, Rules.MAX_ANGLE)
+		_goal_power = clampf(_goal_power + Input.get_axis("ui_left", "ui_right") * KEY_POWER_SPEED * keys * delta, 0.05, 1.0)
+		_heavy_time += delta
+		_steady_angle = move_toward(_steady_angle, _goal_angle, HEAVY_ANGLE_SPEED * delta)
+		power = move_toward(power, _goal_power, HEAVY_POWER_SPEED * delta)
+		angle = clampf(_steady_angle + sin(_heavy_time * 3.7) * HEAVY_WOBBLE, min_angle, Rules.MAX_ANGLE)
+	else:
+		angle = clampf(angle + Input.get_axis("ui_down", "ui_up") * KEY_ANGLE_SPEED * delta, min_angle, Rules.MAX_ANGLE)
+		power = clampf(power + Input.get_axis("ui_left", "ui_right") * KEY_POWER_SPEED * delta, 0.05, 1.0)
+		_goal_angle = angle
+		_goal_power = power
+		_steady_angle = angle
 	fighter.aim_angle = angle
 	fighter.aim_power = power
 	queue_redraw()
@@ -120,6 +149,9 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	if fighter == null:
+		return
+	# Under spiritual pressure: no aim guide of any kind.
+	if hide_guide:
 		return
 	var camera := get_viewport().get_camera_2d()
 	var inv_zoom := 1.0 / camera.zoom.x if camera else 1.0
@@ -135,8 +167,6 @@ func _draw() -> void:
 		_draw_angle_arc(origin, inv_zoom, alpha)
 		return
 	if hide_guide:
-		_draw_angle_arc(origin, inv_zoom, alpha)
-		_draw_power_gauge(inv_zoom, alpha)
 		return
 	if full_guide:
 		_draw_full_guide(origin, velocity, inv_zoom, alpha)

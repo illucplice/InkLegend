@@ -16,6 +16,6 @@ cape_color = Color(0.95, 0.95, 0.97, 1)
 hair_color = Color(0.45, 0.28, 0.15, 1)
 style = &"lord"
 special_name = "Kyoka Suigetsu"
-special_description = "Basic: a sphere of Reiatsu that bursts where it lands (press while it flies to detonate it mid-air in a wider blast). Two hits in a row put the enemy under Spiritual Pressure, so their next throw has no aim guide. Special: Kyoka Suigetsu adds a stack of pressure, and the next throw that would hit him lands on the thrower instead (they were standing in his place all along); he steals their buffs and heals 5. Lasts until it triggers. Below 40 HP he evolves: wings, a stronger Hado, and his pressure fills the arena for good (the enemy never gets an aim guide again)."
+special_description = "Basic: a sphere of Reiatsu that bursts where it lands (press while it flies to detonate it mid-air). Two hits in a row put the enemy under Spiritual Pressure: their next throw has no aim guide at all. Special: Kyoka Suigetsu adds a stack of pressure, and the next throw that would hit him lands on the thrower instead; he steals their buffs and heals 5. Lasts until it triggers. Below 40 HP he evolves: wings, a stronger Hado, the enemy's aim turns heavy for good, and two hits in a row crush them for 5 damage a turn for 3 turns."
 price = 1000
 rarity = &"mythic"

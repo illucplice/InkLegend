@@ -275,6 +275,9 @@ const ILLUSION_TRIGGER := 160.0
 const KYOKA_HEAL := 5
 ## Aizon's Reiatsu: this many hits in a row put them under pressure (no aim guide).
 const PRESSURE_HITS := 2
+## Evolved Aizon's two-hit combo: crushing pressure damage per turn, and for how long.
+const CRUSH_DAMAGE := 5
+const CRUSH_TURNS := 3
 ## Detonating his Reiatsu mid-air: blast radius, and how close the AI waits to get.
 const DETONATE_RADIUS := 160.0
 const DETONATE_AI_RANGE := 70.0
@@ -302,6 +305,8 @@ var _held: Array[Projectile] = []
 var _marks: Array[Node2D] = []
 const TIME_STOP_THROWS := 2
 const KNIFE_STORM := 7
+## Chance each knife-storm knife lands a double-damage critical hit.
+const KNIFE_CRIT_CHANCE := 0.3
 ## Target Practice progress: index, attempt, stars, and whether this throw hit.
 var _practice := {}
 var _practice_target: PracticeTarget
@@ -1293,13 +1298,11 @@ func _check_evolution(fighter: Fighter, health: int) -> void:
 	if fighter.evolved or fighter.data.base_id() != &"aizon" or health <= 0 or health > EVOLVE_HEALTH or mode == Mode.PRACTICE:
 		return
 	fighter.evolved = true
-	# His evolution weighs on the whole arena: the enemy is under pressure for good.
+	# His evolution weighs on the whole arena: the enemy's aim is heavy for good.
 	var foe := fighters[1 - fighters.find(fighter)]
 	if not foe.is_knocked_out():
-		foe.pressured = true
-		foe.pressure_locked = true
-		foe.pressure_stacks = 0
-		Effects.popup(_actors, foe.aim_point(true) + Vector2(0, -100), "SPIRITUAL PRESSURE  ·  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		foe.heavy_aim = true
+		Effects.popup(_actors, foe.aim_point(true) + Vector2(0, -100), "ARENA PRESSURE  ·  HEAVY AIM", Color(0.75, 0.55, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
 		_arena_pressure_wash()
 	# His basic changes with him: a sphere of violet-black reishi that bursts.
 	var evolved_data := fighter.data.duplicate() as FighterData
@@ -1641,21 +1644,26 @@ func _set_floating(fighter: Fighter, up: bool) -> void:
 	await move.finished
 
 
-## Each Reiatsu hit adds to the weight on them; at PRESSURE_HITS in a row they are
-## under Spiritual Pressure and throw their next shot with no aim guide.
-func _build_pressure(target: Fighter) -> void:
+## Each Reiatsu hit adds to the weight on them. At PRESSURE_HITS in a row: before he
+## evolves they are under Spiritual Pressure (their next throw has no aim guide);
+## after, the pressure crushes them for CRUSH_DAMAGE a turn for CRUSH_TURNS turns.
+func _build_pressure(target: Fighter, aizon: Fighter) -> void:
 	if target.pressured:
 		return
 	var view := _camera.visible_rect()
 	var at := target.aim_point(true) + Vector2(0, -100)
 	target.pressure_stacks += 1
-	if target.pressure_stacks >= PRESSURE_HITS:
-		target.pressured = true
-		target.pressure_stacks = 0
-		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
-		Audio.play("ko", -6.0, 0.4, 0.0)
-	else:
+	if target.pressure_stacks < PRESSURE_HITS:
 		Effects.popup(_actors, at, "PRESSURE %d / %d" % [target.pressure_stacks, PRESSURE_HITS], Color(0.75, 0.55, 1.0), 26, 1.0 / _camera.zoom.x, view)
+		return
+	target.pressure_stacks = 0
+	Audio.play("ko", -6.0, 0.4, 0.0)
+	if aizon != null and aizon.evolved:
+		target.crush_turns = CRUSH_TURNS
+		Effects.popup(_actors, at, "CRUSHING PRESSURE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
+	else:
+		target.pressured = true
+		Effects.popup(_actors, at, "SPIRITUAL PRESSURE!  NO AIM GUIDE", Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, view)
 
 
 ## Aizon's Reiatsu detonated mid-air: a wider burst of crushing pressure.
@@ -1730,7 +1738,7 @@ func _arena_pressure_wash() -> void:
 func _is_special_shot(projectile: Projectile) -> bool:
 	if not _special_this_turn or projectile.thrower != fighters[current] or projectile.get_meta("mirrored", false):
 		return false
-	for skip: String in ["lucky", "timestop", "voll"]:
+	for skip: String in ["lucky", "timestop", "voll", "knifestorm"]:
 		if projectile.get_meta(skip, false):
 			return false
 	return true
@@ -2140,6 +2148,15 @@ func _begin_turn() -> void:
 		if fighter.is_knocked_out():
 			_end_match()
 			return
+	# Crushing pressure (evolved Aizon): a little damage at the start of their turn.
+	if fighter.crush_turns > 0 and not fighter.is_knocked_out() and mode != Mode.PRACTICE and not _hud.time_stopped():
+		fighter.crush_turns -= 1
+		fighter.take_hit(Rules.BODY, CRUSH_DAMAGE, Vector2.ZERO)
+		Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -70), "PRESSURE  -%d" % CRUSH_DAMAGE, Color(0.75, 0.55, 1.0), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 18, 280.0, 180.0, 1.0)
+		if fighter.is_knocked_out():
+			_end_match()
+			return
 	# Pin: a pinned fighter loses this turn.
 	if fighter.pinned:
 		fighter.pinned = false
@@ -2181,6 +2198,7 @@ func _begin_turn() -> void:
 		_aim.full_guide = (_hud.time_stopped() and fighter == _stopper) or _analysis[current] >= ANALYSIS_STEPS
 		_aim.guide_boost = float(_analysis[current]) / ANALYSIS_STEPS
 		_aim.hide_guide = fighter.pressured
+		_aim.heavy = fighter.heavy_aim
 		if _analysis[current] > 0:
 			var label := "MANA ANALYSIS: FULL" if _analysis[current] >= ANALYSIS_STEPS else "MANA ANALYSIS %d / %d" % [_analysis[current], ANALYSIS_STEPS]
 			Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -80), label, Color(0.75, 0.88, 1.0), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
@@ -2212,6 +2230,8 @@ func _begin_turn() -> void:
 	# Under Aizon's pressure the AI aims blind, and its throw wanders.
 	if fighter.pressured:
 		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-5.0, 5.0), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.93, 1.07), 0.1, 1.0)}
+	elif fighter.heavy_aim:
+		shot = {"angle": float(shot["angle"]) + brain.rng.randf_range(-2.5, 2.5), "power": clampf(float(shot["power"]) * brain.rng.randf_range(0.96, 1.04), 0.1, 1.0)}
 	# Let the player watch the AI line up its throw.
 	fighter.aiming = true
 	fighter.aim_angle = 30.0
@@ -2329,7 +2349,7 @@ func _apply_instant_special(fighter: Fighter, special: StringName) -> void:
 			# His spiritual pressure leans on them: one stack of pressure.
 			var foe := fighters[1 - fighters.find(fighter)]
 			if mode != Mode.PRACTICE and not foe.is_knocked_out():
-				_build_pressure(foe)
+				_build_pressure(foe, fighter)
 			_hud.announce("SINCE WHEN WERE YOU UNDER THE IMPRESSION...", Color(0.75, 0.55, 1.0))
 			Effects.burst(_actors, fighter.aim_point(false), Color(0.6, 0.35, 0.95), 40, 600.0, 180.0, 1.6)
 		&"timestop":
@@ -2557,6 +2577,11 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 		damage = roundi(damage * FANG_MULTIPLIER)
 	if projectile.get_meta("double", false):
 		damage *= 2
+	# Dyo's knife storm: any knife can land a critical hit.
+	if projectile.get_meta("knifestorm", false) and not mirrored and rng.randf() < KNIFE_CRIT_CHANCE:
+		damage *= 2
+		Effects.popup(_actors, target.aim_point(true) + Vector2(rng.randf_range(-30, 30), -120), "CRITICAL!", Color(1.0, 0.85, 0.3), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Audio.play("slice", 0.0, 1.3, 0.05)
 	var reiatsu: bool = projectile.weapon != null and projectile.weapon.shape in [&"reiatsu", &"dark_hado"] and not mirrored
 	if projectile.thrower != null and projectile.thrower.evolved:
 		damage = roundi(damage * EVOLVED_DAMAGE)
@@ -2622,7 +2647,7 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 			Effects.popup(_actors, target.aim_point(true) + Vector2(0, -95), "CHOMP!", Color(1.0, 0.9, 0.85), 34, 1.0 / _camera.zoom.x, _camera.visible_rect())
 			Audio.play("crunch", -4.0, 1.4, 0.05)
 	if reiatsu and not target.is_knocked_out():
-		_build_pressure(target)
+		_build_pressure(target, projectile.thrower)
 	if projectile.get_meta("freeze", false) and not target.is_knocked_out() and not target.pinned:
 		target.pinned = true
 		_hud.announce("FROZEN!", Color(0.7, 0.9, 1.0))
@@ -2873,8 +2898,8 @@ func _after_throw() -> void:
 	# Aizon's pressure needs hits in a row: a miss loses the build-up.
 	if not _turn_hit and fighters[current].data.base_id() == &"aizon":
 		fighters[1 - current].pressure_stacks = 0
-	# Spiritual pressure lasts for one blind throw (for good once Aizon has evolved).
-	if fighters[current].pressured and not fighters[current].pressure_locked:
+	# Spiritual pressure lasts for one blind throw.
+	if fighters[current].pressured:
 		fighters[current].pressured = false
 	state = State.SETTLING
 	if not _turn_hit:

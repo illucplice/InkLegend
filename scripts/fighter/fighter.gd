@@ -74,7 +74,10 @@ var evolved := false
 var pressure_stacks := 0
 var pressured := false
 ## Pressured for good (Aizon has evolved): it never wears off this match.
-var pressure_locked := false
+## Under evolved Aizon's pressure for the rest of the match: aiming is heavy.
+var heavy_aim := false
+## Crushing pressure (evolved Aizon's two-hit combo): turns of damage left.
+var crush_turns := 0
 ## Frierin's barrier: halves the first hit she takes each enemy turn.
 var barrier_ready := true
 ## Frierin has let loose her suppressed mana (at MANA_RELEASE_HEALTH): passives on.
@@ -418,6 +421,8 @@ func _draw() -> void:
 		_draw_reiatsu(p)
 	if pressured and not is_knocked_out():
 		_draw_pressure(p)
+	if crush_turns > 0 and not is_knocked_out():
+		_draw_crush(p)
 	if form == &"ssj3" and _is_anime() and not is_knocked_out():
 		_draw_ssj3_mane(p)
 	if _gear2():
@@ -1864,3 +1869,15 @@ func _draw_pressure(p: Dictionary) -> void:
 		var t := fmod(_time * 1.2 + drop * 0.33, 1.0)
 		var at := head + Vector2(facing * (6.0 + drop * 7.0) + facing * t * 18.0, -12.0 + t * 26.0 - sin(t * PI) * 12.0)
 		draw_circle(at, 3.0 * (1.0 - t * 0.4), Color(0.6, 0.85, 1.0, 0.9 * (1.0 - t)), true, -1.0, true)
+
+
+## Crushing pressure: violet cracks of force pressing in on the body.
+func _draw_crush(p: Dictionary) -> void:
+	var centre: Vector2 = (p[&"hip"] as Vector2).lerp(p[&"neck"], 0.5)
+	for k in 4:
+		var a := k * TAU / 4.0 + _time * 1.5
+		var from := centre + Vector2.from_angle(a) * 46.0
+		var to := centre + Vector2.from_angle(a) * (20.0 + 6.0 * sin(_time * 8.0 + k))
+		draw_line(from, to, Color(0.7, 0.45, 1.0, 0.85), 3.0, true)
+		draw_colored_polygon(PackedVector2Array([to + Vector2.from_angle(a + 0.4) * 7.0, to, to + Vector2.from_angle(a - 0.4) * 7.0]), Color(0.7, 0.45, 1.0, 0.85))
+	draw_arc(centre, 30.0 + 4.0 * sin(_time * 6.0), 0.0, TAU, 24, Color(0.6, 0.35, 0.95, 0.5), 2.5, true)
