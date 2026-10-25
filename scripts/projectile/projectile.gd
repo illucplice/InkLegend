@@ -36,6 +36,9 @@ var weapon: WeaponData
 var frozen := false
 ## Stops just before it would hit a fighter (Jotar's time stop) instead of hitting.
 var stop_short := false
+## Cuts straight through the ground (Ichi's big Getsuga Tensho) instead of stopping.
+var through_ground := false
+signal tore_ground(projectile: Projectile, at: Vector2)
 var thrower: Fighter
 ## Sideways push in px/s² (see Rules.MAX_WIND).
 var wind := 0.0
@@ -164,6 +167,10 @@ func _physics_process(delta: float) -> void:
 	if pierce and obstacle != null:
 		_exclude.append(obstacle.get_rid())
 		pierced.emit(self, obstacle)
+		return
+	if through_ground and not (hit["collider"] is Hitbox) and not (hit["collider"] is Obstacle) and not (hit["collider"] is PracticeTarget) and not (hit["collider"] is Crate):
+		_exclude.append((hit["collider"] as CollisionObject2D).get_rid())
+		tore_ground.emit(self, hit["position"])
 		return
 	if stop_short and hit["collider"] is Hitbox:
 		global_position = (hit["position"] as Vector2) - (next - global_position).normalized() * 26.0

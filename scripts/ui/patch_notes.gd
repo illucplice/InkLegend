@@ -16,6 +16,7 @@ const NOTES := [
 		"Every fighter has a victory pose, one for a normal win and one after a fatality.",
 		"Target Practice has a Test Fatality button.",
 		"A chime plays when your special is ready, plus character voices, crowd cheers and per-map music.",
+		"Ichi now fires Getsuga Tensho slashes from Zangetsu (blue-white, black and red with his Hollow mask on), doing 24 / 42; his special is a huge Getsuga Tensho that tears straight through obstacles and mountains.",
 		"Specials that hit the ground now blast a crater and splash anyone nearby.",
 		"Fixes: a time-stop special used on the FINISH THEM throw now lands and plays the fatality; Dyo's knife storm hits harder, with 30% critical hits per knife; special meters charge once per turn (no more Klakla special spam); Kyoka Suigetsu now hurts the attacker with explosions too; homing throws and Frierin's drop work on the finishing throw; time stop always ends in practice; the game no longer stays slow after a fatality.",
 	]},

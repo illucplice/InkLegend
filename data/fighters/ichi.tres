@@ -15,6 +15,6 @@ hair_color = Color(0.98, 0.52, 0.12, 1)
 weapon = ExtResource("2_weapon")
 style = &"reaper"
 special_name = "Getsuga Tensho"
-special_description = "Basic: a Getsuga Tensho slash cut from Zangetsu (black and red once his Hollow mask is on). Special: a huge black-and-red Getsuga Tensho that flies straight and cuts through obstacles."
+special_description = "Basic: a Getsuga Tensho slash cut from Zangetsu (black and red once his Hollow mask is on). Special: a huge black-and-red Getsuga Tensho that flies straight, tearing through obstacles and even mountains."
 price = 600
 rarity = &"legendary"

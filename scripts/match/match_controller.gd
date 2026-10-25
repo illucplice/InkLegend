@@ -111,9 +111,9 @@ const BARRAGE_HOMING_TURN := 3.0
 ## Moon Fang: speed, size and damage multiplier of the crescent.
 const FANG_SPEED := 1500.0
 const FANG_SIZE := 130.0
-const FANG_MULTIPLIER := 1.7
+const FANG_MULTIPLIER := 2.0
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.35, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.7, "shinku": 1.6, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.45, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -3235,6 +3235,13 @@ func _moon_fang(fighter: Fighter, angle: float) -> void:
 	projectile.pierce = true
 	projectile.set_meta("fang", true)
 	projectile.set_trail_color(fang.color)
+	# The big Getsuga tears straight through hills and mountains.
+	projectile.through_ground = true
+	projectile.tore_ground.connect(func(_p: Projectile, at: Vector2) -> void:
+		Effects.burst(_actors, at, _current_dirt(), 40, 600.0, 180.0, 1.6)
+		Effects.popup(_actors, at + Vector2(0, -50), "TORN!", Color(1.0, 0.45, 0.45), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		Audio.play("crunch", 0.0, 0.6, 0.0)
+		_camera.shake(0.5))
 	_track(projectile)
 
 
