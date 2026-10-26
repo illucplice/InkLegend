@@ -17,9 +17,27 @@ static func uses_touch() -> bool:
 	return is_mobile() or DisplayServer.is_touchscreen_available()
 
 
-## Multiplier for particle counts: phones get half, to keep 30+ fps.
+## A phone's browser, the slowest place the game runs.
+static func is_mobile_web() -> bool:
+	return OS.has_feature("web_android") or OS.has_feature("web_ios")
+
+
+## Multiplier for particle counts: phones get half, and phone browsers a third, to keep
+## 30+ fps.
 static func particle_scale() -> float:
+	if is_mobile_web():
+		return 0.35
 	return 0.5 if is_mobile() else 1.0
+
+
+## Phone browsers draw the game at its own 1280x720 and scale that up to the screen,
+## instead of drawing every frame at the phone's full resolution (often 2400x1080 or
+## more); it looks nearly the same and costs a fraction. Frames are capped at 60.
+static func apply_performance_profile(window: Window) -> void:
+	if not is_mobile_web():
+		return
+	window.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+	Engine.max_fps = 60
 
 
 ## A short buzz on phones (if vibration is on in Settings).

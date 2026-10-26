@@ -402,6 +402,7 @@ func _ready() -> void:
 	# Phones: a lower physics rate (interpolation keeps motion smooth).
 	if Device.is_mobile():
 		Engine.physics_ticks_per_second = 45
+	Device.apply_performance_profile(get_window())
 	_obstacle_layer = Node2D.new()
 	add_child(_obstacle_layer)
 	_actors = Node2D.new()
