@@ -24,6 +24,7 @@ const NAMES := {
 	&"thundr": "STRUCK DOWN!", &"capt": "SHIELD SLICED!", &"spydr": "WEB SMASHED!", &"batz": "ROADKILL!",
 	&"jotar": "ORA ORA ORA!", &"dyo": "WRYYY!",
 	&"kazma": "EXPLOSION!", &"subaro": "RETURN BY DEATH", &"aizon": "GORYUTENMETSU!", &"frierin": "REALITY SHATTER!", &"rimiru": "ABSOLUTE CONSUMPTION!",
+	&"kririn": "KIENZAN!", &"usoppu": "FIREBIRD STAR!", &"zenitzu": "SEVENFOLD!", &"robin": "BIRDARANG BARRAGE!",
 }
 
 var _screamed := false
@@ -140,6 +141,14 @@ func _run(intro: bool) -> void:
 			await _zoltraak_storm()
 		&"rimiru":
 			await _imaginary_space()
+		&"kririn":
+			await _kienzan()
+		&"usoppu":
+			await _firebird_star()
+		&"zenitzu":
+			await _sevenfold()
+		&"robin":
+			await _birdarang_barrage()
 		_:
 			await _kaboom()
 	if _done:
@@ -3544,3 +3553,200 @@ func _falling_light(color: Color) -> void:
 		state["t"] = t
 		rain.queue_redraw(), 0.0, 2.0, 2.0)
 	tween.tween_callback(rain.queue_free)
+
+
+## Kririn: Kienzan. A huge Destructo Disc spins up over his raised hand, then he hurls
+## it level through their waist and it slices them clean in two.
+func _kienzan() -> void:
+	var side := _toward_loser()
+	var b := loser.body_points()
+	var waist: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.2)
+	winner.aiming = true
+	winner.aim_angle = 80.0
+	winner.aim_power = 1.0
+	winner.power_up(6.0)
+	_say_line("Kienzan!", 1.0)
+	var disc_weapon := winner.data.weapon.duplicate() as WeaponData
+	disc_weapon.shape = &"disc"
+	disc_weapon.size = 120.0
+	disc_weapon.color = Color(1.0, 0.85, 0.35)
+	var disc := _weapon_prop(disc_weapon, 0.2)
+	disc.position = winner.aim_point(true) + Vector2(0, -70)
+	disc.z_index = 9
+	get_tree().process_frame.connect(disc.queue_redraw)
+	var grow := disc.create_tween()
+	grow.tween_property(disc, "scale", Vector2.ONE, 0.9).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	Audio.play("zap", -2.0, 0.6, 0.0)
+	await grow.finished
+	if _done:
+		return
+	hud.announce("DESTRUCTO DISC!", Color(1.0, 0.85, 0.35))
+	Audio.play("whoosh", 2.0, 0.8, 0.0)
+	winner.aim_angle = 0.0
+	var fly := disc.create_tween()
+	fly.tween_property(disc, "position", Vector2(waist.x, waist.y), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await fly.finished
+	if _done:
+		return
+	_hide_loser()
+	_impact(waist, 0.8)
+	var top := PackedVector2Array([b[&"neck"], waist])
+	_gib(PackedVector2Array([b[&"head"]]), Vector2(side * 260.0, -520.0), side * 6.0, 1.2, Fighter.HEAD_RADIUS)
+	_gib(top, Vector2(side * 320.0, -380.0), side * 4.0, 1.4)
+	for arm: StringName in [&"belbow", &"felbow"]:
+		var hand: StringName = &"bhand" if arm == &"belbow" else &"fhand"
+		_gib(PackedVector2Array([b[&"shoulder"], b[arm], b[hand]]), Vector2(side * randf_range(200, 380), -randf_range(300, 480)), randf_range(-6, 6), 0.8)
+	for leg: Array in [[&"bknee", &"bfoot"], [&"fknee", &"ffoot"]]:
+		_gib(PackedVector2Array([b[&"hip"], b[leg[0]], b[leg[1]]]), Vector2(randf_range(-40, 40), -60.0), randf_range(-2, 2), 0.8)
+	_spray(waist, Vector2(side, -0.3), 60, 650.0, 0.9)
+	_fountain(waist, 1.2, Vector2(0, -1))
+	var away := disc.create_tween()
+	away.tween_property(disc, "position", waist + Vector2(side * 1600.0, -40.0), 0.6)
+	away.tween_callback(disc.queue_free)
+	winner.aiming = false
+	if not await _wait(0.8):
+		return
+
+
+## Usoppu: Firebird Star. He hauls his giant slingshot back and lets fly a bird of
+## flame that arcs over and bursts on them.
+func _firebird_star() -> void:
+	var side := _toward_loser()
+	var target := loser.aim_point(false)
+	winner.aiming = true
+	winner.aim_angle = 40.0
+	winner.aim_power = 0.0
+	_say_line("Hissatsu... Firebird Star!", 1.3)
+	var pull := winner.create_tween()
+	pull.tween_property(winner, "aim_power", 1.0, 0.9)
+	Audio.play("twang", -2.0, 0.5, 0.0)
+	await pull.finished
+	if _done:
+		return
+	winner.aiming = false
+	winner.play_throw()
+	Audio.play("whoosh", 2.0, 0.7, 0.0)
+	var bird_state := {"t": 0.0}
+	var start := winner.throw_origin()
+	var bird := _prop(func(canvas: Node2D) -> void:
+		var t: float = bird_state["t"]
+		var at := start.lerp(target, t) + Vector2(0, -sin(t * PI) * 260.0)
+		var flap := sin(t * 40.0) * 18.0
+		for k in 6:
+			var trail := start.lerp(target, maxf(0.0, t - k * 0.03)) + Vector2(0, -sin(maxf(0.0, t - k * 0.03) * PI) * 260.0)
+			canvas.draw_circle(trail, 18.0 - k * 2.5, Color(1.0, 0.5 - k * 0.05, 0.1, 0.6 - k * 0.08), true, -1.0, true)
+		for wing: float in [-1.0, 1.0]:
+			canvas.draw_colored_polygon(PackedVector2Array([at, at + Vector2(-side * 30.0, wing * (30.0 + flap)), at + Vector2(side * 10.0, wing * 8.0)]), Color(1.0, 0.65, 0.15))
+		canvas.draw_circle(at, 14.0, Color(1.0, 0.85, 0.3), true, -1.0, true)
+		canvas.draw_colored_polygon(PackedVector2Array([at + Vector2(side * 12.0, -4), at + Vector2(side * 26.0, 0), at + Vector2(side * 12.0, 4)]), Color(1.0, 0.4, 0.1)))
+	bird.z_index = 9
+	var flight := bird.create_tween()
+	flight.tween_method(func(t: float) -> void:
+		bird_state["t"] = t
+		bird.queue_redraw(), 0.0, 1.0, 0.8)
+	await flight.finished
+	if _done:
+		return
+	bird.queue_free()
+	_wash(Color(1.0, 0.5, 0.1), 0.45, 0.05, 0.2, 0.5)
+	Effects.burst(self, target, Color(1.0, 0.6, 0.15), 60, 800.0, 180.0, 2.0)
+	_hide_loser_and_explode(target, 900.0)
+	_scorch(target.x, 120.0)
+	camera.shake(1.0)
+	_sfx("boom", 4.0, 0.8)
+	if not await _wait(1.0):
+		return
+	_say_line("Behold, the great Captain Usoppu!", 1.4)
+	if not await _wait(1.2):
+		return
+
+
+## Zenitzu: Sevenfold. Thunder Breathing, First Form: he flashes past them seven times
+## in seven cracks of lightning, then sheathes his sword, and they fall apart.
+func _sevenfold() -> void:
+	var b := loser.body_points()
+	winner.form = &"asleep"
+	var centre: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.5)
+	winner.power_up(8.0)
+	_say_line("Thunder Breathing, First Form...", 1.2)
+	if not await _wait(1.0):
+		return
+	hud.announce("SEVENFOLD!", Color(1.0, 0.85, 0.2))
+	var streaks := []
+	var flashes := _prop(func(canvas: Node2D) -> void:
+		for streak: Array in streaks:
+			var fade: float = streak[2]
+			canvas.draw_line(streak[0], streak[1], Color(1.0, 0.85, 0.25, 0.4 * fade), 16.0, true)
+			canvas.draw_line(streak[0], streak[1], Color(1.0, 1.0, 0.85, fade), 4.0, true))
+	flashes.z_index = 9
+	get_tree().process_frame.connect(flashes.queue_redraw)
+	for k in 7:
+		var from := winner.aim_point(false)
+		var to_x := loser.global_position.x + (140.0 if k % 2 == 0 else -140.0) * signf(loser.global_position.x - winner.global_position.x + 0.01)
+		_place_winner(to_x)
+		winner.facing = int(signf(loser.global_position.x - winner.global_position.x))
+		streaks.append([from + Vector2(0, randf_range(-20, 20)), winner.aim_point(false) + Vector2(0, randf_range(-20, 20)), 1.0])
+		loser._flash = 0.8
+		loser._tilt_velocity += 3.0 * (1.0 if k % 2 == 0 else -1.0)
+		Audio.play("zap", -2.0, 1.0 + k * 0.08, 0.0)
+		_sfx("slice", 0.0, 1.0 + k * 0.05)
+		camera.shake(0.3)
+		for streak: Array in streaks:
+			streak[2] = maxf(0.0, float(streak[2]) - 0.15)
+		if not await _wait(0.11):
+			return
+	winner.play_throw()
+	if not await _wait(0.5):
+		return
+	Audio.play("tick", 0.0, 1.4, 0.0)
+	Effects.burst(self, centre, Color(1.0, 0.9, 0.3), 40, 500.0, 180.0, 1.4)
+	_hide_loser_and_explode(centre, 520.0, -0.5)
+	flashes.queue_free()
+	if not await _wait(0.6):
+		return
+
+
+## Robin: Birdarang Barrage. He leaps up and lets fly a storm of birdarangs that
+## swoop in from every side, then drops a smoke pellet; when the smoke clears, they
+## are in pieces.
+func _birdarang_barrage() -> void:
+	var b := loser.body_points()
+	var centre: Vector2 = (b[&"hip"] as Vector2).lerp(b[&"neck"], 0.5)
+	var start := winner.global_position
+	_say_line("Holy birdarangs!", 1.0)
+	await _move_winner(Vector2(start.x, Terrain.height_at(start.x) - 150.0), 0.4, 20.0)
+	if _done:
+		return
+	hud.announce("BIRDARANG BARRAGE!", Color(1.0, 0.8, 0.2))
+	var rang := winner.data.weapon.duplicate() as WeaponData
+	rang.size = 46.0
+	for k in 8:
+		var prop := _weapon_prop(rang, 1.0)
+		prop.z_index = 9
+		prop.position = winner.aim_point(false)
+		var aim := centre + Vector2(randf_range(-20, 20), randf_range(-30, 30))
+		var bend := Vector2(randf_range(-160, 160), randf_range(-200, -40))
+		var fly := prop.create_tween()
+		var from := prop.position
+		fly.tween_method(func(t: float) -> void:
+			prop.position = from.lerp(aim, t) + bend * sin(t * PI)
+			prop.rotation = t * 30.0, 0.0, 1.0, 0.35)
+		fly.tween_callback(prop.queue_free)
+		Audio.play("whoosh", -4.0, 1.4 + k * 0.05, 0.0)
+		if not await _wait(0.09):
+			return
+		loser._flash = 0.6
+		loser._tilt_velocity += 2.0 * (1.0 if k % 2 == 0 else -1.0)
+		_sfx("slice", -2.0, 1.0 + k * 0.05)
+	await _move_winner(Vector2(start.x, 0.0), 0.35, 0.0)
+	if _done:
+		return
+	for puff in 4:
+		Effects.burst(self, centre + Vector2(randf_range(-40, 40), randf_range(-60, 20)), Color(0.75, 0.77, 0.82, 0.95), 30, 260.0, 180.0, 2.8)
+	Audio.play("whoosh", 0.0, 0.5, 0.0)
+	if not await _wait(0.5):
+		return
+	_hide_loser_and_explode(centre, 460.0, -0.6)
+	camera.shake(0.7)
+	if not await _wait(0.8):
+		return

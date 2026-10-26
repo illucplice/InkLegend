@@ -521,7 +521,7 @@ func _test_practice_specials() -> void:
 	var game: Node = load("res://scenes/match/match.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
-	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon", "frierin", "rimiru"]:
+	for id: String in ["gok", "ichi", "egita", "lufi", "uryo", "yuj", "megu", "goj", "ryo", "akum", "thundr", "capt", "spydr", "batz", "jotar", "dyo", "kazma", "subaro", "aizon", "frierin", "rimiru", "kririn", "zenitzu"]:
 		var pick: FighterData = load("res://data/fighters/%s.tres" % id)
 		game.start_practice(pick)
 		for frame in 300:

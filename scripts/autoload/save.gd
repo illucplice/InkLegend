@@ -54,6 +54,8 @@ var skins := {}
 var fatalities: Array = []
 ## Survival: the most fights won in one run.
 var survival_best := 0
+## A trail chosen for one fighter (id -> a TRAILS key, or "signature"); "" uses the Shop trail.
+var fighter_trails := {}
 ## How far through the first-match tutorial tips (3 = all shown).
 var tutorial_step := 0
 var achievements: Array = []
@@ -131,6 +133,7 @@ func load_progress() -> void:
 	skins = config.get_value("progress", "skins", skins)
 	fatalities = config.get_value("progress", "fatalities", fatalities)
 	survival_best = config.get_value("progress", "survival_best", survival_best)
+	fighter_trails = config.get_value("progress", "fighter_trails", fighter_trails)
 	tutorial_step = config.get_value("progress", "tutorial_step", tutorial_step)
 	achievements = config.get_value("progress", "achievements", achievements)
 	counters = config.get_value("progress", "counters", counters)
@@ -154,6 +157,7 @@ func save_progress() -> void:
 	config.set_value("progress", "skins", skins)
 	config.set_value("progress", "fatalities", fatalities)
 	config.set_value("progress", "survival_best", survival_best)
+	config.set_value("progress", "fighter_trails", fighter_trails)
 	config.set_value("progress", "tutorial_step", tutorial_step)
 	config.set_value("progress", "achievements", achievements)
 	config.set_value("progress", "counters", counters)
@@ -178,6 +182,7 @@ func reset_progress() -> void:
 	skins = {}
 	fatalities = []
 	survival_best = 0
+	fighter_trails = {}
 	tutorial_step = 0
 	achievements = []
 	counters = {"smashed": 0, "crates": 0, "specials": 0, "maps_won": []}
@@ -285,3 +290,17 @@ func mastery_level(fighter_id: String) -> int:
 ## The colour scheme a fighter wears (0, their own, unless mastery has unlocked more).
 func skin(fighter_id: String) -> int:
 	return mini(int(skins.get(fighter_id, 0)), Mastery.skin_count(mastery_level(fighter_id)) - 1)
+
+
+## The trail a fighter has equipped: their own pick, else the Shop trail. "signature"
+## (their mastery trail) needs mastery 3. Returns a TRAILS key or "signature".
+func fighter_trail(fighter_id: String) -> String:
+	var chosen: String = fighter_trails.get(fighter_id, "")
+	if chosen == "signature" and mastery_level(fighter_id) >= 3:
+		return chosen
+	if chosen != "" and chosen != "signature" and owned_trails.has(chosen):
+		return chosen
+	# Nothing picked: masters show their signature unless a Shop trail is on.
+	if trail == "white" and mastery_level(fighter_id) >= 3:
+		return "signature"
+	return trail

@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"kririn_ki"
+display_name = "Ki Shot"
+max_speed = 1150.0
+body_damage = 21
+head_damage = 36
+count = 1
+spin = 0.0
+sticks = false
+shape = &"ki"
+size = 22.0
+color = Color(1, 0.85, 0.35, 1)
+gravity_scale = 0.6
+special = &"disc"

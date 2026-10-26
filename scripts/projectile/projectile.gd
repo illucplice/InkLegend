@@ -103,7 +103,7 @@ func launch(from_weapon: WeaponData, from_fighter: Fighter, from: Vector2, veloc
 	fade.set_color(1, Color(1, 1, 1, 0.55))
 	_trail.gradient = fade
 	_trail.z_index = -1
-	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow", &"slime_blade", &"maw_blade", &"abyss_orb"]:
+	if weapon.shape in [&"ki", &"quincy", &"blue_orb", &"hadoken", &"gou_fireball", &"fire_arrow", &"slime_blade", &"maw_blade", &"abyss_orb", &"bolt_slash", &"disc"]:
 		set_trail_color(weapon.color)
 		_trail.width = 16.0
 	if weapon.shape in [&"slime_blade", &"maw_blade"]:
@@ -645,6 +645,46 @@ static func draw_weapon(canvas: CanvasItem, w: WeaponData, xf: Transform2D) -> v
 			canvas.draw_colored_polygon(shape, Color(0.08, 0.04, 0.12))
 			canvas.draw_polyline(outer, w.color.lightened(0.2), 4.0, true)
 			canvas.draw_polyline(outer, Color(1, 0.85, 0.85, 0.7), 1.5, true)
+		&"disc":
+			# Kririn's Destructo Disc: a thin, flat disc of ki seen nearly edge-on,
+			# spinning, with a bright cutting rim.
+			var spin := Time.get_ticks_msec() * 0.03
+			canvas.draw_set_transform_matrix(xf * Transform2D(0.0, Vector2.ZERO).scaled_local(Vector2(1.0, 0.32)))
+			canvas.draw_circle(Vector2.ZERO, s * 0.78, Color(w.color, 0.25), true, -1.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.6, Color(1.0, 0.95, 0.7, 0.85), true, -1.0, true)
+			for k in 6:
+				var a := spin + k * TAU / 6.0
+				canvas.draw_line(Vector2.from_angle(a) * s * 0.2, Vector2.from_angle(a) * s * 0.55, Color(1.0, 0.75, 0.25, 0.7), 2.0, true)
+			canvas.draw_arc(Vector2.ZERO, s * 0.6, 0.0, TAU, 32, Color.WHITE, 3.0, true)
+			canvas.draw_set_transform_matrix(xf)
+		&"bolt_slash":
+			# Zenitzu's Thunder Breathing: a jagged crescent of lightning with sparks.
+			var flick := sin(Time.get_ticks_msec() * 0.04) * s * 0.05
+			var bolt := PackedVector2Array()
+			for i in 9:
+				var a := lerpf(-1.25, 1.25, i / 8.0)
+				bolt.append(Vector2(cos(a) * s * 0.45 + (flick if i % 2 == 0 else -flick), sin(a) * s))
+			for i in range(8, -1, -1):
+				var a := lerpf(-1.25, 1.25, i / 8.0)
+				bolt.append(Vector2(cos(a) * s * 0.15 - s * 0.1 + (s * 0.06 if i % 2 == 0 else 0.0), sin(a) * s * 0.8))
+			for ring in 3:
+				var halo := PackedVector2Array()
+				for point in bolt:
+					halo.append(point * (1.25 - ring * 0.07))
+				canvas.draw_colored_polygon(halo, Color(w.color, 0.12 + ring * 0.07))
+			canvas.draw_colored_polygon(bolt, w.color)
+			canvas.draw_polyline(bolt.slice(0, 9), Color.WHITE, 2.5, true)
+			for k in 3:
+				var at := Vector2(-s * (0.35 + k * 0.2), sin(Time.get_ticks_msec() * 0.02 + k) * s * 0.5)
+				canvas.draw_polyline(PackedVector2Array([at, at + Vector2(-s * 0.12, -s * 0.08), at + Vector2(-s * 0.06, s * 0.02), at + Vector2(-s * 0.2, -s * 0.04)]), Color(1.0, 0.95, 0.6, 0.85), 1.5, true)
+		&"birdarang":
+			# Robin's Birdarang: a sharp red bird-wing throwing blade with a yellow edge.
+			var blade := PackedVector2Array([Vector2(0, -s * 0.1), Vector2(s * 0.5, -s * 0.28), Vector2(s * 0.3, -s * 0.02), Vector2(s * 0.55, s * 0.16), Vector2(0, s * 0.06), Vector2(-s * 0.55, s * 0.16), Vector2(-s * 0.3, -s * 0.02), Vector2(-s * 0.5, -s * 0.28)])
+			canvas.draw_colored_polygon(blade, w.color)
+			var rim := blade.duplicate()
+			rim.append(blade[0])
+			canvas.draw_polyline(rim, Color(1.0, 0.8, 0.2), 2.0, true)
+			canvas.draw_circle(Vector2.ZERO, s * 0.07, INK, true, -1.0, true)
 		&"slime_blade", &"maw_blade":
 			_draw_slime_shot(canvas, s, SLIME_STYLE, w.shape == &"maw_blade")
 		&"abyss_orb":
@@ -722,7 +762,7 @@ static func draw_held(canvas: CanvasItem, w: WeaponData, xf: Transform2D, loaded
 			# A ball of energy gathering in the palm; it grows as you power up.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(10, 0)).scaled_local(Vector2.ONE * (0.7 + pull * 0.5)))
-		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu", &"abyss_orb":
+		&"minya", &"byakurai", &"dark_hado", &"zoltraak", &"mana_orb", &"reiatsu", &"abyss_orb", &"bolt_slash":
 			# Magic gathering at the fingertips.
 			if loaded:
 				draw_weapon(canvas, w, xf * Transform2D(0.0, Vector2(12, 0)).scaled_local(Vector2.ONE * (0.55 + pull * 0.3)))

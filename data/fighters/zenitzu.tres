@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/zen_katana.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"zenitzu"
+display_name = "Zenitzu"
+short_name = "Zenitzu"
+body_color = Color(1, 0.82, 0.2, 1)
+accent_color = Color(0.1, 0.1, 0.14, 1)
+skin_color = Color(1, 0.88, 0.76, 1)
+cape_color = Color(1, 0.82, 0.2, 1)
+hair_color = Color(1, 0.78, 0.15, 1)
+style = &"bolt"
+special_name = "Sleeping Thunder"
+special_description = "Basic: he throws his Nichirin sword, spinning. Special: Sleeping Thunder, which happens the moment you press it: he faints dead asleep, and for his next 3 throws he fights in his sleep with crackling slashes of Thunder Breathing that hit much harder."
+unlocked_by_default = false
+price = 400
+rarity = &"rare"

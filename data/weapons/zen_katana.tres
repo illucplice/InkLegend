@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"zen_katana"
+display_name = "Nichirin Sword"
+max_speed = 1350.0
+body_damage = 21
+head_damage = 36
+count = 1
+spin = 16.0
+sticks = false
+shape = &"katana"
+size = 50.0
+color = Color(1, 0.85, 0.2, 1)
+special = &"sleep"

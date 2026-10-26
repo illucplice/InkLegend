@@ -51,6 +51,10 @@ const ROSTER := [
 	preload("res://data/fighters/aizon.tres"),
 	preload("res://data/fighters/frierin.tres"),
 	preload("res://data/fighters/rimiru.tres"),
+	preload("res://data/fighters/kririn.tres"),
+	preload("res://data/fighters/usoppu.tres"),
+	preload("res://data/fighters/zenitzu.tres"),
+	preload("res://data/fighters/robin.tres"),
 ]
 const MAPS := [
 	preload("res://data/maps/colosseum.tres"),
@@ -119,7 +123,7 @@ const FANG_SPEED := 1500.0
 const FANG_SIZE := 130.0
 const FANG_MULTIPLIER := 2.0
 ## Damage multipliers for the newer fighters' specials (Licht Regen is per arrow).
-const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.35, "shinku": 1.3, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.45, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4}
+const SPECIAL_MULTIPLIERS := {"purple": 1.7, "fuga": 1.8, "gou": 1.35, "shinku": 1.3, "rain": 0.35, "dogs": 0.6, "thunder": 1.5, "ricochet": 1.3, "webyank": 1.4, "batbomb": 0.6, "knifestorm": 0.45, "elephant": 1.5, "voll": 1.35, "icefall": 1.0, "zoltraak": 0.4, "disc": 1.75, "impact": 1.75, "smoke": 1.4}
 ## Licht Regen: arrows in the storm, and how far either side of the target they fall.
 ## Fuga's burn: turns on fire and damage at the start of each.
 ## Per fighter level (from duplicates): extra damage and faster special meter.
@@ -292,7 +296,7 @@ const VOLL_HEAL := 15
 const VOLL_RADIUS := 90.0
 const ELEPHANT_RADIUS := 150.0
 ## Specials that happen as soon as they're used instead of riding on a throw.
-const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop"]
+const INSTANT_SPECIALS := [&"vollstandig", &"blessing", &"illusion", &"timestop", &"sleep"]
 ## How close an enemy throw gets to Aizon before Kyoka Suigetsu swaps them.
 const ILLUSION_TRIGGER := 160.0
 ## Aizon gets this much health back each time Kyoka Suigetsu fools someone.
@@ -525,6 +529,7 @@ func start_match(left: FighterData, right: FighterData, match_mode: int, difficu
 	_combo = [0, 0]
 	_turn_count = 0
 	_extra_throw = false
+	_asleep = [0, 0]
 	_devoured = [false, false]
 	_devour_spent = [false, false]
 	_crate = null
@@ -2590,6 +2595,8 @@ func _apply_instant_special(fighter: Fighter, special: StringName) -> void:
 	match special:
 		&"vollstandig":
 			_vollstandig(fighter)
+		&"sleep":
+			_fall_asleep(fighter)
 		&"blessing":
 			_bless(fighter)
 		&"illusion":
@@ -2679,7 +2686,7 @@ func _throw(angle: float, power: float) -> void:
 		fighter.powered = false
 		_hero_throw(fighter, special, angle, power)
 		return
-	if special in [&"fuga", &"gou", &"rain", &"dogs", &"purple", &"shinku", &"webyank"]:
+	if special in [&"fuga", &"gou", &"rain", &"dogs", &"purple", &"shinku", &"webyank", &"disc"]:
 		fighter.powered = false
 		_new_special(fighter, special, angle, power)
 		return
@@ -2736,9 +2743,9 @@ func _throw(angle: float, power: float) -> void:
 		projectile.launch(weapon, fighter, fighter.throw_origin(), Rules.launch_velocity(angle + offset, power, weapon.max_speed, fighter.facing), _wind_for(fighter))
 		projectile.target = fighters[1 - current]
 		if not fighter.is_ai and not weapon.shape in [&"ki", &"slime_blade", &"maw_blade"]:
-			# A level-3 master leaves their own signature trail (unless a Shop trail is on).
-			var signature := Save.trail == "white" and Save.mastery_level(String(fighter.data.base_id())) >= 3
-			projectile.set_trail_color(Mastery.trail_color(fighter.data) if signature else Save.trail_color())
+			# The trail this fighter has equipped (their signature, or a Shop trail).
+			var chosen := Save.fighter_trail(String(fighter.data.base_id()))
+			projectile.set_trail_color(Mastery.trail_color(fighter.data) if chosen == "signature" else Save.TRAILS.get(chosen, Save.TRAILS["white"])[1])
 		if special == &"shockwave":
 			projectile.bounces = 1
 		if mutator == &"bouncy":
@@ -2750,7 +2757,7 @@ func _throw(angle: float, power: float) -> void:
 			projectile.set_meta("elephant", true)
 		if special == &"bigboom":
 			projectile.explode_radius *= 1.6
-		if special == &"chop" or special == &"suck":
+		if special in [&"chop", &"suck", &"impact", &"smoke"]:
 			projectile.set_meta(special, true)
 		projectile.exploded.connect(_on_projectile_exploded)
 		projectile.hit_fighter.connect(_on_projectile_hit)
@@ -2792,6 +2799,11 @@ func _throw(angle: float, power: float) -> void:
 	fighter.powered = false
 	if _lucky[current] > 0:
 		_lucky[current] -= 1
+	# Sleeping Thunder: one sleeping throw used; on the last he wakes up.
+	if _asleep[current] > 0 and special == &"":
+		_asleep[current] -= 1
+		if _asleep[current] == 0:
+			_wake_up(fighter)
 	if _empowered[current] > 0:
 		_empowered[current] -= 1
 		if _empowered[current] == 0:
@@ -2913,6 +2925,16 @@ func _on_projectile_hit(projectile: Projectile, target: Fighter, part: StringNam
 	if projectile.flight_time >= Rules.SKY_SHOT_TIME and not _sky_shown:
 		_sky_shown = true
 		_hud.announce("SKY SHOT!", Color(0.5, 0.85, 1.0))
+	# Impact Dial: blasted far back.
+	if projectile.get_meta("impact", false) and not target.is_knocked_out() and projectile.thrower != null:
+		_push_fighter(target, projectile.thrower, IMPACT_PUSH)
+	# Smoke Pellet: lost in smoke, they throw their next shot without an aim guide.
+	if projectile.get_meta("smoke", false) and not target.is_knocked_out():
+		target.pressured = true
+		Effects.popup(_actors, target.aim_point(true) + Vector2(0, -95), "SMOKE!  NO AIM GUIDE", Color(0.8, 0.82, 0.88), 30, 1.0 / _camera.zoom.x, _camera.visible_rect())
+		for puff in 3:
+			Effects.burst(_actors, target.aim_point(false) + Vector2(randf_range(-30, 30), randf_range(-40, 20)), Color(0.75, 0.77, 0.82, 0.9), 26, 220.0, 180.0, 2.4)
+		Audio.play("whoosh", -2.0, 0.5, 0.0)
 	# Web Yank: dragged in and stuck fast for a turn.
 	if projectile.get_meta("webyank", false) and not target.is_knocked_out():
 		_pull_fighter(target, projectile.thrower, 380.0)
@@ -3524,7 +3546,7 @@ func _camera_points() -> PackedVector2Array:
 
 ## Specials that fly dead straight, so the aim guide is a straight line.
 static func is_straight_special(special: StringName) -> bool:
-	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"barrage_zoltraak"]
+	return special in [&"beam", &"fang", &"purple", &"shinku", &"gou", &"fuga", &"webyank", &"barrage_zoltraak", &"disc"]
 
 
 ## Hooks a projectile up to the usual hit handlers and counts it as in flight.
@@ -3695,6 +3717,11 @@ func _basic_traits(projectile: Projectile, weapon: WeaponData, foe: Fighter) -> 
 		projectile.homing_target = foe
 		projectile.homing_range = KI_HOMING_RANGE
 		projectile.homing_turn = KI_HOMING_TURN
+	elif weapon.id == &"kririn_ki":
+		# Kririn's ki shots are precise: they bend a little toward the enemy up close.
+		projectile.homing_target = foe
+		projectile.homing_range = 170.0
+		projectile.homing_turn = 1.6
 
 
 ## A finishing-throw projectile: touching the loser earns the fatality; once every one
@@ -3752,6 +3779,8 @@ func _new_special(fighter: Fighter, special: StringName, angle: float, power: fl
 			_charged_hadoken(fighter, angle, &"gou_fireball", 46.0, Color(0.85, 0.1, 0.18), "gou", 140.0, 3.4)
 		&"shinku":
 			_charged_hadoken(fighter, angle, &"hadoken", 40.0, Color(0.35, 0.7, 1.0), "shinku", 125.0, 2.8)
+		&"disc":
+			_straight_shot(fighter, angle, &"disc", 44.0, Color(1.0, 0.85, 0.35), "disc", true, 0.0, 1.6)
 		&"purple":
 			_hollow_purple(fighter, angle)
 		&"rain":
@@ -4660,3 +4689,58 @@ func _survival_fight() -> void:
 	if fighters.size() > 0:
 		fighters[0].health = _survival["health"]
 		fighters[0].health_changed.emit(fighters[0], fighters[0].health)
+
+
+# --- Kririn, Usoppu, Zenitzu and Robin ---
+
+## Impact Dial: how far it blasts the enemy back.
+const IMPACT_PUSH := 170.0
+
+
+## Shoves a fighter away from `thrower` along the ground (never into the obstacles).
+func _push_fighter(target: Fighter, thrower: Fighter, amount: float) -> void:
+	var away := signf(target.global_position.x - thrower.global_position.x)
+	var x := target.position.x + away * amount
+	Effects.popup(_actors, target.aim_point(true) + Vector2(0, -90), "IMPACT!", Color(1.0, 0.75, 0.3), 32, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, target.aim_point(false), Color(1.0, 0.8, 0.4), 30, 500.0, 180.0, 1.4)
+	Audio.play("boom", -4.0, 1.3, 0.0)
+	_camera.shake(0.6)
+	target.create_tween().tween_property(target, "position", Vector2(x, Terrain.height_at(x)), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	target._tilt_velocity += away * 5.0
+
+
+## Zenitzu: Sleeping Thunder. He faints from fright, and asleep he is a different
+## fighter: for SLEEP_THROWS throws his basic is Thunder Breathing's lightning slash.
+const SLEEP_THROWS := 3
+const SLEEP_WEAPON := preload("res://data/weapons/thunder_slash.tres")
+var _asleep := [0, 0]
+var _awake_weapon: Array = [null, null]
+
+
+func _fall_asleep(fighter: Fighter) -> void:
+	var side := fighters.find(fighter)
+	if side < 0:
+		return
+	if _asleep[side] == 0:
+		_awake_weapon[side] = fighter.data.weapon
+		var sleeping := fighter.data.duplicate() as FighterData
+		sleeping.weapon = SLEEP_WEAPON
+		fighter.data = sleeping
+	_asleep[side] = SLEEP_THROWS
+	fighter.form = &"asleep"
+	_hud.announce("ZENITZU FELL ASLEEP...", Color(1.0, 0.85, 0.25))
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "THUNDER BREATHING  ·  %d THROWS" % SLEEP_THROWS, Color(1.0, 0.9, 0.35), 28, 1.0 / _camera.zoom.x, _camera.visible_rect())
+	Effects.burst(_actors, fighter.aim_point(false), Color(1.0, 0.9, 0.3), 40, 520.0, 180.0, 1.4)
+	Audio.play("zap", 0.0, 0.9, 0.0)
+
+
+func _wake_up(fighter: Fighter) -> void:
+	var side := fighters.find(fighter)
+	if side < 0 or _awake_weapon[side] == null:
+		return
+	var awake := fighter.data.duplicate() as FighterData
+	awake.weapon = _awake_weapon[side]
+	fighter.data = awake
+	_awake_weapon[side] = null
+	fighter.form = &""
+	Effects.popup(_actors, fighter.aim_point(true) + Vector2(0, -90), "...HUH? WHAT HAPPENED?", Color(1.0, 0.9, 0.5), 26, 1.0 / _camera.zoom.x, _camera.visible_rect())

@@ -151,7 +151,8 @@ func _ready() -> void:
 
 
 func setup(roster: Array[FighterData], maps: Array[MapData]) -> void:
-	_roster = roster
+	# Shown by tier, Common up to Mythic (in roster order within a tier).
+	_roster = _by_tier(roster)
 	_maps = maps
 	_picks = [roster[0], roster[1], roster[2], roster[3]]
 	_build_match_hud()
@@ -1231,8 +1232,8 @@ func _build_select() -> Control:
 	go.pressed.connect(_select_next)
 	bottom.add_child(back)
 	# Mastery: switch between the colour schemes you have unlocked for this fighter.
-	_skin_button = _icon_button(&"star", "Colours", UiStyle.YELLOW, Vector2(200, 70), 22)
-	_skin_button.pressed.connect(_next_skin)
+	_skin_button = _icon_button(&"star", "Style", UiStyle.YELLOW, Vector2(190, 70), 22)
+	_skin_button.pressed.connect(func() -> void: _open_style(_picks[_select_step]))
 	bottom.add_child(_skin_button)
 	# Vs AI: let the game choose the opponent.
 	_random_button = _icon_button(&"restart", "Random", UiStyle.PURPLE, Vector2(190, 70), 24)
@@ -1288,6 +1289,15 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	card.add_child(stack)
 	card.set_meta("fighter", fighter)
 	card.set_meta("data", data)
+	# Tier, top left.
+	var tier := UiStyle.game_label(String(Chests.RARITY_NAMES.get(data.rarity, "Common")).to_upper(), 13, true)
+	tier.add_theme_color_override("font_color", Chests.RARITY_COLORS.get(data.rarity, Color.WHITE))
+	tier.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	tier.offset_left = 10
+	tier.offset_top = 6
+	tier.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tier.z_index = 1
+	card.add_child(tier)
 	# Mastery level, top right.
 	var badge := UiStyle.game_label("", 18, true)
 	badge.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
@@ -1297,6 +1307,7 @@ func _fighter_card(data: FighterData, group: ButtonGroup) -> Button:
 	badge.offset_top = 6
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.z_index = 1
 	card.add_child(badge)
 	card.set_meta("badge", badge)
 	# Locked: dim the card and show the Shop price.
@@ -2441,20 +2452,7 @@ func _refresh_skin_button() -> void:
 		return
 	var picked: FighterData = _picks[_select_step]
 	var mine := _select_step == 0 or _select_mode in [MatchController.Mode.LOCAL_2P, MatchController.Mode.TAG, MatchController.Mode.TAG_2P]
-	var count := Mastery.skin_count(Save.mastery_level(String(picked.id))) if picked != null else 1
-	_skin_button.visible = mine and count > 1 and Save.is_unlocked(picked)
-	if _skin_button.visible:
-		(_skin_button.get_meta("label") as Label).text = Mastery.SKIN_NAMES[Save.skin(String(picked.id))]
-
-
-func _next_skin() -> void:
-	var picked: FighterData = _picks[_select_step]
-	var id := String(picked.id)
-	var count := Mastery.skin_count(Save.mastery_level(id))
-	Save.skins[id] = (Save.skin(id) + 1) % count
-	Save.save_progress()
-	Audio.play("click", -4.0)
-	_refresh_select()
+	_skin_button.visible = mine and picked != null and Save.is_unlocked(picked)
 
 
 # --- fatality gallery ---
@@ -2580,3 +2578,112 @@ func _open_tag_choice() -> void:
 		content.add_child(back)
 		_tag_choice_screen = _card_screen("2V2 TAG", UiStyle.ORANGE, content)
 	_show_screen(_tag_choice_screen)
+
+
+## The roster sorted by tier (Common, Rare, Epic, Legendary, Mythic), keeping roster
+## order within each tier.
+static func _by_tier(roster: Array[FighterData]) -> Array[FighterData]:
+	var sorted: Array[FighterData] = []
+	for rarity: StringName in Chests.RARITIES:
+		for fighter in roster:
+			if fighter.rarity == rarity:
+				sorted.append(fighter)
+	for fighter in roster:
+		if not sorted.has(fighter):
+			sorted.append(fighter)
+	return sorted
+
+
+# --- fighter style: colours and trail ---
+
+const SKIN_UNLOCKS := [0, 2, 4, 5]
+var _style_screen: Control
+var _style_content: VBoxContainer
+
+
+## A fighter's look: a preview, the colour schemes mastery unlocks, and their trail.
+func _open_style(data: FighterData) -> void:
+	if data == null:
+		return
+	if _style_screen == null:
+		_style_content = VBoxContainer.new()
+		_style_content.add_theme_constant_override("separation", 12)
+		_style_screen = _card_screen("STYLE", UiStyle.YELLOW, _style_content)
+	_fill_style(data)
+	_show_screen(_style_screen)
+
+
+func _fill_style(data: FighterData) -> void:
+	_clear(_style_content)
+	var id := String(data.id)
+	var level := Save.mastery_level(id)
+	(_style_screen.get_meta("ribbon").get_meta("label") as Label).text = "STYLE: %s" % data.short_name.to_upper()
+	# The fighter, wearing what is equipped.
+	var stage := Control.new()
+	stage.custom_minimum_size = Vector2(700, 170)
+	stage.clip_contents = true
+	var preview: Fighter = preload("res://scenes/fighter/fighter.tscn").instantiate()
+	stage.add_child(preview)
+	preview.setup(Mastery.skinned(data, Save.skin(id)), 1, false, false)
+	preview.scale = Vector2(1.1, 1.1)
+	stage.resized.connect(func() -> void:
+		preview.position = Vector2(stage.size.x / 2, stage.size.y - 8))
+	_style_content.add_child(stage)
+	var xp_line := "Mastery %d" % level
+	if level < Mastery.MAX_LEVEL:
+		xp_line += "  ·  %d / %d XP to the next level" % [Save.mastery_xp(id), Mastery.next_threshold(level)]
+	var info := UiStyle.ink_label(xp_line, 18, true)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_content.add_child(info)
+	# Colour schemes.
+	_style_content.add_child(UiStyle.ink_label("Colours", 20, true))
+	var skins := HBoxContainer.new()
+	skins.add_theme_constant_override("separation", 10)
+	for skin in Mastery.SKIN_NAMES.size():
+		var unlocked := level >= int(SKIN_UNLOCKS[skin])
+		var worn := Save.skin(id) == skin
+		var colour := Mastery.skinned(data, skin).body_color
+		var button := _button(Mastery.SKIN_NAMES[skin] if unlocked else "Mastery %d" % SKIN_UNLOCKS[skin], 18)
+		button.custom_minimum_size = Vector2(165, 54)
+		UiStyle.paint_button(button, colour if unlocked else UiStyle.GREY)
+		button.disabled = not unlocked
+		button.add_theme_color_override("font_disabled_color", Color(0.3, 0.28, 0.35))
+		if worn:
+			button.text = "✔ " + button.text
+		button.pressed.connect(func() -> void:
+			Save.skins[id] = skin
+			Save.save_progress()
+			Audio.play("click", -4.0)
+			_fill_style(data))
+		skins.add_child(button)
+	_style_content.add_child(skins)
+	# Trails: the Shop trail, any trail you own, or their signature at mastery 3.
+	_style_content.add_child(UiStyle.ink_label("Trail", 20, true))
+	var trails := HBoxContainer.new()
+	trails.add_theme_constant_override("separation", 10)
+	var options: Array = [["", "Shop trail", Save.trail_color()]]
+	for key: String in Save.owned_trails:
+		options.append([key, Save.TRAILS[key][0], Save.TRAILS[key][1]])
+	options.append(["signature", "Signature" if level >= 3 else "Mastery 3", Mastery.trail_color(data)])
+	var current: String = Save.fighter_trails.get(id, "")
+	for option: Array in options:
+		var key: String = option[0]
+		var locked: bool = key == "signature" and level < 3
+		var button := _button(("✔ " if current == key else "") + String(option[1]), 18)
+		button.custom_minimum_size = Vector2(150, 50)
+		UiStyle.paint_button(button, (option[2] as Color) if not locked else UiStyle.GREY)
+		button.disabled = locked
+		button.add_theme_color_override("font_disabled_color", Color(0.3, 0.28, 0.35))
+		button.pressed.connect(func() -> void:
+			Save.fighter_trails[id] = key
+			Save.save_progress()
+			Audio.play("click", -4.0)
+			_fill_style(data))
+		trails.add_child(button)
+	_style_content.add_child(trails)
+	var back := _icon_button(&"back", "Back", UiStyle.GREY, Vector2(170, 64), 22)
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back.pressed.connect(func() -> void:
+		_show_screen(_select_screen)
+		_refresh_select())
+	_style_content.add_child(back)

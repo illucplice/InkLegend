@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = &"pop_green"
+display_name = "Pop Green"
+max_speed = 1330.0
+body_damage = 22
+head_damage = 37
+count = 1
+spin = 0.0
+sticks = false
+shape = &"pebble"
+size = 16.0
+color = Color(0.35, 0.75, 0.3, 1)
+explode_radius = 55.0
+special = &"impact"

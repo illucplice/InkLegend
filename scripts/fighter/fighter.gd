@@ -507,7 +507,7 @@ func _draw() -> void:
 	if _skin_head():
 		var sock := Color(0.96, 0.95, 0.92) if data.style in [&"reaper", &"quincy"] else data.skin_color
 		if data.style in HERO_STYLES:
-			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13), &"elf": Color(0.3, 0.2, 0.15), &"slime": Color(0.08, 0.08, 0.12)}[data.style]
+			sock = {&"thunder": Color(0.2, 0.2, 0.25), &"captain": Color(0.5, 0.3, 0.15), &"spider": Color(0.9, 0.12, 0.15), &"bat": Color(0.08, 0.08, 0.1), &"stardust": Color(0.1, 0.1, 0.15), &"vampire": Color(0.28, 0.5, 0.32), &"adventurer": Color(0.35, 0.22, 0.12), &"tracksuit": Color(0.92, 0.92, 0.95), &"lord": Color(0.11, 0.11, 0.13), &"elf": Color(0.3, 0.2, 0.15), &"slime": Color(0.08, 0.08, 0.12), &"monk": Color(0.15, 0.22, 0.55), &"sniper": Color(0.42, 0.28, 0.15), &"bolt": Color(0.95, 0.95, 0.95), &"wonder": Color(0.2, 0.45, 0.22)}[data.style]
 		for foot: StringName in [&"bfoot", &"ffoot"]:
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 4.5, OUTLINE, true, -1.0, true)
 			draw_circle((p[foot] as Vector2) + Vector2(facing * 3.0, -1.0), 3.0, sock, true, -1.0, true)
@@ -599,7 +599,7 @@ func _draw() -> void:
 		for i in 3:
 			var a := _time * 4.0 + i * TAU / 3.0
 			_draw_star(head + Vector2(cos(a) * 24.0, sin(a) * 8.0 - 28.0), 7.0)
-	if victory_pose in SLEEP_POSES:
+	if victory_pose in SLEEP_POSES or (form == &"asleep" and not knocked):
 		_draw_zzz(p)
 	if _slime_melt > 0.0 and not knocked:
 		_draw_slime_melt(p)
@@ -1092,7 +1092,7 @@ func _skin_head() -> bool:
 
 # --- Uryo, Yuj, Megu, Goj, Ryo and Akum ---
 
-const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime"]
+const NEW_STYLES := [&"quincy", &"jujutsu", &"shadow", &"infinity", &"gi", &"demon", &"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime", &"monk", &"sniper", &"bolt", &"wonder"]
 
 
 ## Special charged (or firing): changes Goj's eyes, Yuj's face and so on.
@@ -1299,6 +1299,14 @@ func _new_aura_color() -> Color:
 			return Color(0.75, 0.88, 1.0)
 		&"slime":
 			return Color(0.55, 0.3, 0.95) if evolved else Color(0.45, 0.88, 1.0)
+		&"monk":
+			return Color(1.0, 0.92, 0.55)
+		&"sniper":
+			return Color(0.5, 0.9, 0.4)
+		&"bolt":
+			return Color(1.0, 0.9, 0.3)
+		&"wonder":
+			return Color(1.0, 0.75, 0.3)
 		&"quincy":
 			return Color(0.55, 0.85, 1.0)
 		&"jujutsu":
@@ -1378,7 +1386,7 @@ func _draw_bleeding(p: Dictionary) -> void:
 
 # --- Thundr, Capt, Spydr and Batz ---
 
-const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime"]
+const HERO_STYLES := [&"thunder", &"captain", &"spider", &"bat", &"stardust", &"vampire", &"adventurer", &"tracksuit", &"lord", &"elf", &"slime", &"monk", &"sniper", &"bolt", &"wonder"]
 
 
 ## Outfits for the four heroes.
@@ -1516,6 +1524,50 @@ func _draw_hero_outfit(p: Dictionary) -> void:
 			draw_line(neck - side * 10.0, hip - side * 11.0, Color(0.85, 0.7, 0.3), 2.0, true)
 			_poly([neck + side * 12.0, neck + side * 6.0 + spine * 10.0, neck - side * 6.0 + spine * 10.0, neck - side * 12.0], Color(0.96, 0.96, 0.98), 1.5)
 			draw_circle(neck.lerp(hip, 0.2), 2.5, Color(0.85, 0.7, 0.3), true, -1.0, true)
+		&"monk":
+			# Kririn: the orange Turtle School gi over a navy undershirt, a navy belt.
+			var orange := Color(1.0, 0.55, 0.15)
+			var navy := Color(0.15, 0.22, 0.55)
+			_draw_pants(p, orange)
+			_poly(torso, orange, 2.5)
+			_poly([neck + side * 9.0, neck.lerp(hip, 0.42), neck - side * 9.0], navy, 1.5)
+			_taper(hip + side * 13.0 + spine * 3.0, hip - side * 13.0 + spine * 3.0, 7.0, 7.0, navy)
+			draw_circle(neck.lerp(hip, 0.3) + side * 6.0, 4.0, Color(0.97, 0.95, 0.9), true, -1.0, true)
+		&"sniper":
+			# Usoppu: bare chest under tan overalls with braces, a bag strap across him.
+			var overall := Color(0.78, 0.6, 0.32)
+			_draw_pants(p, overall)
+			_poly(torso, data.skin_color, 2.5)
+			var bib := neck.lerp(hip, 0.45)
+			_poly([hip + side * 12.0, hip - side * 12.0, bib - side * 10.0, bib + side * 10.0], overall, 2.0)
+			for edge: float in [-1.0, 1.0]:
+				draw_line(neck + side * 7.0 * edge, bib + side * 7.0 * edge, overall.darkened(0.15), 4.0, true)
+			_taper(neck - side * 10.0, hip + side * 12.0, 3.5, 3.5, Color(0.42, 0.28, 0.15))
+		&"bolt":
+			# Zenitzu: the black Demon Slayer uniform under a yellow haori patterned with
+			# white triangles, and white leg wraps.
+			var black := Color(0.1, 0.1, 0.14)
+			var yellow := Color(1.0, 0.8, 0.2)
+			_draw_pants(p, black)
+			_poly(torso, black, 2.5)
+			var hem := hip + Vector2(0, 26)
+			for edge: float in [-1.0, 1.0]:
+				_poly([neck + side * 12.0 * edge, hem + side * 20.0 * edge, hem + side * 6.0 * edge, neck + side * 5.0 * edge], yellow, 2.0)
+				for k in 3:
+					var at := neck.lerp(hem, 0.22 + k * 0.27) + side * 11.0 * edge
+					draw_colored_polygon(PackedVector2Array([at + Vector2(-4, 3), at + Vector2(4, 3), at + Vector2(0, -4)]), Color(0.98, 0.98, 0.95))
+			_taper(hip + side * 11.0 + spine * 2.0, hip - side * 11.0 + spine * 2.0, 4.0, 4.0, Color(0.95, 0.95, 0.95))
+		&"wonder":
+			# Robin: a red tunic with the yellow R badge, green trousers, a black belt and
+			# a yellow cape.
+			_draw_cape(p, Color(1.0, 0.8, 0.15))
+			_draw_pants(p, Color(0.2, 0.55, 0.25))
+			_poly(torso, Color(0.85, 0.15, 0.15), 2.5)
+			_taper(hip + side * 12.0 + spine * 3.0, hip - side * 12.0 + spine * 3.0, 5.0, 5.0, Color(0.95, 0.8, 0.2))
+			var badge := neck.lerp(hip, 0.3) + side * 5.0
+			draw_circle(badge, 6.0, OUTLINE, true, -1.0, true)
+			draw_circle(badge, 4.8, Color(1.0, 0.85, 0.2), true, -1.0, true)
+			draw_string(UiStyle.title_font(), badge + Vector2(-3.5, 3.5), "R", HORIZONTAL_ALIGNMENT_CENTER, 8, 9, OUTLINE)
 		&"slime":
 			# Like the reference: a black coat with a white stripe down the front and a
 			# spiky black fur collar, grey trousers and dark boots. The Shadow Sovereign
@@ -1677,6 +1729,45 @@ func _draw_hero_head(head: Vector2, neck: Vector2) -> void:
 			draw_polyline(PackedVector2Array([Vector2(r * 0.45, -r * 0.9), Vector2(r * 0.7, -r * 0.45), Vector2(r * 0.55, r * 0.05)]), data.hair_color.darkened(0.15), 2.5, true)
 			draw_line(Vector2(r * 0.3, -r * 0.12), Vector2(r * 0.75, -r * 0.16), OUTLINE, 2.0, true)
 			draw_line(Vector2(r * 0.45, r * 0.4), Vector2(r * 0.7, r * 0.36), OUTLINE, 1.5, true)
+		&"monk":
+			# Kririn: bald, with six incense dots on his forehead, and no nose to speak of.
+			for k in 6:
+				draw_circle(Vector2(r * (0.0 + (k % 3) * 0.22), -r * (0.72 - (k / 3) * 0.2)), 1.6, OUTLINE, true, -1.0, true)
+			draw_line(Vector2(r * 0.38, -r * 0.08), Vector2(r * 0.68, -r * 0.1), OUTLINE, 2.0, true)
+			draw_arc(Vector2(r * 0.55, r * 0.35), r * 0.18, 0.2, PI * 0.75, 6, OUTLINE, 1.5, true)
+		&"sniper":
+			# Usoppu: a mop of black curls tied under a bandana, and a very long nose.
+			for k in 7:
+				var a := lerpf(PI * 0.85, PI * 2.05, k / 6.0)
+				draw_circle(Vector2.from_angle(a) * r * 0.95 + Vector2(-r * 0.15, 0), r * 0.42, data.hair_color, true, -1.0, true)
+			draw_line(Vector2(-r * 0.95, -r * 0.45), Vector2(r * 0.95, -r * 0.55), Color(0.3, 0.55, 0.3), 5.0, true)
+			var nose := PackedVector2Array([Vector2(r * 0.85, -r * 0.08), Vector2(r * 2.1, r * 0.04), Vector2(r * 0.85, r * 0.16)])
+			draw_colored_polygon(nose, data.skin_color)
+			nose.append(nose[0])
+			draw_polyline(nose, OUTLINE, 1.8, true)
+			draw_circle(Vector2(r * 0.45, -r * 0.18), 2.0, OUTLINE, true, -1.0, true)
+			draw_line(Vector2(r * 0.4, r * 0.45), Vector2(r * 0.72, r * 0.42), OUTLINE, 1.5, true)
+		&"bolt":
+			# Zenitzu: spiky yellow hair shading to orange at the tips, and a nervous look.
+			var spikes := PackedVector2Array([Vector2(r * 1.0, -r * 0.25), Vector2(r * 0.9, -r * 0.8), Vector2(r * 0.45, -r * 0.7), Vector2(r * 0.35, -r * 1.35), Vector2(-r * 0.05, -r * 0.9), Vector2(-r * 0.45, -r * 1.35), Vector2(-r * 0.7, -r * 0.8), Vector2(-r * 1.35, -r * 0.75), Vector2(-r * 1.05, -r * 0.25), Vector2(-r * 1.3, r * 0.25), Vector2(-r * 0.7, r * 0.15), Vector2(-r * 0.2, -r * 0.42), Vector2(r * 0.4, -r * 0.38)])
+			_poly(spikes, data.hair_color, 2.0)
+			for tip: Vector2 in [Vector2(r * 0.35, -r * 1.35), Vector2(-r * 0.45, -r * 1.35), Vector2(-r * 1.35, -r * 0.75)]:
+				draw_circle(tip * 0.92, 3.0, Color(1.0, 0.55, 0.15), true, -1.0, true)
+			if form == &"asleep":
+				# Fast asleep: eyes shut, and he means business.
+				draw_arc(Vector2(r * 0.55, -r * 0.08), r * 0.18, 0.2, PI - 0.2, 6, OUTLINE, 1.8, true)
+			else:
+				draw_arc(Vector2(r * 0.52, -r * 0.05), r * 0.2, 0.0, TAU, 10, OUTLINE, 1.6, true)
+				draw_circle(Vector2(r * 0.58, -r * 0.05), 1.4, OUTLINE, true, -1.0, true)
+			draw_line(Vector2(r * 0.35, -r * 0.35), Vector2(r * 0.72, -r * 0.28), OUTLINE, 1.8, true)
+		&"wonder":
+			# Robin: swept-back black hair and a black domino mask with white eyes.
+			var spikes := PackedVector2Array([Vector2(r * 0.95, -r * 0.35), Vector2(r * 0.7, -r * 0.95), Vector2(r * 0.2, -r * 1.05), Vector2(-r * 0.4, -r * 1.2), Vector2(-r * 0.6, -r * 0.95), Vector2(-r * 1.25, -r * 0.85), Vector2(-r * 1.05, -r * 0.4), Vector2(-r * 1.2, r * 0.1), Vector2(-r * 0.6, r * 0.05), Vector2(-r * 0.2, -r * 0.45), Vector2(r * 0.45, -r * 0.45)])
+			_poly(spikes, data.hair_color, 2.0)
+			var mask := PackedVector2Array([Vector2(r * 0.15, -r * 0.25), Vector2(r * 0.95, -r * 0.3), Vector2(r * 1.02, r * 0.05), Vector2(r * 0.55, r * 0.15), Vector2(r * 0.15, r * 0.05)])
+			_poly(mask, Color(0.06, 0.06, 0.08), 1.5)
+			draw_colored_polygon(PackedVector2Array([Vector2(r * 0.42, -r * 0.12), Vector2(r * 0.75, -r * 0.16), Vector2(r * 0.62, r * 0.0)]), Color.WHITE)
+			draw_arc(Vector2(r * 0.58, r * 0.42), r * 0.16, 0.2, PI * 0.75, 6, OUTLINE, 1.5, true)
 		&"slime":
 			# Like the reference: long, straight light-blue hair hanging down his back to
 			# the waist, and a heavy fringe falling over his eyes with a lock in front.
@@ -1780,7 +1871,7 @@ func _draw_heart(at: Vector2, size: float, color: Color) -> void:
 
 ## How high their voice is: big bruisers growl low, little ones squeak.
 const VOICE_PITCH := {
-	&"rimiru": 1.14, &"frierin": 1.18, &"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
+	&"rimiru": 1.14, &"kririn": 1.1, &"usoppu": 1.05, &"zenitzu": 1.12, &"robin": 1.08, &"frierin": 1.18, &"aizon": 0.84, &"kazma": 1.06, &"subaro": 1.08, &"grak": 0.68, &"akum": 0.74, &"thundr": 0.78, &"jotar": 0.76, &"batz": 0.74, &"capt": 0.84, &"dyo": 0.9,
 	&"bomba": 0.86, &"ryo": 0.88, &"egita": 0.98, &"goj": 0.95, &"ichi": 0.92, &"uryo": 1.02, &"megu": 0.96,
 	&"yuj": 1.0, &"gok": 1.04, &"lufi": 1.12, &"spydr": 1.1, &"rango": 0.9, &"quotuk": 1.0, &"fentuk": 1.08,
 	&"klakla": 1.35, &"pipmo": 1.5, &"plopo": 1.6,
@@ -1945,6 +2036,7 @@ const VICTORY := {
 	&"dyo": [&"arms_crossed", &"wryyy"], &"kazma": [&"thumbs_up", &"carry"], &"subaro": [&"sky_point", &"kneel"],
 	&"aizon": [&"slick_back", &"float_wide"], &"frierin": [&"doze", &"sleep_lie"],
 	&"rimiru": [&"slime_palm", &"back_turned"],
+	&"kririn": [&"thumbs_up", &"fist_up"], &"usoppu": [&"hands_hips", &"flex"], &"zenitzu": [&"kneel", &"point"], &"robin": [&"fist_up", &"point"],
 }
 
 

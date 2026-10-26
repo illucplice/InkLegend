@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="FighterData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/fighter_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/weapons/pop_green.tres" id="2_weapon"]
+
+[resource]
+script = ExtResource("1_script")
+weapon = ExtResource("2_weapon")
+id = &"usoppu"
+display_name = "Usoppu"
+short_name = "Usoppu"
+body_color = Color(0.85, 0.65, 0.35, 1)
+accent_color = Color(0.25, 0.5, 0.25, 1)
+skin_color = Color(0.82, 0.6, 0.42, 1)
+cape_color = Color(0.85, 0.65, 0.35, 1)
+hair_color = Color(0.08, 0.07, 0.08, 1)
+style = &"sniper"
+special_name = "Impact Dial"
+special_description = "Basic: a Pop Green pellet from his slingshot that bursts where it lands, splashing anyone close. Special: Impact Dial, a heavy shot that hits hard and blasts the enemy far back."
+unlocked_by_default = false
+price = 400
+rarity = &"rare"

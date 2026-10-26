@@ -31,6 +31,10 @@ const INTRO := {
 	&"aizon": ["Since when were you under the impression...", "Do not use strong words."],
 	&"frierin": ["I'll get this over with.", "...I'm sleepy."],
 	&"rimiru": ["Let's settle this peacefully. Or not.", "I'm not a bad slime!"],
+	&"kririn": ["I'm the strongest human!", "Let's go! I won't hold back!"],
+	&"usoppu": ["I have 8,000 followers!", "My legs aren't shaking, you are!"],
+	&"zenitzu": ["I'm gonna die... I'm gonna die!", "Please, someone else fight!"],
+	&"robin": ["Holy smokes, let's do this!", "Titans, go!"],
 	&"dyo": ["You thought it would be easy?", "I reject my humanity!"],
 }
 
@@ -49,6 +53,10 @@ const HIT := {
 	&"aizon": ["All according to plan.", "Predictable."],
 	&"frierin": ["Zoltraak.", "Ordinary offensive magic."],
 	&"rimiru": ["Predator.", "Analysis complete."],
+	&"kririn": ["Destructo Disc!", "Ha! Got you!"],
+	&"usoppu": ["Sniper King!", "Bullseye, as always!"],
+	&"zenitzu": ["Wait, did I do that?", "Thunderclap!"],
+	&"robin": ["Birdarang!", "Nailed it!"],
 	&"dyo": ["MUDA!", "Useless!"],
 	&"thundr": ["Ha! Another!", "Thunder!"],
 	&"akum": ["Weak!", "Shun goku!"],
@@ -76,6 +84,7 @@ const RIVALS := {
 	&"kazma": &"subaro", &"subaro": &"kazma", &"frierin": &"rimiru", &"rimiru": &"frierin",
 	&"quotuk": &"grak", &"grak": &"quotuk", &"klakla": &"pipmo", &"pipmo": &"klakla",
 	&"fentuk": &"rango", &"rango": &"fentuk", &"bomba": &"plopo", &"plopo": &"bomba",
+	&"kririn": &"gok", &"usoppu": &"lufi", &"zenitzu": &"kazma", &"robin": &"batz",
 }
 
 ## The face-off when rivals meet: [what the first says, how the second answers].
@@ -109,6 +118,10 @@ const RIVAL_LINES := {
 	"rango>fentuk": ["This town ain't big enough.", "Then I'll clear some room."],
 	"bomba>plopo": ["Stand back, blob!", "Blub? Blub blub!"],
 	"plopo>bomba": ["Plop! Plop!", "Ugh, not the slime again."],
+	"kririn>gok": ["Gok! Let's see how strong you've got!", "Kririn! Don't hold back!"],
+	"usoppu>lufi": ["I won't lose to you, Lufi!", "Shishishi! Come on, Usoppu!"],
+	"zenitzu>kazma": ["I'm gonna die! You too?", "Probably, yeah."],
+	"robin>batz": ["Time to prove I'm ready, Batz.", "You're not ready."],
 }
 
 
