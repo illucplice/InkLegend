@@ -72,12 +72,32 @@ var selected_fighter := "quotuk"
 ## Where progress is saved; tests point this somewhere else.
 var progress_path := PROGRESS_PATH
 
+## The private sandbox: opening the web build with ?sandbox=inkboss plays on its own
+## save with every fighter unlocked and a pile of coins, leaving the real save alone.
+const SANDBOX_KEY := "inkboss"
+const SANDBOX_PATH := "user://sandbox_progress.cfg"
+const SANDBOX_COINS := 9999999
+var sandbox := false
+
 
 func _ready() -> void:
 	_bring_over_old_save()
 	load_settings()
 	apply()
+	if _sandbox_link():
+		sandbox = true
+		progress_path = SANDBOX_PATH
 	load_progress()
+	if sandbox:
+		coins = maxi(coins, SANDBOX_COINS)
+
+
+## Whether the page was opened with the sandbox link (web build only).
+func _sandbox_link() -> bool:
+	if not OS.has_feature("web"):
+		return false
+	var query = JavaScriptBridge.eval("window.location.search", true)
+	return query is String and query.contains("sandbox=" + SANDBOX_KEY)
 
 
 func load_settings() -> void:
@@ -193,7 +213,7 @@ func reset_progress() -> void:
 
 
 func is_unlocked(fighter: FighterData) -> bool:
-	return fighter.unlocked_by_default or unlocked.has(String(fighter.id))
+	return sandbox or fighter.unlocked_by_default or unlocked.has(String(fighter.id))
 
 
 ## Spends coins to unlock a fighter. Returns false if it can't be afforded.
