@@ -38,11 +38,19 @@ jobs:
           mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
 
       - name: Export the Web build
+        shell: bash
         run: |
-          "$RUNNER_TEMP/godot" --headless --import || true
+          echo "::notice::Templates: $(ls "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable" | grep -i web | tr "\n" " ")"
+          "$RUNNER_TEMP/godot" --headless --import 2>&1 | tee import.log || true
           mkdir -p build/web
-          "$RUNNER_TEMP/godot" --headless --export-release "Web" build/web/index.html
+          set +e
+          "$RUNNER_TEMP/godot" --headless --export-release "Web" build/web/index.html 2>&1 | tee export.log
+          status=${PIPESTATUS[0]}
+          set -e
+          # Surface any errors as annotations, readable on the run page.
+          grep -ihE "error|fail|cannot|missing|invalid" import.log export.log | grep -v "Unreferenced static string" | head -15 | while read -r line; do echo "::error::$line"; done
           ls -la build/web
+          exit $status
 
       - uses: actions/upload-pages-artifact@v3
         with:
