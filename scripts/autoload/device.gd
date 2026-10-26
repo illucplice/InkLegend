@@ -30,13 +30,15 @@ static func particle_scale() -> float:
 	return 0.5 if is_mobile() else 1.0
 
 
-## Phone browsers draw the game at its own 1280x720 and scale that up to the screen,
-## instead of drawing every frame at the phone's full resolution (often 2400x1080 or
-## more); it looks nearly the same and costs a fraction. Frames are capped at 60.
+## Phones (the app and the browser) draw the game at its own 1280x720 and scale that up
+## to the screen, instead of drawing every frame at the phone's full resolution (often
+## 2400x1080 or more); it looks nearly the same and costs a fraction. Anti-aliasing is
+## off and frames are capped at 60.
 static func apply_performance_profile(window: Window) -> void:
-	if not is_mobile_web():
+	if not is_mobile():
 		return
 	window.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+	window.msaa_2d = Viewport.MSAA_DISABLED
 	Engine.max_fps = 60
 
 
