@@ -1,5 +1,5 @@
 # Ink Legends
-
+ https://illucplice.github.io/InkLegend/
 Turn-based aim-and-throw with pen-and-ink stickmen. Godot 4.7, built for desktop and phones.
 
 ## Run it
